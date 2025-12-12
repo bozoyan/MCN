@@ -139,25 +139,44 @@ class SRTGenerationThread(WorkerThread):
     def run(self):
         try:
             self.progress_updated.emit(10)
+            self.log_updated.emit(f"开始处理: {os.path.basename(self.audio_path)}")
 
             # 检查音频格式并转换
             ext = os.path.splitext(self.audio_path)[1].lower()
             wav_path = self.audio_path
+            
+            srt_dir = os.path.join(os.getcwd(), 'SRT')
+            os.makedirs(srt_dir, exist_ok=True)
+            
             if ext != ".wav":
-                srt_dir = os.path.join(os.getcwd(), 'SRT')
-                os.makedirs(srt_dir, exist_ok=True)
                 base_name = os.path.splitext(os.path.basename(self.audio_path))[0]
                 ts = datetime.now().strftime("%Y%m%d%H%M")
                 wav_path = os.path.join(srt_dir, f"{base_name}-{ts}.wav")
 
+                self.log_updated.emit("正在转换音频为WAV格式...")
                 cmd_ffmpeg = ["ffmpeg", "-y", "-i", self.audio_path, wav_path]
-                subprocess.run(cmd_ffmpeg)
+                result = subprocess.run(cmd_ffmpeg, capture_output=True, text=True)
+                if result.returncode != 0:
+                    self.finished.emit(False, f"音频转换失败: {result.stderr}")
+                    return
 
             self.progress_updated.emit(30)
 
             # whisper.cpp命令
-            whisper_bin = "/Users/yons/AI/whisper.cpp/build/bin/whisper-cli"
-            whisper_model = "/Users/yons/AI/whisper.cpp/models/ggml-large-v3-turbo-q5_0.bin"
+            aipath = os.environ.get("AIPATH")
+            if not aipath:
+                self.finished.emit(False, "未检测到AIPATH AI目录变量")
+                return
+            whisper_bin = os.path.join(aipath, "whisper.cpp/build/bin/whisper-cli")
+            whisper_model = os.path.join(aipath, "whisper.cpp/models/ggml-large-v3-turbo-q5_0.bin")
+            
+            if not os.path.exists(whisper_bin):
+                self.finished.emit(False, f"找不到whisper程序: {whisper_bin}")
+                return
+            if not os.path.exists(whisper_model):
+                self.finished.emit(False, f"找不到whisper模型: {whisper_model}")
+                return
+
             of_path = os.path.splitext(self.output_path)[0]
             threads = os.cpu_count() or 4
 
@@ -172,19 +191,34 @@ class SRTGenerationThread(WorkerThread):
                 "-t", str(threads),
             ]
 
-            self.log_updated.emit("开始生成字幕...")
+            self.log_updated.emit("正在生成字幕(Whisper)...")
+            
+            # 使用更可靠的 shell 命令执行方式
             shell_cmd = f"source ~/.zshrc && conda activate modelscope && {' '.join(cmd_whisper)}"
-
+            
+            # 记录执行的命令（隐藏敏感信息如果需要，这里主要是本地路径）
+            print(f"Executing: {shell_cmd}")
+            
             result = subprocess.run(shell_cmd, shell=True, capture_output=True, text=True, executable="/bin/zsh")
 
             self.progress_updated.emit(80)
 
+            # 检查输出文件
             if os.path.exists(self.output_path):
                 self.progress_updated.emit(100)
                 self.log_updated.emit(f"字幕生成完成: {os.path.basename(self.output_path)}")
                 self.finished.emit(True, self.output_path)
             else:
-                self.finished.emit(False, "字幕文件生成失败")
+                # 尝试查找可能的副作用文件（例如 .srt.srt）
+                potential_path = of_path + ".srt.srt"
+                if os.path.exists(potential_path):
+                     os.rename(potential_path, self.output_path)
+                     self.progress_updated.emit(100)
+                     self.log_updated.emit(f"字幕生成完成: {os.path.basename(self.output_path)}")
+                     self.finished.emit(True, self.output_path)
+                else:
+                    error_msg = result.stderr if result.stderr else result.stdout
+                    self.finished.emit(False, f"字幕生成失败: {error_msg[:200]}")
 
         except Exception as e:
             self.finished.emit(False, f"字幕生成异常: {str(e)}")
@@ -449,6 +483,43 @@ class VideoConvertPage(BasePage):
         split_group.setLayout(split_layout)
         layout.addWidget(split_group)
 
+        # 视频分辨率转换组
+        resize_group = QGroupBox("视频分辨率转换")
+        resize_layout = QGridLayout()
+
+        # 缩放模式选择
+        resize_layout.addWidget(QLabel("缩放模式:"), 0, 0)
+        self.scale_mode_combo = ComboBox()
+        self.scale_mode_combo.addItems(["按宽度等比例缩放", "按高度等比例缩放", "自定义宽高"])
+        self.scale_mode_combo.setFixedHeight(35)
+        self.scale_mode_combo.currentTextChanged.connect(self.on_scale_mode_changed)
+        resize_layout.addWidget(self.scale_mode_combo, 0, 1)
+
+        # 宽度输入
+        resize_layout.addWidget(QLabel("宽度:"), 1, 0)
+        self.width_spin = SpinBox()
+        self.width_spin.setRange(100, 7680)
+        self.width_spin.setValue(1920)
+        self.width_spin.setFixedHeight(35)
+        resize_layout.addWidget(self.width_spin, 1, 1)
+
+        # 高度输入
+        resize_layout.addWidget(QLabel("高度:"), 2, 0)
+        self.height_spin = SpinBox()
+        self.height_spin.setRange(100, 4320)
+        self.height_spin.setValue(1080)
+        self.height_spin.setFixedHeight(35)
+        self.height_spin.setEnabled(False)  # 默认按宽度等比例，高度禁用
+        resize_layout.addWidget(self.height_spin, 2, 1)
+
+        resize_btn = PrimaryPushButton(FluentIcon.ZOOM, "转换分辨率")
+        resize_btn.setFixedWidth(150)
+        resize_btn.clicked.connect(self.resize_video)
+        resize_layout.addWidget(resize_btn, 2, 2)
+
+        resize_group.setLayout(resize_layout)
+        layout.addWidget(resize_group)
+
         # 进度条
         self.progress_bar = ProgressBar()
         self.progress_bar.setFixedHeight(20)
@@ -555,7 +626,75 @@ class VideoConvertPage(BasePage):
         # 批量完成逻辑
         self.on_conversion_finished(success, message)
 
+    def on_scale_mode_changed(self, text):
+        """缩放模式变化时的处理"""
+        if text == "按宽度等比例缩放":
+            self.width_spin.setEnabled(True)
+            self.height_spin.setEnabled(False)
+        elif text == "按高度等比例缩放":
+            self.width_spin.setEnabled(False)
+            self.height_spin.setEnabled(True)
+        else:  # 自定义宽高
+            self.width_spin.setEnabled(True)
+            self.height_spin.setEnabled(True)
+
+    def resize_video(self):
+        """视频分辨率转换"""
+        video_path = self.video_path_edit.text().strip()
+        if not video_path or not os.path.exists(video_path):
+            self.show_error("错误", "请选择有效的视频文件")
+            return
+
+        scale_mode = self.scale_mode_combo.currentText()
+        width = self.width_spin.value()
+        height = self.height_spin.value()
+
+        # 确保宽高是偶数（FFmpeg要求）
+        width = width if width % 2 == 0 else width - 1
+        height = height if height % 2 == 0 else height - 1
+
+        temp_dir = os.path.join(os.getcwd(), 'temp')
+        os.makedirs(temp_dir, exist_ok=True)
+
+        base_name = os.path.splitext(os.path.basename(video_path))[0]
+        ts = datetime.now().strftime("%Y%m%d%H%M")
+        output_path = os.path.join(temp_dir, f"{base_name}-resized-{ts}.mp4")
+
+        try:
+            # 根据模式构建缩放参数
+            if scale_mode == "按宽度等比例缩放":
+                scale_filter = f"scale={width}:-2"  # -2表示保持宽高比且为偶数
+            elif scale_mode == "按高度等比例缩放":
+                scale_filter = f"scale=-2:{height}"
+            else:  # 自定义宽高
+                scale_filter = f"scale={width}:{height}"
+
+            cmd = [
+                "ffmpeg", "-y", "-i", video_path,
+                "-vf", scale_filter,
+                "-c:v", "libx264", "-preset", "fast", "-crf", "18",
+                "-c:a", "copy",
+                output_path
+            ]
+
+            self.show_info("开始转换", f"正在转换分辨率: {scale_filter}")
+            self.progress_bar.setValue(30)
+
+            result = subprocess.run(cmd, capture_output=True, text=True)
+
+            if os.path.exists(output_path) and os.path.getsize(output_path) > 1024:
+                self.progress_bar.setValue(100)
+                self.show_success("完成", f"分辨率转换完成: {output_path}")
+            else:
+                self.show_error("错误", f"分辨率转换失败: {result.stderr}")
+
+        except Exception as e:
+            self.show_error("错误", f"分辨率转换异常: {str(e)}")
+        finally:
+            self.progress_bar.setValue(0)
+
     def split_video(self):
+        """视频分割功能"""
         video_path = self.video_path_edit.text().strip()
         segment_name = self.segment_name_edit.text().strip() or "segment"
         count = self.split_count_spin.value()
@@ -564,8 +703,48 @@ class VideoConvertPage(BasePage):
             self.show_error("错误", "请选择有效的视频文件")
             return
 
-        # 这里实现视频分割逻辑
-        self.show_info("功能开发中", "视频分割功能正在开发中...")
+        try:
+            temp_dir = os.path.join(os.getcwd(), 'temp')
+            ts = datetime.now().strftime("%Y%m%d%H%M")
+            seg_dir = os.path.join(temp_dir, f"{segment_name}-{ts}")
+            os.makedirs(seg_dir, exist_ok=True)
+
+            # 获取视频总时长
+            cmd_probe = [
+                "ffprobe", "-v", "error", "-show_entries", "format=duration",
+                "-of", "default=noprint_wrappers=1:nokey=1", video_path
+            ]
+            result = subprocess.run(cmd_probe, capture_output=True, text=True)
+
+            try:
+                duration = float(result.stdout.strip())
+            except ValueError:
+                self.show_error("错误", "无法获取视频时长")
+                return
+
+            seg_len = duration / count
+            self.show_info("开始分割", f"视频总时长: {duration:.2f}秒, 每段: {seg_len:.2f}秒")
+
+            for i in range(count):
+                start = i * seg_len
+                out_path = os.path.join(seg_dir, f"{segment_name}_{i+1}.mp4")
+
+                cmd = [
+                    "ffmpeg", "-y", "-i", video_path,
+                    "-ss", str(start), "-t", str(seg_len),
+                    "-c:v", "libx264", "-c:a", "copy", out_path
+                ]
+
+                subprocess.run(cmd, capture_output=True, text=True)
+                progress = int((i + 1) / count * 100)
+                self.progress_bar.setValue(progress)
+
+            self.show_success("完成", f"视频分割完成，共{count}个片段: {seg_dir}")
+
+        except Exception as e:
+            self.show_error("错误", f"视频分割异常: {str(e)}")
+        finally:
+            self.progress_bar.setValue(0)
 
 class ImageToVideoPage(BasePage):
     """图片转视频页面"""
@@ -629,8 +808,8 @@ class ImageToVideoPage(BasePage):
         self.size_combo = ComboBox()
         size_options = [
             "1:1 (1240x1240)", "3:4 (1080x1440)", "4:3 (1440x1080)",
-            "9:16 (900x1600)", "16:9 (1600x900)", "1:2 (870x1740)",
-            "2:1 (1740x870)", "自定义"
+            "9:16 (960x1706)", "16:9 (1706x960)", "1:2 (960x1920)",
+            "2:1 (1920x960)", "自定义"
         ]
         self.size_combo.addItems(size_options)
         self.size_combo.setCurrentIndex(3)  # 默认9:16
@@ -640,7 +819,7 @@ class ImageToVideoPage(BasePage):
 
         video_layout.addWidget(QLabel("自定义尺寸:"), 1, 0)
         self.size_edit = LineEdit()
-        self.size_edit.setText("900x1600")
+        self.size_edit.setText("960x1706")
         self.size_edit.setPlaceholderText("宽x高 (如 1920x1080)")
         self.size_edit.setFixedHeight(35)
         video_layout.addWidget(self.size_edit, 1, 1)
@@ -888,31 +1067,234 @@ class MergeVideoAudioPage(BasePage):
         self.filter_combo.setEnabled(is_checked)
         self.zoom_merge_btn.setEnabled(is_checked)
 
+    def get_video_duration(self, video_path):
+        """获取视频时长"""
+        cmd = [
+            "ffprobe", "-v", "error", "-show_entries", "format=duration",
+            "-of", "default=noprint_wrappers=1:nokey=1", video_path
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        try:
+            return float(result.stdout.strip())
+        except ValueError:
+            return None
+
+    def convert_png_to_jpg(self, png_path, jpg_path):
+        """将PNG转换为JPG（封面需要）"""
+        try:
+            img = Image.open(png_path)
+            rgb_img = img.convert('RGB')
+            rgb_img.save(jpg_path, quality=95)
+            return True
+        except Exception:
+            return False
+
     def merge_videos(self):
+        """基础合并功能：合并视频片段并添加音频"""
         video_folder = self.video_folder_edit.text().strip()
         audio_path = self.audio_path_edit.text().strip()
+        cover_path = self.cover_path_edit.text().strip()
         output_name = self.output_name_edit.text().strip() or "output"
 
-        if not video_folder or not audio_path:
-            self.show_error("错误", "请选择视频文件夹和音频文件")
+        if not video_folder or not os.path.isdir(video_folder):
+            self.show_error("错误", "请选择有效的视频文件夹")
             return
 
-        # 这里实现基础合并逻辑
-        self.show_info("功能开发中", "基础合并功能正在开发中...")
+        if not audio_path or not os.path.isfile(audio_path):
+            self.show_error("错误", "请选择有效的音频文件")
+            return
+
+        try:
+            temp_dir = os.path.join(os.getcwd(), 'temp')
+            os.makedirs(temp_dir, exist_ok=True)
+            ts = datetime.now().strftime("%Y%m%d%H%M")
+
+            # 获取视频文件列表
+            videos = [f for f in os.listdir(video_folder) if f.lower().endswith('.mp4')]
+            videos.sort()
+
+            if not videos:
+                self.show_error("错误", "视频文件夹中没有找到MP4文件")
+                return
+
+            self.show_info("开始合并", f"找到 {len(videos)} 个视频片段，开始合并...")
+            self.progress_bar.setValue(10)
+
+            # 生成文件列表
+            filelist_path = os.path.join(temp_dir, "filelist.txt")
+            with open(filelist_path, 'w') as f:
+                for v in videos:
+                    f.write(f"file '{os.path.join(video_folder, v)}'\n")
+
+            # 合并视频片段
+            concat_path = os.path.join(temp_dir, f"concat_{ts}.mp4")
+            cmd_concat = [
+                "ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", filelist_path,
+                "-c:v", "libx264", "-preset", "fast", "-crf", "18",
+                "-c:a", "aac", "-b:a", "192k",
+                concat_path
+            ]
+            result_concat = subprocess.run(cmd_concat, capture_output=True, text=True)
+
+            if not os.path.isfile(concat_path):
+                self.show_error("错误", f"合并视频片段失败: {result_concat.stderr}")
+                return
+
+            self.progress_bar.setValue(50)
+
+            # 合成音视频
+            out_path = os.path.join(temp_dir, f"{output_name}-{ts}.mp4")
+            cmd_merge = [
+                "ffmpeg", "-y", "-i", concat_path, "-i", audio_path,
+                "-c:v", "libx264", "-preset", "fast", "-crf", "18",
+                "-c:a", "aac", "-b:a", "192k",
+                "-map", "0:v:0", "-map", "1:a:0",
+                "-shortest", out_path
+            ]
+            result_merge = subprocess.run(cmd_merge, capture_output=True, text=True)
+
+            if not os.path.isfile(out_path) or os.path.getsize(out_path) < 1024:
+                self.show_error("错误", f"合成音视频失败: {result_merge.stderr}")
+                return
+
+            self.progress_bar.setValue(80)
+
+            # 添加封面（如果有）
+            if cover_path and os.path.isfile(cover_path):
+                cover_ext = os.path.splitext(cover_path)[1].lower()
+                cover_file_to_use = cover_path
+
+                # PNG转JPG
+                if cover_ext == ".png":
+                    cover_jpg = os.path.join(temp_dir, f"cover_{ts}.jpg")
+                    if self.convert_png_to_jpg(cover_path, cover_jpg):
+                        cover_file_to_use = cover_jpg
+
+                out_with_cover = os.path.join(temp_dir, f"{output_name}-{ts}-cover.mp4")
+                cmd_cover = [
+                    "ffmpeg", "-y", "-i", out_path, "-i", cover_file_to_use,
+                    "-map", "0", "-map", "1", "-c", "copy",
+                    "-disposition:v:1", "attached_pic", out_with_cover
+                ]
+                result_cover = subprocess.run(cmd_cover, capture_output=True, text=True)
+
+                if os.path.isfile(out_with_cover) and os.path.getsize(out_with_cover) > 1024:
+                    os.replace(out_with_cover, out_path)
+
+            self.progress_bar.setValue(100)
+            self.show_success("完成", f"视频合成完成: {out_path}")
+
+        except Exception as e:
+            self.show_error("错误", f"合并异常: {str(e)}")
+        finally:
+            self.progress_bar.setValue(0)
 
     def merge_with_zoom(self):
+        """缩放合并功能：支持缩放滤镜效果"""
         video_folder = self.video_folder_edit.text().strip()
         audio_path = self.audio_path_edit.text().strip()
         output_name = self.output_name_edit.text().strip() or "output"
         zoom_end = self.zoom_end_spin.value()
         filter_type = self.filter_combo.currentText()
 
-        if not video_folder or not audio_path:
-            self.show_error("错误", "请选择视频文件夹和音频文件")
+        if not video_folder or not os.path.isdir(video_folder):
+            self.show_error("错误", "请选择有效的视频文件夹")
             return
 
-        # 这里实现缩放合并逻辑
-        self.show_info("功能开发中", "缩放合并功能正在开发中...")
+        if not audio_path or not os.path.isfile(audio_path):
+            self.show_error("错误", "请选择有效的音频文件")
+            return
+
+        try:
+            temp_dir = os.path.join(os.getcwd(), 'temp')
+            os.makedirs(temp_dir, exist_ok=True)
+            ts = datetime.now().strftime("%Y%m%d%H%M")
+
+            # 获取视频文件列表
+            videos = [f for f in os.listdir(video_folder) if f.lower().endswith('.mp4')]
+            videos.sort()
+
+            if not videos:
+                self.show_error("错误", "视频文件夹中没有找到MP4文件")
+                return
+
+            self.show_info("开始处理", f"找到 {len(videos)} 个视频片段，开始应用滤镜...")
+
+            filtered_list = []
+            zoom_ratio = zoom_end - 1
+
+            for idx, v in enumerate(videos):
+                in_path = os.path.join(video_folder, v)
+                filtered_path = os.path.join(temp_dir, f"filtered_{idx+1}.mp4")
+
+                # 获取视频时长
+                duration = self.get_video_duration(in_path)
+                if not duration or duration <= 0:
+                    self.show_error("错误", f"无法获取视频时长: {in_path}")
+                    return
+
+                if filter_type in ["scale+zoom", "scale+zoompan"]:
+                    # 构造缩放滤镜
+                    vf_str = f"scale=iw*(1+{zoom_ratio}*t/{duration}):ih*(1+{zoom_ratio}*t/{duration}),crop=iw:ih"
+                    cmd = [
+                        "ffmpeg", "-y", "-i", in_path, "-vf", vf_str,
+                        "-c:v", "libx264", "-c:a", "aac", filtered_path
+                    ]
+                else:
+                    # 无滤镜
+                    cmd = [
+                        "ffmpeg", "-y", "-i", in_path,
+                        "-c:v", "libx264", "-c:a", "copy", filtered_path
+                    ]
+
+                subprocess.run(cmd, capture_output=True, text=True)
+
+                if not os.path.isfile(filtered_path):
+                    self.show_error("错误", f"滤镜处理失败: {filtered_path}")
+                    return
+
+                filtered_list.append(filtered_path)
+                progress = int((idx + 1) / len(videos) * 50)
+                self.progress_bar.setValue(progress)
+
+            # 生成文件列表并合并
+            filelist_path = os.path.join(temp_dir, "filelist.txt")
+            with open(filelist_path, "w") as f:
+                for fp in filtered_list:
+                    f.write(f"file '{fp}'\n")
+
+            merged_path = os.path.join(temp_dir, f"{output_name}-{ts}-merged.mp4")
+            cmd_concat = [
+                "ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", filelist_path,
+                "-c", "copy", merged_path
+            ]
+            subprocess.run(cmd_concat, capture_output=True, text=True)
+
+            if not os.path.isfile(merged_path):
+                self.show_error("错误", "合并滤镜视频失败")
+                return
+
+            self.progress_bar.setValue(75)
+
+            # 合成音视频
+            final_path = os.path.join(temp_dir, f"{output_name}-{ts}-final.mp4")
+            cmd_merge = [
+                "ffmpeg", "-y", "-i", merged_path, "-i", audio_path,
+                "-c:v", "copy", "-c:a", "aac", "-shortest", final_path
+            ]
+            subprocess.run(cmd_merge, capture_output=True, text=True)
+
+            if not os.path.isfile(final_path):
+                self.show_error("错误", "合成音视频失败")
+                return
+
+            self.progress_bar.setValue(100)
+            self.show_success("完成", f"缩放合并完成: {final_path}")
+
+        except Exception as e:
+            self.show_error("错误", f"缩放合并异常: {str(e)}")
+        finally:
+            self.progress_bar.setValue(0)
 
 class SubtitleGenerationPage(BasePage):
     """字幕生成页面"""
@@ -1254,6 +1636,7 @@ class AdjustSubtitlePage(BasePage):
             self.srt_path_edit.setText(file_path)
 
     def adjust_subtitle(self):
+        """调整字幕文件内容"""
         srt_path = self.srt_path_edit.text().strip()
         content = self.content_edit.toPlainText().strip()
 
@@ -1272,9 +1655,14 @@ class AdjustSubtitlePage(BasePage):
             base_name = os.path.splitext(os.path.basename(srt_path))[0]
             output_path = os.path.join(srt_dir, f"{base_name}-1.srt")
 
-            # 读取原SRT文件获取时间轴
-            with open(srt_path, 'r', encoding='utf-8') as f:
-                srt_content = f.read()
+            # 使用 chardet 检测文件编码
+            with open(srt_path, 'rb') as f:
+                raw = f.read()
+                detect_result = chardet.detect(raw)
+                enc = detect_result['encoding'] or 'utf-8'
+
+            # 使用检测到的编码读取文件内容
+            srt_content = raw.decode(enc, errors='replace')
 
             # 提取时间轴
             times = re.findall(r'(\d{2}:\d{2}:\d{2},\d{3} --> \d{2}:\d{2}:\d{2},\d{3})', srt_content)
@@ -1285,6 +1673,10 @@ class AdjustSubtitlePage(BasePage):
 
             if not new_lines:
                 self.show_error("错误", "字幕内容为空")
+                return
+
+            if len(times) == 0:
+                self.show_error("错误", "无法从SRT文件中提取时间轴信息")
                 return
 
             # 生成新SRT文件

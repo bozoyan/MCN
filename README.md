@@ -91,6 +91,7 @@ python MCN.py
 如需使用字幕翻译功能，需要设置环境变量：
 ```bash
 export SiliconCloud_API_KEY="your_api_key"
+export AIPATH="/Volumes/AI/AI/"
 ```
 
 ## 核心改进
