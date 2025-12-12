@@ -3,7 +3,7 @@
 
 # GUI 和小组件库
 PyQt5
-qfluentwidgets
+PyQt-Fluent-Widgets[full]
 
 # 文件和系统作
 requests>=2.28.1  # 用于向 API 发出 HTTP 请求

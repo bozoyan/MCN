@@ -1,0 +1,28 @@
+{
+    "paths": {
+        "whisper_binary": "whisper.cpp/build/bin/whisper-cli",
+        "whisper_model": "whisper.cpp/models/ggml-large-v3-turbo-q5_0.bin",
+        "ffmpeg_binary": "ffmpeg"
+    },
+    "api": {
+        "siliconcloud_key": "",
+        "base_url": "https://api.siliconflow.cn/v1/chat/completions",
+        "model": "Qwen/Qwen2.5-Coder-32B-Instruct"
+    },
+    "processing": {
+        "max_concurrent_workers": 4,
+        "batch_size": 10,
+        "timeout_seconds": 120
+    },
+    "ui": {
+        "theme": "dark",
+        "window_width": 1400,
+        "window_height": 900
+    },
+    "directories": {
+        "temp": "temp",
+        "srt": "SRT",
+        "speech": "speech",
+        "font": "font"
+    }
+}

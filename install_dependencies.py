@@ -26,7 +26,7 @@ def main():
     # 需要安装的包列表
     packages = [
         "PyQt5",
-        "qfluentwidgets",
+        "PyQt-Fluent-Widgets[full]",
         "Pillow",
         "chardet",
         "requests"
