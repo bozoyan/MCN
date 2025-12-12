@@ -382,36 +382,55 @@ class ButtonEditDialog(QDialog):
         self.init_ui()
 
     def init_ui(self):
-        layout = QFormLayout(self)
+        layout = QVBoxLayout(self)
+        layout.setSpacing(15)
+        layout.setContentsMargins(20, 20, 20, 20)
+
+        # 辅助函数：创建带标签的输入框
+        def create_field(label_text, widget):
+            field_layout = QVBoxLayout()
+            field_layout.setSpacing(5)
+            label = QLabel(label_text)
+            label.setStyleSheet("font-size: 14px; font-weight: bold;")
+            field_layout.addWidget(label)
+            field_layout.addWidget(widget)
+            return field_layout
 
         # 按钮标题
         self.title_edit = LineEdit()
         self.title_edit.setText(self.button_data.get("title", ""))
-        layout.addRow("按钮标题:", self.title_edit)
+        self.title_edit.setFixedHeight(35)
+        layout.addLayout(create_field("按钮标题:", self.title_edit))
 
         # Conda 环境
         self.env_edit = LineEdit()
         self.env_edit.setText(self.button_data.get("env", "") or "")
         self.env_edit.setPlaceholderText("留空表示不使用 conda，或输入环境名如 modelscope")
-        layout.addRow("Conda 环境:", self.env_edit)
+        self.env_edit.setFixedHeight(35)
+        layout.addLayout(create_field("Conda 环境:", self.env_edit))
 
         # 工作目录
         self.cwd_edit = LineEdit()
         self.cwd_edit.setText(self.button_data.get("cwd", "."))
         self.cwd_edit.setPlaceholderText("当前目录用 . 表示")
-        layout.addRow("工作目录:", self.cwd_edit)
+        self.cwd_edit.setFixedHeight(35)
+        layout.addLayout(create_field("工作目录:", self.cwd_edit))
 
         # 执行命令
         self.cmd_edit = QTextEdit()
         self.cmd_edit.setPlainText(self.button_data.get("cmd", ""))
-        self.cmd_edit.setMaximumHeight(100)
-        layout.addRow("执行命令:", self.cmd_edit)
+        self.cmd_edit.setMinimumHeight(100)
+        # 用样式表统一样式（如果 LineEdit 有特定样式）
+        self.cmd_edit.setStyleSheet("border: 1px solid rgba(0, 0, 0, 0.1); border-radius: 5px; padding: 5px;")
+        layout.addLayout(create_field("执行命令:", self.cmd_edit))
+
+        layout.addStretch()
 
         # 按钮
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
-        layout.addRow(buttons)
+        layout.addWidget(buttons)
 
     def get_data(self):
         """获取编辑后的数据"""
@@ -465,13 +484,15 @@ class HomePage(BasePage):
         # 创建滚动区域
         scroll = SmoothScrollArea()
         scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
         scroll_widget = QWidget()
         scroll_layout = QVBoxLayout(scroll_widget)
+        scroll_layout.setContentsMargins(20, 20, 20, 20)
 
         # 按钮网格容器
         self.button_grid_widget = QWidget()
         self.button_grid_layout = QGridLayout(self.button_grid_widget)
-        self.button_grid_layout.setSpacing(12)
+        self.button_grid_layout.setSpacing(24) # 增加间距
         scroll_layout.addWidget(self.button_grid_widget)
 
         scroll_layout.addStretch()
@@ -505,15 +526,19 @@ class HomePage(BasePage):
                 item.widget().deleteLater()
 
         # 创建新按钮
-        max_cols = 5
+        max_cols = 5 # 每行4个，使按钮更宽更显眼
         for idx, btn_data in enumerate(self.buttons_data):
             row, col = divmod(idx, max_cols)
             btn = PrimaryPushButton(btn_data.get("title", "未命名"))
-            btn.setFixedSize(180, 60)
+            btn.setFixedSize(200, 70)
+            # 美化按钮样式
             btn.setStyleSheet("""
                 QPushButton {
-                    font-size: 14px;
+                    font-size: 16px;
                     font-weight: bold;
+                    border-radius: 12px;
+                    padding: 10px;
+                    background-color: #4CAF50;
                 }
             """)
             
@@ -531,12 +556,29 @@ class HomePage(BasePage):
     def show_context_menu(self, button, button_data, index):
         """显示右键菜单"""
         menu = QMenu(self)
+        # 美化菜单样式
+        menu.setStyleSheet("""
+            QMenu {
+                font-size: 14px;
+                padding: 5px;
+                background-color: #ffff00;
+                border: 1px solid #dcdcdc;
+                border-radius: 8px;
+            }
+            QMenu::item {
+                padding: 8px 30px;
+                border-radius: 4px;
+            }
+            QMenu::item:selected {
+                background-color: #f0f0f0;
+            }
+        """)
         
-        edit_action = QAction("编辑", self)
+        edit_action = QAction(FluentIcon.EDIT.icon(), "编辑按钮", self)
         edit_action.triggered.connect(lambda: self.edit_button(index))
         menu.addAction(edit_action)
         
-        delete_action = QAction("删除", self)
+        delete_action = QAction(FluentIcon.DELETE.icon(), "删除按钮", self)
         delete_action.triggered.connect(lambda: self.delete_button(index))
         menu.addAction(delete_action)
         
