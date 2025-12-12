@@ -409,14 +409,14 @@ class MainWindow(FluentWindow):
             self.create_demo_page(),
             FluentIcon.VIDEO,
             "功能演示",
-            FluentWindow.NavigationItemPosition.TOP
+            NavigationItemPosition.TOP
         )
 
         self.addSubInterface(
             self.create_settings_page(),
             FluentIcon.SETTING,
             "设置",
-            FluentWindow.NavigationItemPosition.BOTTOM
+            NavigationItemPosition.BOTTOM
         )
 
     def create_demo_page(self):
