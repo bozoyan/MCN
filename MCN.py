@@ -1505,8 +1505,10 @@ class MainWindow(FluentWindow):
         self.setMinimumSize(1200, 800)
         self.resize(1400, 900)
 
-        # 设置应用图标
-        # self.setWindowIcon(QIcon("icon.png"))
+        # 设置应用图标（窗口标题栏和任务栏）
+        icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "icon.png")
+        if os.path.exists(icon_path):
+            self.setWindowIcon(QIcon(icon_path))
 
     def init_navigation(self):
         """初始化导航栏"""
@@ -1704,6 +1706,11 @@ def main():
     # 设置应用信息
     app.setApplicationName("BOZO-MCN多媒体编辑器")
     app.setApplicationVersion("2.0")
+
+    # 设置应用图标（用于 Dock/任务栏）
+    icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "icon.png")
+    if os.path.exists(icon_path):
+        app.setWindowIcon(QIcon(icon_path))
 
     # 设置深色主题
     setTheme(Theme.DARK)
