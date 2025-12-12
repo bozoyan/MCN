@@ -14,7 +14,8 @@ from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                             QHBoxLayout, QGridLayout, QLabel, QLineEdit,
                             QPushButton, QFileDialog, QTextEdit, QCheckBox,
                             QComboBox, QSpinBox, QProgressBar, QMessageBox,
-                            QSplitter, QFrame, QScrollArea, QGroupBox, QDoubleSpinBox)
+                            QSplitter, QFrame, QScrollArea, QGroupBox, QDoubleSpinBox,
+                            QMenu, QAction, QDialog, QFormLayout, QDialogButtonBox)
 from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer, QUrl
 from PyQt5.QtGui import QFont, QIcon, QDesktopServices
 from qfluentwidgets import (FluentIcon, NavigationInterface, NavigationItemPosition,
@@ -369,6 +370,261 @@ class BasePage(QWidget):
         """获取文件夹路径"""
         folder_path = QFileDialog.getExistingDirectory(self, title)
         return folder_path
+
+class ButtonEditDialog(QDialog):
+    """按钮编辑对话框"""
+
+    def __init__(self, button_data=None, parent=None):
+        super().__init__(parent)
+        self.button_data = button_data or {}
+        self.setWindowTitle("编辑按钮" if button_data else "新增按钮")
+        self.setMinimumWidth(500)
+        self.init_ui()
+
+    def init_ui(self):
+        layout = QFormLayout(self)
+
+        # 按钮标题
+        self.title_edit = LineEdit()
+        self.title_edit.setText(self.button_data.get("title", ""))
+        layout.addRow("按钮标题:", self.title_edit)
+
+        # Conda 环境
+        self.env_edit = LineEdit()
+        self.env_edit.setText(self.button_data.get("env", "") or "")
+        self.env_edit.setPlaceholderText("留空表示不使用 conda，或输入环境名如 modelscope")
+        layout.addRow("Conda 环境:", self.env_edit)
+
+        # 工作目录
+        self.cwd_edit = LineEdit()
+        self.cwd_edit.setText(self.button_data.get("cwd", "."))
+        self.cwd_edit.setPlaceholderText("当前目录用 . 表示")
+        layout.addRow("工作目录:", self.cwd_edit)
+
+        # 执行命令
+        self.cmd_edit = QTextEdit()
+        self.cmd_edit.setPlainText(self.button_data.get("cmd", ""))
+        self.cmd_edit.setMaximumHeight(100)
+        layout.addRow("执行命令:", self.cmd_edit)
+
+        # 按钮
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addRow(buttons)
+
+    def get_data(self):
+        """获取编辑后的数据"""
+        return {
+            "title": self.title_edit.text().strip(),
+            "env": self.env_edit.text().strip() or None,
+            "cwd": self.cwd_edit.text().strip() or ".",
+            "cmd": self.cmd_edit.toPlainText().strip()
+        }
+
+class HomePage(BasePage):
+    """首页 - AIGC 操作管理平台"""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.buttons_file = os.path.join(os.path.dirname(__file__), "buttons.json")
+        self.buttons_data = []
+        self.load_buttons()
+        self.init_ui()
+
+    def load_buttons(self):
+        """从 JSON 文件加载按钮配置"""
+        try:
+            if os.path.exists(self.buttons_file):
+                with open(self.buttons_file, 'r', encoding='utf-8') as f:
+                    self.buttons_data = json.load(f)
+            else:
+                self.buttons_data = []
+                self.save_buttons()
+        except Exception as e:
+            self.buttons_data = []
+            print(f"加载按钮配置失败: {str(e)}")
+
+    def save_buttons(self):
+        """保存按钮配置到 JSON 文件"""
+        try:
+            with open(self.buttons_file, 'w', encoding='utf-8') as f:
+                json.dump(self.buttons_data, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            print(f"保存按钮配置失败: {str(e)}")
+
+    def init_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setSpacing(20)
+
+        # 标题
+        title = SubtitleLabel("🚀 AIGC 操作管理平台")
+        title.setFont(TITLE_FONT)
+        layout.addWidget(title)
+
+        # 创建滚动区域
+        scroll = SmoothScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll_widget = QWidget()
+        scroll_layout = QVBoxLayout(scroll_widget)
+
+        # 按钮网格容器
+        self.button_grid_widget = QWidget()
+        self.button_grid_layout = QGridLayout(self.button_grid_widget)
+        self.button_grid_layout.setSpacing(12)
+        scroll_layout.addWidget(self.button_grid_widget)
+
+        scroll_layout.addStretch()
+        scroll.setWidget(scroll_widget)
+        layout.addWidget(scroll)
+
+        # 底部按钮
+        bottom_layout = QHBoxLayout()
+        add_btn = PrimaryPushButton(FluentIcon.ADD, "添加新按钮")
+        add_btn.setFixedHeight(40)
+        add_btn.clicked.connect(self.add_button)
+        bottom_layout.addWidget(add_btn)
+
+        refresh_btn = PushButton(FluentIcon.SYNC, "刷新按钮")
+        refresh_btn.setFixedHeight(40)
+        refresh_btn.clicked.connect(self.refresh_buttons)
+        bottom_layout.addWidget(refresh_btn)
+
+        bottom_layout.addStretch()
+        layout.addLayout(bottom_layout)
+
+        # 渲染按钮
+        self.render_buttons()
+
+    def render_buttons(self):
+        """渲染所有按钮"""
+        # 清空现有按钮
+        while self.button_grid_layout.count():
+            item = self.button_grid_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
+        # 创建新按钮
+        max_cols = 5
+        for idx, btn_data in enumerate(self.buttons_data):
+            row, col = divmod(idx, max_cols)
+            btn = PrimaryPushButton(btn_data.get("title", "未命名"))
+            btn.setFixedSize(180, 60)
+            btn.setStyleSheet("""
+                QPushButton {
+                    font-size: 14px;
+                    font-weight: bold;
+                }
+            """)
+            
+            # 绑定点击事件
+            btn.clicked.connect(lambda checked, data=btn_data: self.execute_button(data))
+            
+            # 绑定右键菜单
+            btn.setContextMenuPolicy(Qt.CustomContextMenu)
+            btn.customContextMenuRequested.connect(
+                lambda pos, button=btn, data=btn_data, index=idx: self.show_context_menu(button, data, index)
+            )
+            
+            self.button_grid_layout.addWidget(btn, row, col)
+
+    def show_context_menu(self, button, button_data, index):
+        """显示右键菜单"""
+        menu = QMenu(self)
+        
+        edit_action = QAction("编辑", self)
+        edit_action.triggered.connect(lambda: self.edit_button(index))
+        menu.addAction(edit_action)
+        
+        delete_action = QAction("删除", self)
+        delete_action.triggered.connect(lambda: self.delete_button(index))
+        menu.addAction(delete_action)
+        
+        menu.exec_(button.mapToGlobal(button.rect().center()))
+
+    def execute_button(self, button_data):
+        """执行按钮命令"""
+        try:
+            cwd = button_data.get("cwd", ".")
+            if cwd == ".":
+                cwd = os.path.dirname(__file__)
+            
+            cmd = button_data.get("cmd", "")
+            env = button_data.get("env")
+            
+            if not cmd:
+                self.show_warning("警告", "按钮没有配置执行命令")
+                return
+            
+            # 构建完整命令
+            if env:
+                full_cmd = f"source ~/.zshrc && conda activate {env} && cd '{cwd}' && {cmd}"
+            else:
+                full_cmd = f"cd '{cwd}' && {cmd}"
+            
+            # 在新终端窗口中执行（macOS）
+            applescript = f'''
+            tell application "Terminal"
+                activate
+                do script "{full_cmd}"
+            end tell
+            '''
+            
+            subprocess.Popen(["osascript", "-e", applescript])
+            self.show_success("执行", f"已启动: {button_data.get('title', '未命名')}")
+            
+        except Exception as e:
+            self.show_error("错误", f"执行失败: {str(e)}")
+
+    def add_button(self):
+        """添加新按钮"""
+        dialog = ButtonEditDialog(parent=self)
+        if dialog.exec_() == QDialog.Accepted:
+            new_data = dialog.get_data()
+            if new_data.get("title") and new_data.get("cmd"):
+                self.buttons_data.append(new_data)
+                self.save_buttons()
+                self.render_buttons()
+                self.show_success("成功", f"已添加按钮: {new_data['title']}")
+            else:
+                self.show_warning("警告", "按钮标题和命令不能为空")
+
+    def edit_button(self, index):
+        """编辑按钮"""
+        if 0 <= index < len(self.buttons_data):
+            dialog = ButtonEditDialog(self.buttons_data[index], parent=self)
+            if dialog.exec_() == QDialog.Accepted:
+                updated_data = dialog.get_data()
+                if updated_data.get("title") and updated_data.get("cmd"):
+                    self.buttons_data[index] = updated_data
+                    self.save_buttons()
+                    self.render_buttons()
+                    self.show_success("成功", f"已更新按钮: {updated_data['title']}")
+                else:
+                    self.show_warning("警告", "按钮标题和命令不能为空")
+
+    def delete_button(self, index):
+        """删除按钮"""
+        if 0 <= index < len(self.buttons_data):
+            button_title = self.buttons_data[index].get("title", "未命名")
+            reply = QMessageBox.question(
+                self, "确认删除",
+                f"确定要删除按钮 '{button_title}' 吗？",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No
+            )
+            if reply == QMessageBox.Yes:
+                self.buttons_data.pop(index)
+                self.save_buttons()
+                self.render_buttons()
+                self.show_success("成功", f"已删除按钮: {button_title}")
+
+    def refresh_buttons(self):
+        """刷新按钮"""
+        self.load_buttons()
+        self.render_buttons()
+        self.show_info("刷新", "按钮已刷新")
+
 
 class VideoConvertPage(BasePage):
     """视频转换页面"""
@@ -1904,6 +2160,14 @@ class MainWindow(FluentWindow):
 
     def init_navigation(self):
         """初始化导航栏"""
+        # 添加首页
+        self.addSubInterface(
+            self.create_home_page(),
+            FluentIcon.HOME,
+            "首页",
+            NavigationItemPosition.TOP
+        )
+
         # 添加导航项
         self.addSubInterface(
             self.create_video_convert_page(),
@@ -1960,6 +2224,13 @@ class MainWindow(FluentWindow):
             "设置",
             NavigationItemPosition.BOTTOM
         )
+
+
+    def create_home_page(self):
+        """创建首页"""
+        self.home_page = HomePage(self)
+        self.home_page.setObjectName("home_page")
+        return self.home_page
 
     def create_video_convert_page(self):
         """创建视频转换页面"""
