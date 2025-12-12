@@ -298,10 +298,10 @@ class SRTTranslateThread(WorkerThread):
             prompt = f"帮我将输入的srt字幕文本内容翻译转换为{self.target_language}。保持srt文本结构，序号，时间都不变，只需要翻译内容，并输出srt格式的翻译内容就可以，不需要其他额外注释和说明。\n\n" + srt_content
 
             payload = {
-                "model": "Qwen/Qwen2.5-Coder-32B-Instruct",
+                "model": "Qwen/Qwen3-Next-80B-A3B-Instruct",
                 "messages": [{"role": "user", "content": prompt}],
                 "stream": False,
-                "max_tokens": 4096,
+                "max_tokens": 8192,
                 "response_format": {"type": "text"}
             }
 
