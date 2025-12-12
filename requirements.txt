@@ -1,0 +1,10 @@
+# requirements.txt BOZO-MCN 多媒体编辑器
+# 此文件列出了运行应用程序所需的 Python 依赖项。
+
+# GUI 和小组件库
+ttkbootstrap>=1.10.1  # 对于主题小部件和 GUI 样式
+
+# 文件和系统作
+requests>=2.28.1  # 用于向 API 发出 HTTP 请求
+Pillow>=9.2.0  # 用于图像处理 （PIL）
+chardet>=5.0.0  # 用于字符编码检测
