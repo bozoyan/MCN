@@ -203,10 +203,13 @@ class ApiKeyDialog(QDialog):
             'model': self.model_edit.text().strip()
         }
 
-# 配置常量
-TITLE_FONT = QFont("Microsoft YaHei", 16)
-LABEL_FONT = QFont("Microsoft YaHei", 12)
-ENTRY_FONT = QFont("Microsoft YaHei", 10)
+# 配置常量 - 使用系统默认字体
+TITLE_FONT = QFont()
+TITLE_FONT.setPointSize(16)
+LABEL_FONT = QFont()
+LABEL_FONT.setPointSize(12)
+ENTRY_FONT = QFont()
+ENTRY_FONT.setPointSize(10)
 
 # 工作线程基类
 class WorkerThread(QThread):
@@ -422,11 +425,13 @@ class MainWindow(FluentWindow):
     def create_demo_page(self):
         """创建演示页面"""
         self.demo_page = SimpleVideoConvertPage(self)
+        self.demo_page.setObjectName("demo_page")  # 为 FluentWindow 设置 objectName
         return self.demo_page
 
     def create_settings_page(self):
         """创建设置页面"""
         page = SmoothScrollArea()
+        page.setObjectName("settings_page")  # 为 FluentWindow 设置 objectName
         widget = QWidget()
         layout = QVBoxLayout(widget)
         layout.setSpacing(20)
@@ -647,11 +652,24 @@ class MainWindow(FluentWindow):
         super().closeEvent(event)
 
 def main():
+    # 屏蔽 Qt 字体相关的警告日志（Segoe UI 在 macOS 上不存在的警告）
+    os.environ["QT_LOGGING_RULES"] = "qt.qpa.fonts.warning=false"
+
     # 设置高DPI支持
     QApplication.setAttribute(Qt.AA_EnableHighDpiScaling)
     QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps)
 
+    # 在创建 QApplication 前注册字体替换，将 Windows 字体映射到 macOS 系统字体
+    # 这样可以避免 qfluentwidgets 查找 Segoe UI 时产生警告
+    QFont.insertSubstitution("Segoe UI", ".AppleSystemUIFont")
+    QFont.insertSubstitution("Microsoft YaHei", "PingFang SC")
+
     app = QApplication(sys.argv)
+
+    # 设置全局默认字体，覆盖 qfluentwidgets 的 Segoe UI，消除 macOS 字体警告
+    default_font = QFont()
+    default_font.setPointSize(12)
+    app.setFont(default_font)
 
     # 设置应用信息
     app.setApplicationName("BOZO-MCN多媒体编辑器")

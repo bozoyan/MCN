@@ -23,10 +23,13 @@ from qfluentwidgets import (FluentIcon, NavigationInterface, NavigationItemPosit
                           ProgressBar, InfoBar, InfoBarPosition, ToolTipFilter,
                           setTheme, Theme, FluentIcon as FIcon, SmoothScrollArea)
 
-# 配置常量
-TITLE_FONT = QFont("Microsoft YaHei", 16)
-LABEL_FONT = QFont("Microsoft YaHei", 12)
-ENTRY_FONT = QFont("Microsoft YaHei", 10)
+# 配置常量 - 使用系统默认字体
+TITLE_FONT = QFont()
+TITLE_FONT.setPointSize(16)
+LABEL_FONT = QFont()
+LABEL_FONT.setPointSize(12)
+ENTRY_FONT = QFont()
+ENTRY_FONT.setPointSize(10)
 
 # 工作线程类
 class WorkerThread(QThread):
@@ -590,7 +593,7 @@ class ImageToVideoPage(BasePage):
         self.image_path_edit.setFixedHeight(35)
         image_layout.addWidget(self.image_path_edit, 0, 1)
 
-        image_btn = PushButton(FluentIcon.IMAGE, "浏览")
+        image_btn = PushButton(FluentIcon.PHOTO, "浏览")
         image_btn.setFixedWidth(80)
         image_btn.clicked.connect(self.browse_image)
         image_layout.addWidget(image_btn, 0, 2)
@@ -777,7 +780,7 @@ class MergeVideoAudioPage(BasePage):
         self.cover_path_edit.setFixedHeight(35)
         file_layout.addWidget(self.cover_path_edit, 0, 1)
 
-        cover_btn = PushButton(FluentIcon.IMAGE, "浏览")
+        cover_btn = PushButton(FluentIcon.PHOTO, "浏览")
         cover_btn.setFixedWidth(80)
         cover_btn.clicked.connect(lambda: self.browse_file("cover"))
         file_layout.addWidget(cover_btn, 0, 2)
@@ -842,7 +845,7 @@ class MergeVideoAudioPage(BasePage):
         # 操作按钮
         btn_layout = QHBoxLayout()
 
-        merge_btn = PrimaryPushButton(FluentIcon.MERGE, "基础合并")
+        merge_btn = PrimaryPushButton(FluentIcon.LINK, "基础合并")
         merge_btn.setFixedHeight(45)
         merge_btn.clicked.connect(self.merge_videos)
         btn_layout.addWidget(merge_btn)
@@ -1517,14 +1520,14 @@ class MainWindow(FluentWindow):
 
         self.addSubInterface(
             self.create_image_to_video_page(),
-            FluentIcon.IMAGE,
+            FluentIcon.PHOTO,
             "图片转视频",
             NavigationItemPosition.TOP
         )
 
         self.addSubInterface(
             self.create_merge_page(),
-            FluentIcon.MERGE,
+            FluentIcon.LINK,
             "合并视频音频",
             NavigationItemPosition.TOP
         )
@@ -1567,36 +1570,43 @@ class MainWindow(FluentWindow):
     def create_video_convert_page(self):
         """创建视频转换页面"""
         self.video_convert_page = VideoConvertPage(self)
+        self.video_convert_page.setObjectName("video_convert_page")
         return self.video_convert_page
 
     def create_image_to_video_page(self):
         """创建图片转视频页面"""
         self.image_to_video_page = ImageToVideoPage(self)
+        self.image_to_video_page.setObjectName("image_to_video_page")
         return self.image_to_video_page
 
     def create_merge_page(self):
         """创建合并页面"""
         self.merge_page = MergeVideoAudioPage(self)
+        self.merge_page.setObjectName("merge_page")
         return self.merge_page
 
     def create_subtitle_page(self):
         """创建字幕生成页面"""
         self.subtitle_page = SubtitleGenerationPage(self)
+        self.subtitle_page.setObjectName("subtitle_page")
         return self.subtitle_page
 
     def create_subtitle_text_page(self):
         """创建字幕转文本页面"""
         page = SubtitleTextPage(self)
+        page.setObjectName("subtitle_text_page")
         return page
 
     def create_adjust_subtitle_page(self):
         """创建调整字幕页面"""
         page = AdjustSubtitlePage(self)
+        page.setObjectName("adjust_subtitle_page")
         return page
 
     def create_merge_subtitle_page(self):
         """创建整合字幕页面"""
         page = MergeSubtitlePage(self)
+        page.setObjectName("merge_subtitle_page")
         return page
 
     def create_settings_page(self):
@@ -1604,6 +1614,7 @@ class MainWindow(FluentWindow):
         from qfluentwidgets import ScrollArea, SmoothScrollArea
 
         page = SmoothScrollArea()
+        page.setObjectName("settings_page")
         widget = QWidget()
         layout = QVBoxLayout(widget)
 
@@ -1672,11 +1683,23 @@ class MainWindow(FluentWindow):
             subprocess.run(["xdg-open", folder_path])
 
 def main():
+    # 屏蔽 Qt 字体相关的警告日志（Segoe UI 在 macOS 上不存在的警告）
+    os.environ["QT_LOGGING_RULES"] = "qt.qpa.fonts.warning=false"
+
     # 设置高DPI支持
     QApplication.setAttribute(Qt.AA_EnableHighDpiScaling)
     QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps)
 
+    # 在创建 QApplication 前注册字体替换，将 Windows 字体映射到 macOS 系统字体
+    QFont.insertSubstitution("Segoe UI", ".AppleSystemUIFont")
+    QFont.insertSubstitution("Microsoft YaHei", "PingFang SC")
+
     app = QApplication(sys.argv)
+
+    # 设置全局默认字体
+    default_font = QFont()
+    default_font.setPointSize(12)
+    app.setFont(default_font)
 
     # 设置应用信息
     app.setApplicationName("BOZO-MCN多媒体编辑器")

@@ -55,9 +55,9 @@
 ```
 MCN/
 ├── config.json              # 配置文件
-├── run_improved.py          # 主运行程序（简化演示版）
+├── run.py          # 主运行程序（简化演示版）
 ├── install_deps.py          # 依赖安装脚本
-├── README_improved.md       # 改进说明文档
+├── README.md       # 改进说明文档
 ├── MCN_improved.py          # 核心功能模块（第1部分）
 ├── MCN_improved_pages.py    # 页面类模块（第2部分）
 ├── MCN_improved_main.py     # 主窗口模块（第3部分）
@@ -111,10 +111,10 @@ pip install pyqt5 qfluentwidgets pillow requests chardet opencv-python
 ```bash
 # 使用conda环境（推荐）
 conda activate modelscope
-python run_improved.py
+python run.py
 
 # 或直接运行
-python run_improved.py
+python run.py
 ```
 
 ## 🛠️ 环境要求
@@ -220,7 +220,7 @@ python run_improved.py
 git clone <repository>
 cd MCN
 python install_deps.py
-python run_improved.py
+python run.py
 ```
 
 ## 📄 许可证
