@@ -1,491 +1,1153 @@
 import os
 import time
-import tkinter as tk
-from tkinter import ttk, filedialog, messagebox
-import ttkbootstrap as tb
-from ttkbootstrap.constants import *
-from datetime import datetime
+import sys
+import re
+import shutil
 import subprocess
 import requests
 import json
+from datetime import datetime
 from PIL import Image
 import chardet
-import re
-import shutil
+from concurrent.futures import ThreadPoolExecutor
+from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
+                            QHBoxLayout, QGridLayout, QLabel, QLineEdit,
+                            QPushButton, QFileDialog, QTextEdit, QCheckBox,
+                            QComboBox, QSpinBox, QProgressBar, QMessageBox,
+                            QSplitter, QFrame, QScrollArea, QGroupBox, QDoubleSpinBox)
+from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer, QUrl
+from PyQt5.QtGui import QFont, QIcon, QDesktopServices
+from qfluentwidgets import (FluentIcon, NavigationInterface, NavigationItemPosition,
+                          FluentWindow, SubtitleLabel, BodyLabel, PrimaryPushButton,
+                          PushButton, LineEdit, ComboBox, CheckBox, SpinBox,
+                          ProgressBar, InfoBar, InfoBarPosition, ToolTipFilter,
+                          setTheme, Theme, FluentIcon as FIcon, SmoothScrollArea)
 
-# 添加环境编码设置：
-os.environ["LANG"] = "zh_CN.UTF-8"  # 或其他合适的编码
+# 配置常量
+TITLE_FONT = QFont("Microsoft YaHei", 16)
+LABEL_FONT = QFont("Microsoft YaHei", 12)
+ENTRY_FONT = QFont("Microsoft YaHei", 10)
 
-# 设置字体
-TITLE_FONT = ("PingFang SC Medium", 26)
-LABEL_FONT = ("PingFang SC", 18)
-ENTRY_FONT = ("PingFang SC", 16)
+# 工作线程类
+class WorkerThread(QThread):
+    """工作线程基类"""
+    progress_updated = pyqtSignal(int)
+    log_updated = pyqtSignal(str)
+    finished = pyqtSignal(bool, str)
 
-# dark风格
-STYLE_THEME = "darkly"
-
-class MultimediaEditor(tb.Window):
     def __init__(self):
-        super().__init__(themename=STYLE_THEME)
-        self.title("BOZO-MCN 多媒体编辑器 1.1.3")
-        self.geometry("1040x540")
-        # self.resizable(False, False)
-        self.create_widgets()
+        super().__init__()
+        self.is_cancelled = False
 
-    def create_widgets(self):
-        # 主标题
-        title = tb.Label(self, text=" 📽️  MCN多媒体编辑器 - BOZO专用 ", font=TITLE_FONT, bootstyle=INVERSE)
-        title.pack(pady=40)
+class VideoConversionThread(WorkerThread):
+    """视频转换线程"""
 
-        # 选项卡
-        notebook = tb.Notebook(self, bootstyle=SECONDARY)
-        notebook.pack(fill=tk.BOTH, expand=True, padx=20, pady=10)
+    def __init__(self, video_path, output_path, mode="mute"):
+        super().__init__()
+        self.video_path = video_path
+        self.output_path = output_path
+        self.mode = mode
 
-        # 0. 视频转换
-        tab0 = tb.Frame(notebook)
-        self.create_tab0_video_convert(tab0)
-        notebook.add(tab0, text=" 转换视频与音频 ")
+    def run(self):
+        try:
+            if self.mode == "mute":
+                cmd = ["ffmpeg", "-y", "-i", self.video_path, "-an", self.output_path]
+            elif self.mode == "audio":
+                cmd = ["ffmpeg", "-y", "-i", self.video_path, "-vn", "-acodec", "pcm_s16le", self.output_path]
 
-        # 1. 图片转视频片段
-        tab1 = tb.Frame(notebook)
-        self.create_tab1(tab1)
-        notebook.add(tab1, text=" 图片转视频片段 ")
+            self.log_updated.emit(f"开始处理: {os.path.basename(self.video_path)}")
 
-        # 2. 合并视频片段与音频
-        tab2 = tb.Frame(notebook)
-        self.create_tab2(tab2)
-        notebook.add(tab2, text=" 合并视频与音频 ")
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            if result.returncode == 0 and os.path.exists(self.output_path):
+                self.progress_updated.emit(100)
+                self.log_updated.emit(f"完成: {os.path.basename(self.output_path)}")
+                self.finished.emit(True, self.output_path)
+            else:
+                self.finished.emit(False, f"处理失败: {result.stderr}")
+        except Exception as e:
+            self.finished.emit(False, f"处理异常: {str(e)}")
 
-        # 3. 生成字幕文件
-        tab3 = tb.Frame(notebook)
-        self.create_tab3(tab3)
-        notebook.add(tab3, text=" 生成字幕文件 ")
+class ImageToVideoThread(WorkerThread):
+    """图片转视频线程"""
 
-        # 3.5 字幕转文本
-        tab3_5 = tb.Frame(notebook)
-        self.create_tab3_5(tab3_5)
-        notebook.add(tab3_5, text=" 字幕转文本 ")
+    def __init__(self, image_path, output_path, size, duration):
+        super().__init__()
+        self.image_path = image_path
+        self.output_path = output_path
+        self.size = size
+        self.duration = duration
 
-        # 4. 调整字幕文件
-        tab4 = tb.Frame(notebook)
-        self.create_tab4(tab4)
-        notebook.add(tab4, text=" 调整字幕文件 ")
+    def run(self):
+        try:
+            width, height = self.size.split('x')
+            fps = 30
+            img_name = os.path.splitext(os.path.basename(self.image_path))[0]
+            temp_dir = os.path.join(os.getcwd(), 'temp')
+            bg_img = os.path.join(temp_dir, f"{img_name}-bg.jpg")
 
-        # 5. 整合视频字幕
-        tab5 = tb.Frame(notebook)
-        self.create_tab5(tab5)
-        notebook.add(tab5, text=" 整合视频字幕 ")
+            self.progress_updated.emit(10)
 
-    def create_tab0_video_convert(self, frame):
-        # 第一行：视频文件选择
-        video_label = tb.Label(frame, text="填视频文件：", font=LABEL_FONT)
-        video_label.grid(row=0, column=0, sticky=tk.W, pady=8, padx=8)
-        self.vc_video_entry = tb.Entry(frame, font=ENTRY_FONT, width=65)
-        self.vc_video_entry.grid(row=0, column=1, pady=8, padx=8)
-        video_btn = tb.Button(frame, text="选择视频文件", command=self.select_vc_video)
-        video_btn.grid(row=0, column=2, padx=8)
+            # 生成模糊背景
+            cmd_bg = [
+                "ffmpeg", "-y", "-loop", "1", "-framerate", str(fps), "-t", str(self.duration),
+                "-i", self.image_path,
+                "-vf", f"scale=2*{width}:2*{height},boxblur=20:1,crop={width}:{height}",
+                "-q:v", "3", bg_img
+            ]
+            subprocess.run(cmd_bg)
 
-        # 第二行：批量文件夹选择
-        batch_label = tb.Label(frame, text="批量文件夹：", font=LABEL_FONT)
-        batch_label.grid(row=1, column=0, sticky=tk.W, pady=8, padx=8)
-        self.vc_batch_entry = tb.Entry(frame, font=ENTRY_FONT, width=65, state="disabled")
-        self.vc_batch_entry.grid(row=1, column=1, pady=8, padx=8)
-        self.vc_batch_btn = tb.Button(frame, text="选择文件夹", command=self.select_vc_batch_folder, state="disabled")
-        self.vc_batch_btn.grid(row=1, column=2, padx=8)
-        self.vc_batch_var = tk.BooleanVar()
-        self.vc_batch_switch = tb.Checkbutton(frame, text="批量模式", variable=self.vc_batch_var, command=self.toggle_vc_batch)
-        self.vc_batch_switch.grid(row=1, column=3, sticky=tk.W, pady=8, padx=(8,0))
+            self.progress_updated.emit(50)
 
-        # 第三行：无声视频
-        mute_label = tb.Label(frame, text="设定无声名：", font=LABEL_FONT)
-        mute_label.grid(row=2, column=0, sticky=tk.W, pady=8, padx=8)
-        self.mute_entry = tb.Entry(frame, font=ENTRY_FONT, width=65)
-        self.mute_entry.grid(row=2, column=1, pady=8, padx=8)
-        mute_btn = tb.Button(frame, text="转换无声视频", command=self.convert_to_mute_video)
-        mute_btn.grid(row=2, column=2, padx=8)
+            # 合成前景+背景
+            filter_complex = (
+                f"[0:v]scale={width}:{height}:force_original_aspect_ratio=decrease,pad={width}:{height}:(ow-iw)/2:(oh-ih)/2,setsar=1,format=rgba[fg];"
+                f"[1:v]scale={width}:{height}[bg];"
+                f"[bg][fg]overlay=(W-w)/2:(H-h)/2,fade=t=in:st=0:d=1,fade=t=out:st={self.duration-1}:d=1"
+            )
+            cmd = [
+                "ffmpeg", "-y",
+                "-loop", "1", "-framerate", str(fps), "-t", str(self.duration), "-i", self.image_path,
+                "-i", bg_img,
+                "-filter_complex", filter_complex,
+                "-c:v", "libx264",
+                "-pix_fmt", "yuv420p",
+                "-r", str(fps),
+                self.output_path
+            ]
 
-        # 第四行：音频文件
-        audio_label = tb.Label(frame, text="设定音频名：", font=LABEL_FONT)
-        audio_label.grid(row=3, column=0, sticky=tk.W, pady=8, padx=8)
-        self.audio_out_entry = tb.Entry(frame, font=ENTRY_FONT, width=65)
-        self.audio_out_entry.grid(row=3, column=1, pady=8, padx=8)
-        audio_btn = tb.Button(frame, text="转换音频文件", command=self.convert_to_audio_file)
-        audio_btn.grid(row=3, column=2, padx=8)
+            subprocess.run(cmd)
 
-        # 第五行：横线
-        sep = tb.Separator(frame, orient='horizontal')
-        sep.grid(row=4, column=0, columnspan=4, sticky='ew', pady=16)
+            self.progress_updated.emit(100)
+            self.log_updated.emit(f"生成完成: {os.path.basename(self.output_path)}")
+            self.finished.emit(True, self.output_path)
 
-        # 第六行：分割视频片段名、数量（无标题）
-        seg_label = tb.Label(frame, text="视频片段名：", font=LABEL_FONT)
-        seg_label.grid(row=5, column=0, sticky=tk.W, pady=8, padx=8)
-        self.seg_entry = tb.Entry(frame, font=ENTRY_FONT, width=65)
-        self.seg_entry.grid(row=5, column=1, sticky=tk.W, pady=8, padx=8)
-        self.count_entry = tb.Entry(frame, font=ENTRY_FONT, width=10)
-        self.count_entry.insert(0, "3")
-        self.count_entry.grid(row=5, column=2, sticky=tk.E, pady=8, padx=8)
+        except Exception as e:
+            self.finished.emit(False, f"转换异常: {str(e)}")
 
-        # 第七行：分割按钮和批量模式勾选同一行
-        self.vc_batch_switch.grid_forget()  # 先移除原位置
-        seg_btn = tb.Button(frame, text="按分割数量 生成视频片段", bootstyle=SUCCESS, width=30, command=self.split_video_by_count)
-        self.vc_batch_switch.grid(row=6, column=0, sticky=tk.W, pady=16, padx=(8,0))
-        seg_btn.grid(row=6, column=1, pady=16, sticky=tk.W)
+class SRTGenerationThread(WorkerThread):
+    """字幕生成线程"""
 
-    def toggle_vc_batch(self):
-        if self.vc_batch_var.get():
-            self.vc_batch_entry.config(state="normal")
-            self.vc_batch_btn.config(state="normal")
+    def __init__(self, audio_path, output_path, max_line_length=30):
+        super().__init__()
+        self.audio_path = audio_path
+        self.output_path = output_path
+        self.max_line_length = max_line_length
+
+    def run(self):
+        try:
+            self.progress_updated.emit(10)
+
+            # 检查音频格式并转换
+            ext = os.path.splitext(self.audio_path)[1].lower()
+            wav_path = self.audio_path
+            if ext != ".wav":
+                srt_dir = os.path.join(os.getcwd(), 'SRT')
+                os.makedirs(srt_dir, exist_ok=True)
+                base_name = os.path.splitext(os.path.basename(self.audio_path))[0]
+                ts = datetime.now().strftime("%Y%m%d%H%M")
+                wav_path = os.path.join(srt_dir, f"{base_name}-{ts}.wav")
+
+                cmd_ffmpeg = ["ffmpeg", "-y", "-i", self.audio_path, wav_path]
+                subprocess.run(cmd_ffmpeg)
+
+            self.progress_updated.emit(30)
+
+            # whisper.cpp命令
+            whisper_bin = "/Users/yons/AI/whisper.cpp/build/bin/whisper-cli"
+            whisper_model = "/Users/yons/AI/whisper.cpp/models/ggml-large-v3-turbo-q5_0.bin"
+            of_path = os.path.splitext(self.output_path)[0]
+            threads = os.cpu_count() or 4
+
+            cmd_whisper = [
+                whisper_bin,
+                "-m", whisper_model,
+                "-f", wav_path,
+                "-l", "zh",
+                "-ml", str(self.max_line_length),
+                "-osrt",
+                "-of", of_path,
+                "-t", str(threads),
+            ]
+
+            self.log_updated.emit("开始生成字幕...")
+            shell_cmd = f"source ~/.zshrc && conda activate modelscope && {' '.join(cmd_whisper)}"
+
+            result = subprocess.run(shell_cmd, shell=True, capture_output=True, text=True, executable="/bin/zsh")
+
+            self.progress_updated.emit(80)
+
+            if os.path.exists(self.output_path):
+                self.progress_updated.emit(100)
+                self.log_updated.emit(f"字幕生成完成: {os.path.basename(self.output_path)}")
+                self.finished.emit(True, self.output_path)
+            else:
+                self.finished.emit(False, "字幕文件生成失败")
+
+        except Exception as e:
+            self.finished.emit(False, f"字幕生成异常: {str(e)}")
+
+class SRTToTextThread(WorkerThread):
+    """SRT转文本线程"""
+
+    def __init__(self, srt_path, output_path):
+        super().__init__()
+        self.srt_path = srt_path
+        self.output_path = output_path
+
+    def run(self):
+        try:
+            self.progress_updated.emit(10)
+
+            # 检测编码
+            with open(self.srt_path, 'rb') as f:
+                raw = f.read()
+                detect_result = chardet.detect(raw)
+                enc = detect_result['encoding'] or 'utf-8'
+
+            self.progress_updated.emit(30)
+
+            lines = []
+            for line in raw.decode(enc, errors='replace').splitlines():
+                line = line.strip()
+                if line.isdigit():
+                    continue
+                if re.match(r"\d{2}:\d{2}:\d{2},\d{3} --> \d{2}:\d{2}:\d{2},\d{3}", line):
+                    continue
+                if not line:
+                    continue
+                lines.append(line)
+
+            merged_text = ''.join(lines)
+
+            with open(self.output_path, 'w', encoding='utf-8') as f:
+                f.write(merged_text)
+
+            self.progress_updated.emit(100)
+            self.finished.emit(True, self.output_path)
+
+        except Exception as e:
+            self.finished.emit(False, f"SRT转文本异常: {str(e)}")
+
+class SRTTranslateThread(WorkerThread):
+    """SRT翻译线程"""
+
+    def __init__(self, srt_path, output_path, target_language="English"):
+        super().__init__()
+        self.srt_path = srt_path
+        self.output_path = output_path
+        self.target_language = target_language
+
+    def run(self):
+        try:
+            self.progress_updated.emit(10)
+
+            # 检测编码
+            with open(self.srt_path, 'rb') as f:
+                raw = f.read()
+                detect_result = chardet.detect(raw)
+                enc = detect_result['encoding'] or 'utf-8'
+
+            srt_content = raw.decode(enc, errors='replace')
+
+            self.progress_updated.emit(30)
+
+            # API翻译
+            api_key = os.environ.get("SiliconCloud_API_KEY")
+            if not api_key:
+                self.finished.emit(False, "未检测到API KEY")
+                return
+
+            url = "https://api.siliconflow.cn/v1/chat/completions"
+            prompt = f"帮我将输入的srt字幕文本内容翻译转换为{self.target_language}。保持srt文本结构，序号，时间都不变，只需要翻译内容，并输出srt格式的翻译内容就可以，不需要其他额外注释和说明。\n\n" + srt_content
+
+            payload = {
+                "model": "Qwen/Qwen2.5-Coder-32B-Instruct",
+                "messages": [{"role": "user", "content": prompt}],
+                "stream": False,
+                "max_tokens": 4096,
+                "response_format": {"type": "text"}
+            }
+
+            headers = {
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json"
+            }
+
+            self.progress_updated.emit(50)
+            resp = requests.post(url, json=payload, headers=headers, timeout=120)
+
+            if resp.status_code == 200:
+                result = resp.json()
+                content = result.get("choices", [{}])[0].get("message", {}).get("content", "").strip()
+
+                if content:
+                    with open(self.output_path, 'w', encoding='utf-8') as f:
+                        f.write(content)
+                    self.progress_updated.emit(100)
+                    self.finished.emit(True, self.output_path)
+                else:
+                    self.finished.emit(False, "API未返回有效翻译内容")
+            else:
+                self.finished.emit(False, f"API请求失败: {resp.text}")
+
+        except Exception as e:
+            self.finished.emit(False, f"翻译异常: {str(e)}")
+
+# 功能页面类
+class BasePage(QWidget):
+    """页面基类"""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.main_window = parent
+        self.worker_threads = []
+        self.thread_pool = ThreadPoolExecutor(max_workers=4)
+
+    def show_info(self, title, message):
+        """显示信息"""
+        InfoBar.info(title=title, content=message, orient=Qt.Horizontal,
+                    isClosable=True, position=InfoBarPosition.TOP, duration=3000, parent=self)
+
+    def show_success(self, title, message):
+        """显示成功信息"""
+        InfoBar.success(title=title, content=message, orient=Qt.Horizontal,
+                      isClosable=True, position=InfoBarPosition.TOP, duration=3000, parent=self)
+
+    def show_error(self, title, message):
+        """显示错误信息"""
+        InfoBar.error(title=title, content=message, orient=Qt.Horizontal,
+                    isClosable=True, position=InfoBarPosition.TOP, duration=5000, parent=self)
+
+    def show_warning(self, title, message):
+        """显示警告信息"""
+        InfoBar.warning(title=title, content=message, orient=Qt.Horizontal,
+                      isClosable=True, position=InfoBarPosition.TOP, duration=4000, parent=self)
+
+    def get_file_path(self, title, filter_str):
+        """获取文件路径"""
+        file_path, _ = QFileDialog.getOpenFileName(self, title, "", filter_str)
+        return file_path
+
+    def get_folder_path(self, title):
+        """获取文件夹路径"""
+        folder_path = QFileDialog.getExistingDirectory(self, title)
+        return folder_path
+
+class VideoConvertPage(BasePage):
+    """视频转换页面"""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.init_ui()
+
+    def init_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setSpacing(20)
+
+        # 标题
+        title = SubtitleLabel("🎬 视频转换工具")
+        title.setFont(TITLE_FONT)
+        layout.addWidget(title)
+
+        # 视频文件选择组
+        video_group = QGroupBox("视频文件")
+        video_layout = QGridLayout()
+
+        video_layout.addWidget(QLabel("选择视频文件:"), 0, 0)
+        self.video_path_edit = LineEdit()
+        self.video_path_edit.setPlaceholderText("请选择视频文件...")
+        self.video_path_edit.setFixedHeight(35)
+        video_layout.addWidget(self.video_path_edit, 0, 1)
+
+        browse_btn = PushButton(FluentIcon.FOLDER, "浏览")
+        browse_btn.setFixedWidth(80)
+        browse_btn.clicked.connect(self.browse_video)
+        video_layout.addWidget(browse_btn, 0, 2)
+
+        video_group.setLayout(video_layout)
+        layout.addWidget(video_group)
+
+        # 批量处理组
+        batch_group = QGroupBox("批量处理")
+        batch_layout = QGridLayout()
+
+        self.batch_checkbox = CheckBox("启用批量处理")
+        self.batch_checkbox.stateChanged.connect(self.toggle_batch_mode)
+        batch_layout.addWidget(self.batch_checkbox, 0, 0)
+
+        batch_layout.addWidget(QLabel("批量文件夹:"), 1, 0)
+        self.batch_path_edit = LineEdit()
+        self.batch_path_edit.setPlaceholderText("选择包含视频的文件夹...")
+        self.batch_path_edit.setFixedHeight(35)
+        self.batch_path_edit.setEnabled(False)
+        batch_layout.addWidget(self.batch_path_edit, 1, 1)
+
+        batch_folder_btn = PushButton(FluentIcon.FOLDER, "选择")
+        batch_folder_btn.setFixedWidth(80)
+        batch_folder_btn.clicked.connect(self.browse_batch_folder)
+        batch_folder_btn.setEnabled(False)
+        self.batch_folder_btn = batch_folder_btn
+        batch_layout.addWidget(batch_folder_btn, 1, 2)
+
+        batch_group.setLayout(batch_layout)
+        layout.addWidget(batch_group)
+
+        # 输出设置组
+        output_group = QGroupBox("输出设置")
+        output_layout = QGridLayout()
+
+        output_layout.addWidget(QLabel("无声视频名称:"), 0, 0)
+        self.mute_name_edit = LineEdit()
+        self.mute_name_edit.setPlaceholderText("输入无声视频文件名...")
+        self.mute_name_edit.setFixedHeight(35)
+        output_layout.addWidget(self.mute_name_edit, 0, 1)
+
+        mute_btn = PrimaryPushButton(FluentIcon.VIDEO, "转换无声视频")
+        mute_btn.setFixedWidth(150)
+        mute_btn.clicked.connect(lambda: self.convert_video("mute"))
+        output_layout.addWidget(mute_btn, 0, 2)
+
+        output_layout.addWidget(QLabel("音频文件名称:"), 1, 0)
+        self.audio_name_edit = LineEdit()
+        self.audio_name_edit.setPlaceholderText("输入音频文件名...")
+        self.audio_name_edit.setFixedHeight(35)
+        output_layout.addWidget(self.audio_name_edit, 1, 1)
+
+        audio_btn = PrimaryPushButton(FluentIcon.MUSIC, "提取音频")
+        audio_btn.setFixedWidth(150)
+        audio_btn.clicked.connect(lambda: self.convert_video("audio"))
+        output_layout.addWidget(audio_btn, 1, 2)
+
+        output_group.setLayout(output_layout)
+        layout.addWidget(output_group)
+
+        # 视频分割组
+        split_group = QGroupBox("视频分割")
+        split_layout = QGridLayout()
+
+        split_layout.addWidget(QLabel("片段名称:"), 0, 0)
+        self.segment_name_edit = LineEdit()
+        self.segment_name_edit.setPlaceholderText("输入视频片段名称...")
+        self.segment_name_edit.setFixedHeight(35)
+        split_layout.addWidget(self.segment_name_edit, 0, 1)
+
+        split_layout.addWidget(QLabel("分割数量:"), 1, 0)
+        self.split_count_spin = SpinBox()
+        self.split_count_spin.setRange(2, 100)
+        self.split_count_spin.setValue(3)
+        self.split_count_spin.setFixedHeight(35)
+        split_layout.addWidget(self.split_count_spin, 1, 1)
+
+        split_btn = PrimaryPushButton(FluentIcon.CUT, "分割视频")
+        split_btn.setFixedWidth(150)
+        split_btn.clicked.connect(self.split_video)
+        split_layout.addWidget(split_btn, 1, 2)
+
+        split_group.setLayout(split_layout)
+        layout.addWidget(split_group)
+
+        # 进度条
+        self.progress_bar = ProgressBar()
+        self.progress_bar.setFixedHeight(20)
+        layout.addWidget(self.progress_bar)
+
+        layout.addStretch()
+
+    def browse_video(self):
+        file_path = self.get_file_path("选择视频文件",
+            "视频文件 (*.mp4 *.mov *.avi);;所有文件 (*)")
+        if file_path:
+            self.video_path_edit.setText(file_path)
+
+    def browse_batch_folder(self):
+        folder_path = self.get_folder_path("选择批量处理文件夹")
+        if folder_path:
+            self.batch_path_edit.setText(folder_path)
+
+    def toggle_batch_mode(self, state):
+        is_checked = state == Qt.Checked
+        self.video_path_edit.setEnabled(not is_checked)
+        self.batch_path_edit.setEnabled(is_checked)
+        self.batch_folder_btn.setEnabled(is_checked)
+
+    def convert_video(self, mode):
+        if self.batch_checkbox.isChecked():
+            self.batch_convert(mode)
         else:
-            self.vc_batch_entry.config(state="disabled")
-            self.vc_batch_btn.config(state="disabled")
+            video_path = self.video_path_edit.text().strip()
+            if not video_path or not os.path.exists(video_path):
+                self.show_error("错误", "请选择有效的视频文件")
+                return
 
-    def select_vc_batch_folder(self):
-        path = filedialog.askdirectory()
-        if path:
-            self.vc_batch_entry.delete(0, tk.END)
-            self.vc_batch_entry.insert(0, path)
+            if mode == "mute":
+                output_name = self.mute_name_edit.text().strip() or "mute_video"
+            else:
+                output_name = self.audio_name_edit.text().strip() or "audio"
 
-    def create_tab1(self, frame):
-        # 常规短视频尺寸下拉菜单
+            ts = datetime.now().strftime("%Y%m%d%H%M")
+            if mode == "mute":
+                output_path = os.path.join(os.getcwd(), 'temp', f"{output_name}-{ts}.mp4")
+            else:
+                output_path = os.path.join(os.getcwd(), 'temp', f"{output_name}-{ts}.wav")
+
+            os.makedirs(os.path.dirname(output_path), exist_ok=True)
+
+            worker = VideoConversionThread(video_path, output_path, mode)
+            worker.progress_updated.connect(self.progress_bar.setValue)
+            worker.log_updated.connect(lambda msg: self.show_info("处理中", msg))
+            worker.finished.connect(self.on_conversion_finished)
+            worker.start()
+
+            self.worker_threads.append(worker)
+            self.show_info("开始处理", f"正在处理: {os.path.basename(video_path)}")
+
+    def batch_convert(self, mode):
+        folder_path = self.batch_path_edit.text().strip()
+        if not folder_path or not os.path.exists(folder_path):
+            self.show_error("错误", "请选择有效的批量处理文件夹")
+            return
+
+        video_files = [f for f in os.listdir(folder_path)
+                      if f.lower().endswith(('.mp4', '.mov', '.avi'))]
+
+        if not video_files:
+            self.show_error("错误", "文件夹中没有找到视频文件")
+            return
+
+        self.show_info("批量处理", f"找到 {len(video_files)} 个视频文件，开始处理...")
+
+        ts = datetime.now().strftime("%Y%m%d%H%M")
+        total_files = len(video_files)
+        completed = 0
+
+        for video_file in video_files:
+            video_path = os.path.join(folder_path, video_file)
+            base_name = os.path.splitext(video_file)[0]
+
+            if mode == "mute":
+                output_path = os.path.join(os.getcwd(), 'temp', f"{base_name}-mute-{ts}.mp4")
+            else:
+                output_path = os.path.join(os.getcwd(), 'temp', f"{base_name}-audio-{ts}.wav")
+
+            worker = VideoConversionThread(video_path, output_path, mode)
+            worker.progress_updated.connect(lambda v: self.update_batch_progress(v, total_files))
+            worker.log_updated.connect(lambda msg: self.show_info("处理中", msg))
+            worker.finished.connect(self.on_batch_conversion_finished)
+            worker.start()
+
+            self.worker_threads.append(worker)
+
+    def update_batch_progress(self, value, total_files):
+        # 简单的批量进度显示逻辑
+        pass
+
+    def on_conversion_finished(self, success, message):
+        if success:
+            self.show_success("完成", f"转换完成: {message}")
+        else:
+            self.show_error("错误", f"转换失败: {message}")
+        self.progress_bar.setValue(0)
+
+    def on_batch_conversion_finished(self, success, message):
+        # 批量完成逻辑
+        self.on_conversion_finished(success, message)
+
+    def split_video(self):
+        video_path = self.video_path_edit.text().strip()
+        segment_name = self.segment_name_edit.text().strip() or "segment"
+        count = self.split_count_spin.value()
+
+        if not video_path or not os.path.exists(video_path):
+            self.show_error("错误", "请选择有效的视频文件")
+            return
+
+        # 这里实现视频分割逻辑
+        self.show_info("功能开发中", "视频分割功能正在开发中...")
+
+class ImageToVideoPage(BasePage):
+    """图片转视频页面"""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.init_ui()
+
+    def init_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setSpacing(20)
+
+        # 标题
+        title = SubtitleLabel("🖼️ 图片转视频")
+        title.setFont(TITLE_FONT)
+        layout.addWidget(title)
+
+        # 图片选择组
+        image_group = QGroupBox("图片设置")
+        image_layout = QGridLayout()
+
+        image_layout.addWidget(QLabel("图片文件:"), 0, 0)
+        self.image_path_edit = LineEdit()
+        self.image_path_edit.setPlaceholderText("选择单个图片文件...")
+        self.image_path_edit.setFixedHeight(35)
+        image_layout.addWidget(self.image_path_edit, 0, 1)
+
+        image_btn = PushButton(FluentIcon.IMAGE, "浏览")
+        image_btn.setFixedWidth(80)
+        image_btn.clicked.connect(self.browse_image)
+        image_layout.addWidget(image_btn, 0, 2)
+
+        # 批量模式
+        self.batch_checkbox = CheckBox("批量处理")
+        self.batch_checkbox.stateChanged.connect(self.toggle_batch_mode)
+        image_layout.addWidget(self.batch_checkbox, 1, 0)
+
+        image_layout.addWidget(QLabel("批量文件夹:"), 2, 0)
+        self.batch_folder_edit = LineEdit()
+        self.batch_folder_edit.setPlaceholderText("选择包含图片的文件夹...")
+        self.batch_folder_edit.setFixedHeight(35)
+        self.batch_folder_edit.setEnabled(False)
+        image_layout.addWidget(self.batch_folder_edit, 2, 1)
+
+        batch_folder_btn = PushButton(FluentIcon.FOLDER, "选择")
+        batch_folder_btn.setFixedWidth(80)
+        batch_folder_btn.clicked.connect(self.browse_batch_folder)
+        batch_folder_btn.setEnabled(False)
+        self.batch_folder_btn = batch_folder_btn
+        image_layout.addWidget(batch_folder_btn, 2, 2)
+
+        image_group.setLayout(image_layout)
+        layout.addWidget(image_group)
+
+        # 视频设置组
+        video_group = QGroupBox("视频设置")
+        video_layout = QGridLayout()
+
+        # 视频尺寸预设
+        video_layout.addWidget(QLabel("视频尺寸:"), 0, 0)
+        self.size_combo = ComboBox()
         size_options = [
             "1:1 (1240x1240)", "3:4 (1080x1440)", "4:3 (1440x1080)",
-            "9:16 (900x1600)", "16:9 (1600x900)",
-            "1:2 (870x1740)", "2:1 (1740x870)", "1:3 (720x2160)",
-            "3:1 (2160x720)", "2:3 (960x1440)", "3:2 (1440x960)",
-            "2:5 (720x1800)", "5:2 (1800x720)", "3:5 (960x1600)",
-            "5:3 (1600x960)", "4:5 (1080x1350)", "5:4 (1350x1080)"
+            "9:16 (900x1600)", "16:9 (1600x900)", "1:2 (870x1740)",
+            "2:1 (1740x870)", "自定义"
         ]
-        self.size_var = tk.StringVar()
-        self.size_var.set(size_options[0])
-        size_menu = tb.Combobox(frame, textvariable=self.size_var, values=size_options, width=15, font=ENTRY_FONT, state="readonly")
-        # 图片路径
-        img_label = tb.Label(frame, text="图片路径：", font=LABEL_FONT)
-        self.img_entry = tb.Entry(frame, font=ENTRY_FONT, width=50)
-        img_btn = tb.Button(frame, text="浏览单张图片", command=self.select_image)
-        # 图片停留秒数和视频尺寸同一行
-        dur_label = tb.Label(frame, text="停留秒数：", font=LABEL_FONT)
-        self.dur_entry = tb.Entry(frame, font=ENTRY_FONT, width=50)
-        self.dur_entry.insert(0, "6")
-        size_label = tb.Label(frame, text="视频宽高：", font=LABEL_FONT)
-        self.size_entry = tb.Entry(frame, font=ENTRY_FONT, width=17)
-        self.size_entry.insert(0, "1080x1920")
-        # 批量图片文件夹
-        batch_label = tb.Label(frame, text="批量文件夹：", font=LABEL_FONT)
-        self.batch_entry = tb.Entry(frame, font=ENTRY_FONT, width=50, state="disabled")
-        self.batch_btn = tb.Button(frame, text="选择文件夹", command=self.select_folder, state="disabled")
-        self.batch_var = tk.BooleanVar()
-        self.batch_switch = tb.Checkbutton(frame, text="批量模式", variable=self.batch_var, command=self.toggle_batch)
+        self.size_combo.addItems(size_options)
+        self.size_combo.setCurrentIndex(3)  # 默认9:16
+        self.size_combo.currentTextChanged.connect(self.on_size_changed)
+        self.size_combo.setFixedHeight(35)
+        video_layout.addWidget(self.size_combo, 0, 1)
+
+        video_layout.addWidget(QLabel("自定义尺寸:"), 1, 0)
+        self.size_edit = LineEdit()
+        self.size_edit.setText("900x1600")
+        self.size_edit.setPlaceholderText("宽x高 (如 1920x1080)")
+        self.size_edit.setFixedHeight(35)
+        video_layout.addWidget(self.size_edit, 1, 1)
+
+        video_layout.addWidget(QLabel("停留时长(秒):"), 2, 0)
+        self.duration_spin = SpinBox()
+        self.duration_spin.setRange(1, 60)
+        self.duration_spin.setValue(6)
+        self.duration_spin.setFixedHeight(35)
+        video_layout.addWidget(self.duration_spin, 2, 1)
+
+        video_group.setLayout(video_layout)
+        layout.addWidget(video_group)
+
         # 生成按钮
-        gen_btn = tb.Button(frame, text="生成视频片段", bootstyle=SUCCESS, width=20, command=self.generate_video_from_image)
+        generate_btn = PrimaryPushButton(FluentIcon.PLAY, "生成视频片段")
+        generate_btn.setFixedHeight(45)
+        generate_btn.clicked.connect(self.generate_video)
+        layout.addWidget(generate_btn)
 
-        # 布局
-        img_label.grid(row=0, column=1, sticky=tk.W, pady=8, padx=8)
-        self.img_entry.grid(row=0, column=2, pady=8, padx=8)
-        img_btn.grid(row=0, column=3, padx=8)
-        dur_label.grid(row=1, column=1, sticky=tk.W, pady=8, padx=(8,0))
-        self.dur_entry.grid(row=1, column=2, sticky=tk.W, pady=8, padx=(2,2))
-        size_label.grid(row=1, column=3, sticky=tk.W, pady=8, padx=(8,0))
-        self.size_entry.grid(row=1, column=4, sticky=tk.W, pady=8, padx=(2,2))
-        # 批量文件夹和尺寸下拉菜单同一行
-        batch_label.grid(row=2, column=1, sticky=tk.W, pady=8, padx=8)
-        self.batch_entry.grid(row=2, column=2, pady=8, padx=8)
-        self.batch_btn.grid(row=2, column=3, padx=8)
-        size_menu.grid(row=2, column=4, sticky=tk.W, pady=8, padx=(8,0))
-        # 批量模式和生成按钮同一行
-        self.batch_switch.grid(row=3, column=1, sticky=tk.W, pady=20, padx=(8,0))
-        gen_btn.grid(row=3, column=2, pady=20, padx=(8,0))
+        # 进度条
+        self.progress_bar = ProgressBar()
+        self.progress_bar.setFixedHeight(20)
+        layout.addWidget(self.progress_bar)
 
-        size_menu.bind("<<ComboboxSelected>>", self.on_size_select)
+        layout.addStretch()
 
-    def on_size_select(self, event):
-        # 选中下拉菜单后自动填充尺寸输入框
-        text = self.size_var.get()
-        match = re.search(r'\((\d+x\d+)\)', text)
-        if match:
-            self.size_entry.delete(0, tk.END)
-            self.size_entry.insert(0, match.group(1))
+    def browse_image(self):
+        file_path = self.get_file_path("选择图片文件",
+            "图片文件 (*.png *.jpg *.jpeg *.bmp);;所有文件 (*)")
+        if file_path:
+            self.image_path_edit.setText(file_path)
 
-    def toggle_batch(self):
-        if self.batch_var.get():
-            self.batch_entry.config(state="normal")
-            self.batch_btn.config(state="normal")
+    def browse_batch_folder(self):
+        folder_path = self.get_folder_path("选择图片文件夹")
+        if folder_path:
+            self.batch_folder_edit.setText(folder_path)
+
+    def toggle_batch_mode(self, state):
+        is_checked = state == Qt.Checked
+        self.image_path_edit.setEnabled(not is_checked)
+        self.batch_folder_edit.setEnabled(is_checked)
+        self.batch_folder_btn.setEnabled(is_checked)
+
+    def on_size_changed(self, text):
+        if text == "自定义":
+            self.size_edit.setEnabled(True)
         else:
-            self.batch_entry.config(state="disabled")
-            self.batch_btn.config(state="disabled")
+            match = re.search(r'\((\d+x\d+)\)', text)
+            if match:
+                self.size_edit.setText(match.group(1))
+            self.size_edit.setEnabled(False)
 
-    def select_image(self):
-        path = filedialog.askopenfilename(
-            filetypes=[
-                ("PNG图片", "*.png"),
-                ("JPG图片", "*.jpg"),
-                ("JPEG图片", "*.jpeg"),
-                ("BMP图片", "*.bmp"),
-                ("所有图片", "*.*")
-            ]
-        )
-        if path:
-            self.img_entry.delete(0, tk.END)
-            self.img_entry.insert(0, path)
+    def generate_video(self):
+        if self.batch_checkbox.isChecked():
+            self.batch_generate_video()
+        else:
+            image_path = self.image_path_edit.text().strip()
+            if not image_path or not os.path.exists(image_path):
+                self.show_error("错误", "请选择有效的图片文件")
+                return
 
-    def select_folder(self):
-        path = filedialog.askdirectory()
-        if path:
-            self.batch_entry.delete(0, tk.END)
-            self.batch_entry.insert(0, path)
+            self.generate_single_video(image_path)
 
-    def create_tab2(self, frame):
-        # 视频封面文件
-        cover_label = tb.Label(frame, text="封面文件：", font=LABEL_FONT)
-        cover_label.grid(row=0, column=0, sticky=tk.W, pady=8, padx=8)
-        self.cover_entry = tb.Entry(frame, font=ENTRY_FONT, width=65)
-        self.cover_entry.grid(row=0, column=1, pady=8, padx=8)
-        cover_btn = tb.Button(frame, text="选择封面文件", command=self.select_cover)
-        cover_btn.grid(row=0, column=2, padx=8)
+    def generate_single_video(self, image_path):
+        size = self.size_edit.text().strip()
+        duration = self.duration_spin.value()
 
-        # 视频片段文件夹
-        v_label = tb.Label(frame, text="片段文件夹：", font=LABEL_FONT)
-        v_label.grid(row=1, column=0, sticky=tk.W, pady=8, padx=8)
-        self.v_entry = tb.Entry(frame, font=ENTRY_FONT, width=65)
-        self.v_entry.grid(row=1, column=1, pady=8, padx=8)
-        v_btn = tb.Button(frame, text="选择 文件夹", command=self.select_video_folder)
-        v_btn.grid(row=1, column=2, padx=8)
-
-        # 音频文件
-        a_label = tb.Label(frame, text="音频文件路径：", font=LABEL_FONT)
-        a_label.grid(row=2, column=0, sticky=tk.W, pady=8, padx=8)
-        self.a_entry = tb.Entry(frame, font=ENTRY_FONT, width=65)
-        self.a_entry.grid(row=2, column=1, pady=8, padx=8)
-        a_btn = tb.Button(frame, text="选择音频文件", command=self.select_audio)
-        a_btn.grid(row=2, column=2, padx=8)
-
-        # 新视频名称和合并按钮同一行
-        name_label = tb.Label(frame, text="设定视频名：", font=LABEL_FONT)
-        name_label.grid(row=3, column=0, sticky=tk.W, pady=8, padx=8)
-        self.name_entry = tb.Entry(frame, font=ENTRY_FONT, width=65)
-        self.name_entry.grid(row=3, column=1, sticky=tk.W, pady=8, padx=8)
-        merge_btn = tb.Button(frame, text="合并新视频", bootstyle=SUCCESS, width=9, command=self.merge_videos_with_audio)
-        merge_btn.grid(row=3, column=2, pady=8, padx=8)
-
-        # 插入横线
-        sep = tb.Separator(frame, orient='horizontal')
-        sep.grid(row=4, column=0, columnspan=3, sticky='ew', pady=16)
-
-        # 滤镜功能
-        # 第五行：缩放动画
-        zoom_to_label = tb.Label(frame, text="缩放结束值：", font=LABEL_FONT)
-        zoom_to_label.grid(row=5, column=0, sticky=tk.W, pady=8, padx=(8,2))
-        self.zoom_to_entry = tb.Entry(frame, font=ENTRY_FONT, width=65, state="disabled")
-        self.zoom_to_entry.insert(0, "1.2")
-        self.zoom_to_entry.grid(row=5, column=1, sticky=tk.W, pady=8, padx=(8,2))
-        self.zoom_var = tk.BooleanVar()
-        zoom_check = tb.Checkbutton(frame, text="缩放动画", variable=self.zoom_var, command=self.toggle_zoom_controls)
-        zoom_check.grid(row=5, column=2, sticky=tk.E, pady=8, padx=8)
-
-        # 第六行：滤镜类型选择
-        filter_label = tb.Label(frame, text="缩放滤镜类型：", font=LABEL_FONT)
-        filter_label.grid(row=6, column=0, sticky=tk.W, pady=8, padx=8)
-        self.filter_var = tk.StringVar()
-        self.filter_var.set("无")
-        filter_options = ["scale+zoom", "scale+zoompan", "无"]
-        self.filter_menu = tb.Combobox(frame, textvariable=self.filter_var, values=filter_options, width=63, font=ENTRY_FONT, state="disabled")
-        self.filter_menu.grid(row=6, column=1, pady=8, padx=8)
-
-        # 合并缩放滤镜视频按钮放在滤镜类型右边
-        self.merge_all_btn = tb.Button(frame, text="合并缩放视频", bootstyle=SUCCESS, width=9, command=self.merge_all_videos_with_filters, state="disabled")
-        self.merge_all_btn.grid(row=6, column=2, pady=8, padx=8)
-
-    def toggle_zoom_controls(self):
-        # 勾选缩放动画时，启用缩放结束值、滤镜类型、合并按钮，否则禁用
-        state = "normal" if self.zoom_var.get() else "disabled"
-        self.zoom_to_entry.config(state=state)
-        self.filter_menu.config(state=state)
-        self.merge_all_btn.config(state=state)
-
-    def select_cover(self):
-        path = filedialog.askopenfilename(
-            filetypes=[
-                ("PNG图片", "*.png"),
-                ("JPG图片", "*.jpg"),
-                ("JPEG图片", "*.jpeg"),
-                ("BMP图片", "*.bmp"),
-                ("所有图片", "*.*")
-            ]
-        )
-        if path:
-            self.cover_entry.delete(0, tk.END)
-            self.cover_entry.insert(0, path)
-
-    def select_video_folder(self):
-        path = filedialog.askdirectory()
-        if path:
-            self.v_entry.delete(0, tk.END)
-            self.v_entry.insert(0, path)
-
-    def select_audio(self):
-        path = filedialog.askopenfilename(
-            filetypes=[
-                ("MP3音频", "*.mp3"),
-                ("WAV音频", "*.wav"),
-                ("AAC音频", "*.aac"),
-                ("FLAC音频", "*.flac"),
-                ("所有音频", "*.*")
-            ]
-        )
-        if path:
-            self.a_entry.delete(0, tk.END)
-            self.a_entry.insert(0, path)
-
-    def create_tab3(self, frame):
-        # 音频文件
-        audio_label = tb.Label(frame, text="音频文件路径：", font=LABEL_FONT)
-        audio_label.grid(row=0, column=0, sticky=tk.W, pady=8, padx=8)
-        self.audio_entry = tb.Entry(frame, font=ENTRY_FONT, width=65)
-        self.audio_entry.grid(row=0, column=1, pady=8, padx=8)
-        audio_btn = tb.Button(frame, text="选择Mp3音频文件", command=self.select_audio3)
-        audio_btn.grid(row=0, column=2, padx=8)
-
-        # 新音频文本名和生成按钮同一行
-        srt_label = tb.Label(frame, text="设定TXT名称：", font=LABEL_FONT)
-        srt_label.grid(row=1, column=0, sticky=tk.W, pady=8, padx=8)
-        self.srt_entry = tb.Entry(frame, font=ENTRY_FONT, width=65)
-        self.srt_entry.grid(row=1, column=1, sticky=tk.W, pady=8, padx=8)
-        gen_btn = tb.Button(frame, text="生成文本", bootstyle=SUCCESS, width=12, command=self.generate_txt_from_audio)
-        gen_btn.grid(row=1, column=2, pady=8, padx=8)
-
-        # --- 新增whisper.cpp本地SRT生成 ---
-        # 分割线
-        sep = tb.Separator(frame, orient='horizontal')
-        sep.grid(row=2, column=0, columnspan=3, sticky='ew', pady=16)
-
-        # 本地whisper.cpp字幕文件名输入
-        local_srt_label = tb.Label(frame, text="字幕文件名：", font=LABEL_FONT)
-        local_srt_label.grid(row=3, column=0, sticky=tk.W, pady=8, padx=8)
-        self.local_srt_entry = tb.Entry(frame, font=ENTRY_FONT, width=65)
-        self.local_srt_entry.grid(row=3, column=1, sticky=tk.W, pady=8, padx=8)
-        # ml参数输入框（无标题，宽20，默认30）
-        self.ml_entry = tb.Entry(frame, font=ENTRY_FONT, width=12)
-        self.ml_entry.insert(0, "30")
-        self.ml_entry.grid(row=3, column=2, sticky=tk.W, pady=8, padx=8)
-
-        # 本地生成按钮
-        local_gen_btn = tb.Button(frame, text="按字符长度 生成字幕", bootstyle=SUCCESS, width=30, command=self.generate_srt_with_whisper)
-        local_gen_btn.grid(row=4, column=1, pady=16)
-
-    def select_audio3(self):
-        path = filedialog.askopenfilename(
-            filetypes=[
-                ("MP3音频", "*.mp3"),
-                ("WAV音频", "*.wav"),
-                ("AAC音频", "*.aac"),
-                ("FLAC音频", "*.flac"),
-                ("所有音频", "*.*")
-            ]
-        )
-        if path:
-            self.audio_entry.delete(0, tk.END)
-            self.audio_entry.insert(0, path)
-
-    def create_tab3_5(self, frame):
-        # 第一行：选择SRT字幕文件
-        srt_label = tb.Label(frame, text="SRT字幕路径：", font=LABEL_FONT)
-        srt_label.grid(row=0, column=0, sticky=tk.W, pady=8, padx=8)
-        self.srt2txt_entry = tb.Entry(frame, font=ENTRY_FONT, width=65)
-        self.srt2txt_entry.grid(row=0, column=1, pady=8, padx=8)
-        srt_btn = tb.Button(frame, text="选择SRT文件", command=self.select_srt2txt)
-        srt_btn.grid(row=0, column=2, padx=8)
-
-        # 第二行：TXT文件名和生成按钮
-        txt_label = tb.Label(frame, text="设定TXT名称：", font=LABEL_FONT)
-        txt_label.grid(row=1, column=0, sticky=tk.W, pady=8, padx=8)
-        self.txtname_entry = tb.Entry(frame, font=ENTRY_FONT, width=65)
-        self.txtname_entry.grid(row=1, column=1, pady=8, padx=8)
-        gen_btn = tb.Button(frame, text="保存文本", bootstyle=SUCCESS, width=10, command=self.srt_to_txt)
-        gen_btn.grid(row=1, column=2, padx=8)
-
-        # 新增：横线
-        sep = tb.Separator(frame, orient='horizontal')
-        sep.grid(row=2, column=0, columnspan=3, sticky='ew', pady=16)
-
-        # 新增：翻译SRT功能
-        trans_label = tb.Label(frame, text="翻译SRT名称：", font=LABEL_FONT)
-        trans_label.grid(row=3, column=0, sticky=tk.W, pady=8, padx=8)
-        self.trans_srt_entry = tb.Entry(frame, font=ENTRY_FONT, width=65)
-        self.trans_srt_entry.grid(row=3, column=1, pady=8, padx=8, sticky=tk.W)
-        self.trans_lang_var = tk.StringVar()
-        self.trans_lang_var.set("英文")
-        lang_options = [
-            "中文", "英文", "繁体中文", "韩语", "日语", "俄语", "德语", "法语", "阿拉伯语", "越南语", "印地语", "西班牙语", "葡萄牙语"
-        ]
-        trans_lang_menu = tb.Combobox(frame, textvariable=self.trans_lang_var, values=lang_options, width=8, font=ENTRY_FONT, state="readonly")
-        trans_lang_menu.grid(row=3, column=2, pady=8, padx=8, sticky=tk.W)
-
-        # 新增：翻译按钮
-        trans_btn = tb.Button(frame, text="按语言翻译SRT文件", bootstyle=SUCCESS, width=30, command=self.translate_srt_file)
-        trans_btn.grid(row=4, column=0, columnspan=3, pady=18)
-        trans_btn.grid_configure(sticky='n')
-
-    def select_srt2txt(self):
-        path = filedialog.askopenfilename(
-            filetypes=[
-                ("SRT字幕", "*.srt"),
-                ("所有文件", "*.*")
-            ]
-        )
-        if path:
-            self.srt2txt_entry.delete(0, tk.END)
-            self.srt2txt_entry.insert(0, path)
-
-    def srt_to_txt(self):
-        srt_path = self.srt2txt_entry.get()
-        txt_name = self.txtname_entry.get().strip() or "subtitle.txt"
-        txt_dir = os.path.join(os.getcwd(), 'SRT')
-        os.makedirs(txt_dir, exist_ok=True)
-        if not os.path.isfile(srt_path):
-            messagebox.showerror("错误", "请选择SRT字幕文件")
-            print("[错误] SRT字幕文件无效")
+        if not re.match(r'\d+x\d+', size):
+            self.show_error("错误", "请输入正确的尺寸格式 (如 1920x1080)")
             return
-        txt_path = os.path.join(txt_dir, txt_name if txt_name.endswith('.txt') else txt_name + '.txt')
-        # 检测编码
-        with open(srt_path, 'rb') as f:
-            raw = f.read()
-            detect_result = chardet.detect(raw)
-            enc = detect_result['encoding'] or 'utf-8'
-            print(f"[字幕转文本] 检测到SRT编码: {enc}")
-        lines = []
-        for line in raw.decode(enc, errors='replace').splitlines():
-            line = line.strip()
-            if line.isdigit():
-                continue
-            if re.match(r"\d{2}:\d{2}:\d{2},\d{3} --> \d{2}:\d{2}:\d{2},\d{3}", line):
-                continue
-            if not line:
-                continue
-            lines.append(line)
-        merged_text = ''.join(lines)
-        with open(txt_path, 'w', encoding='utf-8') as f:
-            f.write(merged_text)
-        print(f"[字幕转文本] TXT文本已保存到: {txt_path}")
+
+        temp_dir = os.path.join(os.getcwd(), 'temp')
+        os.makedirs(temp_dir, exist_ok=True)
+
+        img_name = os.path.splitext(os.path.basename(image_path))[0]
+        output_path = os.path.join(temp_dir, f"{img_name}.mp4")
+
+        worker = ImageToVideoThread(image_path, output_path, size, duration)
+        worker.progress_updated.connect(self.progress_bar.setValue)
+        worker.log_updated.connect(lambda msg: self.show_info("处理中", msg))
+        worker.finished.connect(self.on_generation_finished)
+        worker.start()
+
+        self.worker_threads.append(worker)
+        self.show_info("开始生成", f"正在生成视频: {os.path.basename(image_path)}")
+
+    def batch_generate_video(self):
+        folder_path = self.batch_folder_edit.text().strip()
+        if not folder_path or not os.path.exists(folder_path):
+            self.show_error("错误", "请选择有效的图片文件夹")
+            return
+
+        image_files = [f for f in os.listdir(folder_path)
+                      if f.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp'))]
+
+        if not image_files:
+            self.show_error("错误", "文件夹中没有找到图片文件")
+            return
+
+        self.show_info("批量处理", f"找到 {len(image_files)} 个图片文件，开始处理...")
+
+        for image_file in image_files:
+            image_path = os.path.join(folder_path, image_file)
+            self.generate_single_video(image_path)
+
+    def on_generation_finished(self, success, message):
+        if success:
+            self.show_success("完成", f"视频生成完成: {message}")
+        else:
+            self.show_error("错误", f"视频生成失败: {message}")
+        self.progress_bar.setValue(0)
+
+class MergeVideoAudioPage(BasePage):
+    """合并视频与音频页面"""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.init_ui()
+
+    def init_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setSpacing(20)
+
+        # 标题
+        title = SubtitleLabel("🎵 合并视频与音频")
+        title.setFont(TITLE_FONT)
+        layout.addWidget(title)
+
+        # 文件选择组
+        file_group = QGroupBox("文件选择")
+        file_layout = QGridLayout()
+
+        file_layout.addWidget(QLabel("封面文件:"), 0, 0)
+        self.cover_path_edit = LineEdit()
+        self.cover_path_edit.setPlaceholderText("选择封面图片文件 (可选)...")
+        self.cover_path_edit.setFixedHeight(35)
+        file_layout.addWidget(self.cover_path_edit, 0, 1)
+
+        cover_btn = PushButton(FluentIcon.IMAGE, "浏览")
+        cover_btn.setFixedWidth(80)
+        cover_btn.clicked.connect(lambda: self.browse_file("cover"))
+        file_layout.addWidget(cover_btn, 0, 2)
+
+        file_layout.addWidget(QLabel("视频片段文件夹:"), 1, 0)
+        self.video_folder_edit = LineEdit()
+        self.video_folder_edit.setPlaceholderText("选择包含视频片段的文件夹...")
+        self.video_folder_edit.setFixedHeight(35)
+        file_layout.addWidget(self.video_folder_edit, 1, 1)
+
+        video_folder_btn = PushButton(FluentIcon.FOLDER, "选择")
+        video_folder_btn.setFixedWidth(80)
+        video_folder_btn.clicked.connect(lambda: self.browse_file("video_folder"))
+        file_layout.addWidget(video_folder_btn, 1, 2)
+
+        file_layout.addWidget(QLabel("音频文件:"), 2, 0)
+        self.audio_path_edit = LineEdit()
+        self.audio_path_edit.setPlaceholderText("选择音频文件...")
+        self.audio_path_edit.setFixedHeight(35)
+        file_layout.addWidget(self.audio_path_edit, 2, 1)
+
+        audio_btn = PushButton(FluentIcon.MUSIC, "浏览")
+        audio_btn.setFixedWidth(80)
+        audio_btn.clicked.connect(lambda: self.browse_file("audio"))
+        file_layout.addWidget(audio_btn, 2, 2)
+
+        file_group.setLayout(file_layout)
+        layout.addWidget(file_group)
+
+        # 合并设置组
+        merge_group = QGroupBox("合并设置")
+        merge_layout = QGridLayout()
+
+        merge_layout.addWidget(QLabel("输出视频名:"), 0, 0)
+        self.output_name_edit = LineEdit()
+        self.output_name_edit.setPlaceholderText("输入输出视频名称...")
+        self.output_name_edit.setFixedHeight(35)
+        merge_layout.addWidget(self.output_name_edit, 0, 1)
+
+        # 缩放动画设置
+        self.zoom_checkbox = CheckBox("启用缩放动画")
+        self.zoom_checkbox.stateChanged.connect(self.toggle_zoom_controls)
+        merge_layout.addWidget(self.zoom_checkbox, 1, 0)
+
+        merge_layout.addWidget(QLabel("缩放结束值:"), 2, 0)
+        self.zoom_end_spin = QDoubleSpinBox()
+        self.zoom_end_spin.setRange(1.0, 5.0)
+        self.zoom_end_spin.setValue(1.2)
+        self.zoom_end_spin.setSingleStep(0.1)
+        self.zoom_end_spin.setEnabled(False)
+        merge_layout.addWidget(self.zoom_end_spin, 2, 1)
+
+        merge_layout.addWidget(QLabel("滤镜类型:"), 3, 0)
+        self.filter_combo = ComboBox()
+        self.filter_combo.addItems(["scale+zoom", "scale+zoompan", "无"])
+        self.filter_combo.setEnabled(False)
+        merge_layout.addWidget(self.filter_combo, 3, 1)
+
+        merge_group.setLayout(merge_layout)
+        layout.addWidget(merge_group)
+
+        # 操作按钮
+        btn_layout = QHBoxLayout()
+
+        merge_btn = PrimaryPushButton(FluentIcon.MERGE, "基础合并")
+        merge_btn.setFixedHeight(45)
+        merge_btn.clicked.connect(self.merge_videos)
+        btn_layout.addWidget(merge_btn)
+
+        zoom_merge_btn = PrimaryPushButton(FluentIcon.FULL_SCREEN, "缩放合并")
+        zoom_merge_btn.setFixedHeight(45)
+        zoom_merge_btn.clicked.connect(self.merge_with_zoom)
+        zoom_merge_btn.setEnabled(False)
+        self.zoom_merge_btn = zoom_merge_btn
+        btn_layout.addWidget(zoom_merge_btn)
+
+        layout.addLayout(btn_layout)
+
+        # 进度条
+        self.progress_bar = ProgressBar()
+        self.progress_bar.setFixedHeight(20)
+        layout.addWidget(self.progress_bar)
+
+        layout.addStretch()
+
+    def browse_file(self, file_type):
+        if file_type == "cover":
+            file_path = self.get_file_path("选择封面文件",
+                "图片文件 (*.png *.jpg *.jpeg *.bmp);;所有文件 (*)")
+            if file_path:
+                self.cover_path_edit.setText(file_path)
+        elif file_type == "video_folder":
+            folder_path = self.get_folder_path("选择视频片段文件夹")
+            if folder_path:
+                self.video_folder_edit.setText(folder_path)
+        elif file_type == "audio":
+            file_path = self.get_file_path("选择音频文件",
+                "音频文件 (*.mp3 *.wav *.aac *.flac);;所有文件 (*)")
+            if file_path:
+                self.audio_path_edit.setText(file_path)
+
+    def toggle_zoom_controls(self, state):
+        is_checked = state == Qt.Checked
+        self.zoom_end_spin.setEnabled(is_checked)
+        self.filter_combo.setEnabled(is_checked)
+        self.zoom_merge_btn.setEnabled(is_checked)
+
+    def merge_videos(self):
+        video_folder = self.video_folder_edit.text().strip()
+        audio_path = self.audio_path_edit.text().strip()
+        output_name = self.output_name_edit.text().strip() or "output"
+
+        if not video_folder or not audio_path:
+            self.show_error("错误", "请选择视频文件夹和音频文件")
+            return
+
+        # 这里实现基础合并逻辑
+        self.show_info("功能开发中", "基础合并功能正在开发中...")
+
+    def merge_with_zoom(self):
+        video_folder = self.video_folder_edit.text().strip()
+        audio_path = self.audio_path_edit.text().strip()
+        output_name = self.output_name_edit.text().strip() or "output"
+        zoom_end = self.zoom_end_spin.value()
+        filter_type = self.filter_combo.currentText()
+
+        if not video_folder or not audio_path:
+            self.show_error("错误", "请选择视频文件夹和音频文件")
+            return
+
+        # 这里实现缩放合并逻辑
+        self.show_info("功能开发中", "缩放合并功能正在开发中...")
+
+class SubtitleGenerationPage(BasePage):
+    """字幕生成页面"""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.init_ui()
+
+    def init_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setSpacing(20)
+
+        # 标题
+        title = SubtitleLabel("📝 生成字幕文件")
+        title.setFont(TITLE_FONT)
+        layout.addWidget(title)
+
+        # 音频文件选择
+        audio_group = QGroupBox("音频文件")
+        audio_layout = QGridLayout()
+
+        audio_layout.addWidget(QLabel("音频文件:"), 0, 0)
+        self.audio_path_edit = LineEdit()
+        self.audio_path_edit.setPlaceholderText("选择音频文件...")
+        self.audio_path_edit.setFixedHeight(35)
+        audio_layout.addWidget(self.audio_path_edit, 0, 1)
+
+        audio_btn = PushButton(FluentIcon.MUSIC, "浏览")
+        audio_btn.setFixedWidth(80)
+        audio_btn.clicked.connect(self.browse_audio)
+        audio_layout.addWidget(audio_btn, 0, 2)
+
+        audio_group.setLayout(audio_layout)
+        layout.addWidget(audio_group)
+
+        # 字幕生成设置
+        srt_group = QGroupBox("字幕设置")
+        srt_layout = QGridLayout()
+
+        srt_layout.addWidget(QLabel("字幕文件名:"), 0, 0)
+        self.srt_name_edit = LineEdit()
+        self.srt_name_edit.setPlaceholderText("输入字幕文件名...")
+        self.srt_name_edit.setFixedHeight(35)
+        srt_layout.addWidget(self.srt_name_edit, 0, 1)
+
+        srt_layout.addWidget(QLabel("每行字符数:"), 1, 0)
+        self.char_count_spin = SpinBox()
+        self.char_count_spin.setRange(10, 100)
+        self.char_count_spin.setValue(30)
+        self.char_count_spin.setFixedHeight(35)
+        srt_layout.addWidget(self.char_count_spin, 1, 1)
+
+        srt_group.setLayout(srt_layout)
+        layout.addWidget(srt_group)
+
+        # 生成按钮
+        generate_btn = PrimaryPushButton(FluentIcon.DOCUMENT, "生成字幕文件")
+        generate_btn.setFixedHeight(45)
+        generate_btn.clicked.connect(self.generate_subtitle)
+        layout.addWidget(generate_btn)
+
+        # 进度条
+        self.progress_bar = ProgressBar()
+        self.progress_bar.setFixedHeight(20)
+        layout.addWidget(self.progress_bar)
+
+        layout.addStretch()
+
+    def browse_audio(self):
+        file_path = self.get_file_path("选择音频文件",
+            "音频文件 (*.mp3 *.wav *.aac *.flac);;所有文件 (*)")
+        if file_path:
+            self.audio_path_edit.setText(file_path)
+
+    def generate_subtitle(self):
+        audio_path = self.audio_path_edit.text().strip()
+        srt_name = self.srt_name_edit.text().strip() or "subtitle"
+        char_count = self.char_count_spin.value()
+
+        if not audio_path or not os.path.exists(audio_path):
+            self.show_error("错误", "请选择有效的音频文件")
+            return
+
+        srt_dir = os.path.join(os.getcwd(), 'SRT')
+        os.makedirs(srt_dir, exist_ok=True)
+
+        ts = datetime.now().strftime("%Y%m%d%H%M")
+        output_path = os.path.join(srt_dir, f"{srt_name}-{ts}.srt")
+
+        worker = SRTGenerationThread(audio_path, output_path, char_count)
+        worker.progress_updated.connect(self.progress_bar.setValue)
+        worker.log_updated.connect(lambda msg: self.show_info("处理中", msg))
+        worker.finished.connect(self.on_subtitle_finished)
+        worker.start()
+
+        self.worker_threads.append(worker)
+        self.show_info("开始生成", f"正在生成字幕: {os.path.basename(audio_path)}")
+
+    def on_subtitle_finished(self, success, message):
+        if success:
+            self.show_success("完成", f"字幕生成完成: {message}")
+        else:
+            self.show_error("错误", f"字幕生成失败: {message}")
+        self.progress_bar.setValue(0)
+
+class SubtitleTextPage(BasePage):
+    """字幕转文本页面"""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.init_ui()
+
+    def init_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setSpacing(20)
+
+        # 标题
+        title = SubtitleLabel("📄 字幕转文本")
+        title.setFont(TITLE_FONT)
+        layout.addWidget(title)
+
+        # SRT文件选择组
+        srt_group = QGroupBox("SRT字幕文件")
+        srt_layout = QGridLayout()
+
+        srt_layout.addWidget(QLabel("SRT文件路径:"), 0, 0)
+        self.srt_path_edit = LineEdit()
+        self.srt_path_edit.setPlaceholderText("选择SRT字幕文件...")
+        self.srt_path_edit.setFixedHeight(35)
+        srt_layout.addWidget(self.srt_path_edit, 0, 1)
+
+        srt_btn = PushButton(FluentIcon.DOCUMENT, "浏览")
+        srt_btn.setFixedWidth(80)
+        srt_btn.clicked.connect(self.browse_srt)
+        srt_layout.addWidget(srt_btn, 0, 2)
+
+        srt_group.setLayout(srt_layout)
+        layout.addWidget(srt_group)
+
+        # 输出设置组
+        output_group = QGroupBox("输出设置")
+        output_layout = QGridLayout()
+
+        output_layout.addWidget(QLabel("TXT文件名:"), 0, 0)
+        self.txt_name_edit = LineEdit()
+        self.txt_name_edit.setPlaceholderText("输入输出文本文件名...")
+        self.txt_name_edit.setFixedHeight(35)
+        output_layout.addWidget(self.txt_name_edit, 0, 1)
+
+        convert_btn = PrimaryPushButton(FluentIcon.DOWNLOAD, "保存为文本")
+        convert_btn.setFixedWidth(150)
+        convert_btn.clicked.connect(self.convert_srt_to_text)
+        output_layout.addWidget(convert_btn, 0, 2)
+
+        output_group.setLayout(output_layout)
+        layout.addWidget(output_group)
+
+        # 翻译功能组
+        translate_group = QGroupBox("翻译功能")
+        translate_layout = QGridLayout()
+
+        translate_layout.addWidget(QLabel("翻译SRT名称:"), 0, 0)
+        self.translate_name_edit = LineEdit()
+        self.translate_name_edit.setPlaceholderText("输入翻译后SRT文件名...")
+        self.translate_name_edit.setFixedHeight(35)
+        translate_layout.addWidget(self.translate_name_edit, 0, 1)
+
+        translate_layout.addWidget(QLabel("目标语言:"), 1, 0)
+        self.language_combo = ComboBox()
+        language_options = [
+            "英文", "中文", "繁体中文", "韩语", "日语", "俄语",
+            "德语", "法语", "阿拉伯语", "越南语", "印地语",
+            "西班牙语", "葡萄牙语"
+        ]
+        self.language_combo.addItems(language_options)
+        self.language_combo.setCurrentIndex(0)  # 默认英文
+        self.language_combo.setFixedHeight(35)
+        translate_layout.addWidget(self.language_combo, 1, 1)
+
+        translate_btn = PrimaryPushButton(FluentIcon.LANGUAGE, "翻译SRT文件")
+        translate_btn.setFixedHeight(45)
+        translate_btn.clicked.connect(self.translate_srt_file)
+        translate_layout.addWidget(translate_btn, 1, 2)
+
+        translate_group.setLayout(translate_layout)
+        layout.addWidget(translate_group)
+
+        # 进度条
+        self.progress_bar = ProgressBar()
+        self.progress_bar.setFixedHeight(20)
+        layout.addWidget(self.progress_bar)
+
+        layout.addStretch()
+
+    def browse_srt(self):
+        file_path = self.get_file_path("选择SRT字幕文件",
+            "SRT字幕文件 (*.srt);;所有文件 (*)")
+        if file_path:
+            self.srt_path_edit.setText(file_path)
+
+    def convert_srt_to_text(self):
+        srt_path = self.srt_path_edit.text().strip()
+        txt_name = self.txt_name_edit.text().strip() or "subtitle"
+
+        if not srt_path or not os.path.exists(srt_path):
+            self.show_error("错误", "请选择有效的SRT字幕文件")
+            return
+
+        srt_dir = os.path.join(os.getcwd(), 'SRT')
+        os.makedirs(srt_dir, exist_ok=True)
+
+        output_path = os.path.join(srt_dir, f"{txt_name}.txt")
+
+        worker = SRTToTextThread(srt_path, output_path)
+        worker.progress_updated.connect(self.progress_bar.setValue)
+        worker.log_updated.connect(lambda msg: self.show_info("处理中", msg))
+        worker.finished.connect(self.on_srt_to_text_finished)
+        worker.start()
+
+        self.worker_threads.append(worker)
+        self.show_info("开始转换", f"正在转换SRT到文本: {os.path.basename(srt_path)}")
 
     def translate_srt_file(self):
-        srt_path = self.srt2txt_entry.get()
-        out_name = self.trans_srt_entry.get().strip() or "translated"
-        lang = self.trans_lang_var.get()
-        txt_dir = os.path.join(os.getcwd(), 'SRT')
-        os.makedirs(txt_dir, exist_ok=True)
-        if not os.path.isfile(srt_path):
-            messagebox.showerror("错误", "请选择SRT字幕文件")
-            print("[错误] SRT字幕文件无效")
+        srt_path = self.srt_path_edit.text().strip()
+        output_name = self.translate_name_edit.text().strip() or "translated"
+        target_language = self.language_combo.currentText()
+
+        if not srt_path or not os.path.exists(srt_path):
+            self.show_error("错误", "请选择有效的SRT字幕文件")
             return
-        # 检测编码
-        with open(srt_path, 'rb') as f:
-            raw = f.read()
-            detect_result = chardet.detect(raw)
-            enc = detect_result['encoding'] or 'utf-8'
-        srt_content = raw.decode(enc, errors='replace')
-        # 目标语言映射
+
+        srt_dir = os.path.join(os.getcwd(), 'SRT')
+        os.makedirs(srt_dir, exist_ok=True)
+
+        # 语言映射
         lang_map = {
-            "中文": "Chinese",
             "英文": "English",
+            "中文": "Chinese",
             "繁体中文": "Traditional Chinese",
             "韩语": "Korean",
             "日语": "Japanese",
@@ -498,789 +1160,536 @@ class MultimediaEditor(tb.Window):
             "西班牙语": "Spanish",
             "葡萄牙语": "Portuguese"
         }
-        target_lang = lang_map.get(lang, "English")
-        # 构造API请求
-        api_key = os.environ.get("SiliconCloud_API_KEY")
-        if not api_key:
-            messagebox.showerror("错误", "未检测到API KEY")
-            print("[错误] 未检测到API KEY")
-            return
-        url = "https://api.siliconflow.cn/v1/chat/completions"
-        prompt = f"帮我将输入的srt字幕文本内容翻译转换为{target_lang}。保持srt文本结构，序号，时间都不变，只需要翻译内容，并输出srt格式的翻译内容就可以，不需要其他额外注释和说明。\n\n" + srt_content
-        payload = {
-            "model": "Qwen/Qwen2.5-Coder-32B-Instruct",
-            "messages": [
-                {"role": "user", "content": prompt}
-            ],
-            "stream": False,
-            "max_tokens": 4096,
-            "response_format": {"type": "text"}
-        }
-        headers = {
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json"
-        }
-        try:
-            print("[翻译SRT] 请求API...")
-            resp = requests.post(url, json=payload, headers=headers, timeout=120)
-            if resp.status_code == 200:
-                result = resp.json()
-                # 兼容API返回格式
-                content = result.get("choices", [{}])[0].get("message", {}).get("content", "").strip()
-                if not content:
-                    messagebox.showerror("错误", "API未返回有效翻译内容")
-                    print("[错误] API未返回有效翻译内容")
-                    return
-                out_path = os.path.join(txt_dir, f"{out_name}-{target_lang}.srt")
-                with open(out_path, 'w', encoding='utf-8') as f:
-                    f.write(content)
-                print(f"[翻译SRT] 翻译SRT已保存到: {out_path}")
-                # messagebox.showinfo("完成", f"翻译SRT已保存到: {out_path}")
-            else:
-                messagebox.showerror("错误", f"API请求失败: {resp.text}")
-                print(f"[错误] API请求失败: {resp.text}")
-        except Exception as e:
-            messagebox.showerror("错误", str(e))
-            print(f"[错误] {e}")
 
-    def create_tab4(self, frame):
-        # SRT文件
-        srt_label = tb.Label(frame, text="SRT字幕路径：", font=LABEL_FONT)
-        srt_label.grid(row=0, column=0, sticky=tk.W, pady=8, padx=8)
-        self.srtfile_entry = tb.Entry(frame, font=ENTRY_FONT, width=65)
-        self.srtfile_entry.grid(row=0, column=1, pady=8, padx=8)
-        srt_btn = tb.Button(frame, text="选择SRT文件", command=self.select_srt)
-        srt_btn.grid(row=0, column=2, padx=8)
+        target_lang = lang_map.get(target_language, "English")
+        output_path = os.path.join(srt_dir, f"{output_name}-{target_lang}.srt")
 
-        # 新字幕内容宽度80
-        text_label = tb.Label(frame, text="设定字幕内容：", font=LABEL_FONT)
-        text_label.grid(row=1, column=0, sticky=tk.NW, pady=8, padx=8)
-        self.text_box = tk.Text(frame, font=ENTRY_FONT, width=65, height=10)
-        self.text_box.grid(row=1, column=1, pady=8, padx=8)
+        worker = SRTTranslateThread(srt_path, output_path, target_lang)
+        worker.progress_updated.connect(self.progress_bar.setValue)
+        worker.log_updated.connect(lambda msg: self.show_info("处理中", msg))
+        worker.finished.connect(self.on_translate_finished)
+        worker.start()
 
-        # 调整按钮
-        adjust_btn = tb.Button(frame, text="一行一字幕 调整SRT字幕文件", bootstyle=SUCCESS, width=20, command=self.adjust_srt_file)
-        adjust_btn.grid(row=2, column=1, pady=20)
+        self.worker_threads.append(worker)
+        self.show_info("开始翻译", f"正在翻译SRT文件到{target_language}")
 
-    def select_srt(self):
-        path = filedialog.askopenfilename(
-            filetypes=[
-                ("SRT字幕", "*.srt"),
-                ("所有文件", "*.*")
-            ]
-        )
-        if path:
-            self.srtfile_entry.delete(0, tk.END)
-            self.srtfile_entry.insert(0, path)
-
-    def create_tab5(self, frame):
-        # 视频文件
-        video_label = tb.Label(frame, text="视频文件路径：", font=LABEL_FONT)
-        video_label.grid(row=0, column=0, sticky=tk.W, pady=8, padx=8)
-        self.video_entry = tb.Entry(frame, font=ENTRY_FONT, width=50)
-        self.video_entry.grid(row=0, column=1, pady=8, padx=8)
-        video_btn = tb.Button(frame, text="🗂️ 选择视频文件", command=self.select_video)
-        video_btn.grid(row=0, column=2, padx=8)
-
-        # 字幕文件
-        srt_label = tb.Label(frame, text="SRT字幕路径：", font=LABEL_FONT)
-        srt_label.grid(row=1, column=0, sticky=tk.W, pady=8, padx=(8,0))
-        self.srt2_entry = tb.Entry(frame, font=ENTRY_FONT, width=50)
-        self.srt2_entry.grid(row=1, column=1,  pady=8, padx=(2,2))
-        srt2_btn = tb.Button(frame, text="🎼 选择SRT文件", command=self.select_srt2)
-        srt2_btn.grid(row=1, column=2, padx=8)
-
-        # 字幕字体和字幕字体大小同一行
-        font_label = tb.Label(frame, text="设定字幕字体：", font=LABEL_FONT)
-        font_label.grid(row=2, column=0, sticky=tk.W, pady=8, padx=(8,0))
-        self.font_entry = tb.Entry(frame, font=ENTRY_FONT, width=50)
-        self.font_entry.insert(0, "font/Light.otf")
-        self.font_entry.grid(row=2, column=1, sticky=tk.W, pady=8, padx=(2,2))
-        size_label = tb.Label(frame, text="字幕字体大小：", font=LABEL_FONT)
-        size_label.grid(row=2, column=2, sticky=tk.W, pady=8, padx=(8,0))
-        self.size2_entry = tb.Entry(frame, font=ENTRY_FONT, width=10)
-        self.size2_entry.insert(0, "18")
-        self.size2_entry.grid(row=2, column=3, sticky=tk.W, pady=8, padx=(2,2))
-
-        # 字幕背景色和字幕位置同一行，输入框width=20
-        color_label = tb.Label(frame, text="字幕背景色值：", font=LABEL_FONT)
-        color_label.grid(row=3, column=0, sticky=tk.W, pady=8, padx=(8,0))
-        self.color_entry = tb.Entry(frame, font=ENTRY_FONT, width=50)
-        self.color_entry.insert(0, "#333333")
-        self.color_entry.grid(row=3, column=1, sticky=tk.W, pady=8, padx=(2,2))
-        pos_label = tb.Label(frame, text="设定字幕位置：", font=LABEL_FONT)
-        pos_label.grid(row=3, column=2, sticky=tk.W, pady=8, padx=(8,0))
-        self.pos_entry = tb.Entry(frame, font=ENTRY_FONT, width=10)
-        self.pos_entry.insert(0, "bottom")
-        self.pos_entry.grid(row=3, column=3, sticky=tk.W, pady=8, padx=(2,2))
-
-        # 新视频名称和整合字幕按钮同一行
-        name2_label = tb.Label(frame, text="设定视频名称：", font=LABEL_FONT)
-        name2_label.grid(row=4, column=0, sticky=tk.W, pady=8, padx=(8,0))
-        self.name2_entry = tb.Entry(frame, font=ENTRY_FONT, width=50)
-        self.name2_entry.grid(row=4, column=1, sticky=tk.W, pady=8, padx=(2,2))
-        merge2_btn = tb.Button(frame, text="📽️ 整合总视频", bootstyle=SUCCESS, width=12, command=self.merge_video_with_srt)
-        merge2_btn.grid(row=4, column=2, pady=8, padx=(8,0))
-
-        # 新增：最下方横线
-        sep = tb.Separator(frame, orient='horizontal')
-        sep.grid(row=5, column=0, columnspan=4, sticky='ew', pady=16)
-
-        # 新增：四个文件夹按钮（独立一行，四列横向对齐）
-        btn_font = tb.Button(frame, text="字体文件夹", width=10, command=self.open_font_folder)
-        btn_temp = tb.Button(frame, text="打开整合视频 temp缓存文件夹", width=18, command=self.open_temp_folder)
-        btn_srt = tb.Button(frame, text="字幕文件夹", width=10, command=self.open_srt_folder)
-        btn_speech = tb.Button(frame, text="音频文件夹", width=10, command=self.open_speech_folder)
-        btn_font.grid(row=7, column=0, pady=8, padx=8, sticky='ew')
-        btn_temp.grid(row=7, column=1, pady=8, padx=8, sticky='ew')
-        btn_srt.grid(row=7, column=2, pady=8, padx=8, sticky='ew')
-        btn_speech.grid(row=7, column=3, pady=8, padx=8, sticky='ew')
-
-    def open_font_folder(self):
-        import subprocess, os
-        folder = os.path.join(os.getcwd(), 'font')
-        if not os.path.exists(folder):
-            os.makedirs(folder, exist_ok=True)
-        subprocess.Popen(['open', folder])
-
-    def open_temp_folder(self):
-        import subprocess, os
-        folder = os.path.join(os.getcwd(), 'temp')
-        if not os.path.exists(folder):
-            os.makedirs(folder, exist_ok=True)
-        subprocess.Popen(['open', folder])
-
-    def open_srt_folder(self):
-        import subprocess, os
-        folder = os.path.join(os.getcwd(), 'SRT')
-        if not os.path.exists(folder):
-            os.makedirs(folder, exist_ok=True)
-        subprocess.Popen(['open', folder])
-
-    def open_speech_folder(self):
-        import subprocess, os
-        folder = os.path.join(os.getcwd(), 'speech')
-        if not os.path.exists(folder):
-            os.makedirs(folder, exist_ok=True)
-        subprocess.Popen(['open', folder])
-
-    def select_video(self):
-        path = filedialog.askopenfilename(
-            filetypes=[
-                ("MP4视频", "*.mp4"),
-                ("MOV视频", "*.mov"),
-                ("AVI视频", "*.avi"),
-                ("所有视频", "*.*")
-            ]
-        )
-        if path:
-            self.video_entry.delete(0, tk.END)
-            self.video_entry.insert(0, path)
-
-    def select_srt2(self):
-        path = filedialog.askopenfilename(
-            filetypes=[
-                ("SRT字幕", "*.srt"),
-                ("所有文件", "*.*")
-            ]
-        )
-        if path:
-            self.srt2_entry.delete(0, tk.END)
-            self.srt2_entry.insert(0, path)
-
-    def generate_video_from_image(self):
-        temp_dir = os.path.join(os.getcwd(), 'temp')
-        os.makedirs(temp_dir, exist_ok=True)
-        size = self.size_entry.get().strip()
-        width, height = size.split('x')
-        duration = int(self.dur_entry.get().strip())
-        fps = 30
-        batch_mode = self.batch_var.get()
-        images = []
-        if batch_mode and self.batch_entry.get():
-            folder = self.batch_entry.get()
-            for f in os.listdir(folder):
-                if f.lower().endswith((".png", ".jpg", ".jpeg", ".bmp")):
-                    images.append(os.path.join(folder, f))
-        elif self.img_entry.get():
-            images = [self.img_entry.get()]
+    def on_srt_to_text_finished(self, success, message):
+        if success:
+            self.show_success("完成", f"SRT转文本完成: {message}")
         else:
-            messagebox.showerror("错误", "请提供图片路径")
-            print("[错误] 未提供图片路径")
+            self.show_error("错误", f"SRT转文本失败: {message}")
+        self.progress_bar.setValue(0)
+
+    def on_translate_finished(self, success, message):
+        if success:
+            self.show_success("完成", f"SRT翻译完成: {message}")
+        else:
+            self.show_error("错误", f"SRT翻译失败: {message}")
+        self.progress_bar.setValue(0)
+
+class AdjustSubtitlePage(BasePage):
+    """调整字幕页面"""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.init_ui()
+
+    def init_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setSpacing(20)
+
+        # 标题
+        title = SubtitleLabel("✏️ 调整字幕文件")
+        title.setFont(TITLE_FONT)
+        layout.addWidget(title)
+
+        # SRT文件选择组
+        srt_group = QGroupBox("SRT字幕文件")
+        srt_layout = QGridLayout()
+
+        srt_layout.addWidget(QLabel("SRT文件路径:"), 0, 0)
+        self.srt_path_edit = LineEdit()
+        self.srt_path_edit.setPlaceholderText("选择SRT字幕文件...")
+        self.srt_path_edit.setFixedHeight(35)
+        srt_layout.addWidget(self.srt_path_edit, 0, 1)
+
+        srt_btn = PushButton(FluentIcon.DOCUMENT, "浏览")
+        srt_btn.setFixedWidth(80)
+        srt_btn.clicked.connect(self.browse_srt)
+        srt_layout.addWidget(srt_btn, 0, 2)
+
+        srt_group.setLayout(srt_layout)
+        layout.addWidget(srt_group)
+
+        # 字幕内容编辑组
+        content_group = QGroupBox("字幕内容编辑")
+        content_layout = QVBoxLayout()
+
+        content_label = QLabel("设置新的字幕内容 (一行一个字幕):")
+        content_layout.addWidget(content_label)
+
+        self.content_edit = QTextEdit()
+        self.content_edit.setPlaceholderText("请输入字幕内容，每行一个字幕...")
+        self.content_edit.setMinimumHeight(200)
+        content_layout.addWidget(self.content_edit)
+
+        content_group.setLayout(content_layout)
+        layout.addWidget(content_group)
+
+        # 操作按钮
+        adjust_btn = PrimaryPushButton(FluentIcon.EDIT, "调整字幕文件")
+        adjust_btn.setFixedHeight(45)
+        adjust_btn.clicked.connect(self.adjust_subtitle)
+        layout.addWidget(adjust_btn)
+
+        layout.addStretch()
+
+    def browse_srt(self):
+        file_path = self.get_file_path("选择SRT字幕文件",
+            "SRT字幕文件 (*.srt);;所有文件 (*)")
+        if file_path:
+            self.srt_path_edit.setText(file_path)
+
+    def adjust_subtitle(self):
+        srt_path = self.srt_path_edit.text().strip()
+        content = self.content_edit.toPlainText().strip()
+
+        if not srt_path or not os.path.exists(srt_path):
+            self.show_error("错误", "请选择有效的SRT字幕文件")
             return
-        for img_path in images:
-            img_name = os.path.splitext(os.path.basename(img_path))[0]
-            out_path = os.path.join(temp_dir, f"{img_name}.mp4")
-            print(f"[图片转视频] 处理图片: {img_path}")
-            # 生成2x2模糊背景
-            bg_img = os.path.join(temp_dir, f"{img_name}-bg.jpg")
-            cmd_bg = [
-                "ffmpeg", "-y", "-loop", "1", "-framerate", str(fps), "-t", str(duration),
-                "-i", img_path,
-                "-vf", f"scale=2*{width}:2*{height},boxblur=20:1,crop={width}:{height}",
-                "-q:v", "3", bg_img
-            ]
-            print(f"[图片转视频] 生成模糊背景: {' '.join(cmd_bg)}")
-            subprocess.run(cmd_bg)
-            # 合成前景+背景
-            filter_complex = (
-                f"[0:v]scale={width}:{height}:force_original_aspect_ratio=decrease,pad={width}:{height}:(ow-iw)/2:(oh-ih)/2,setsar=1,format=rgba[fg];"
-                f"[1:v]scale={width}:{height}[bg];"
-                f"[bg][fg]overlay=(W-w)/2:(H-h)/2,fade=t=in:st=0:d=1,fade=t=out:st={duration-1}:d=1"
-            )
+
+        if not content:
+            self.show_error("错误", "请输入字幕内容")
+            return
+
+        try:
+            srt_dir = os.path.join(os.getcwd(), 'SRT')
+            os.makedirs(srt_dir, exist_ok=True)
+
+            base_name = os.path.splitext(os.path.basename(srt_path))[0]
+            output_path = os.path.join(srt_dir, f"{base_name}-1.srt")
+
+            # 读取原SRT文件获取时间轴
+            with open(srt_path, 'r', encoding='utf-8') as f:
+                srt_content = f.read()
+
+            # 提取时间轴
+            times = re.findall(r'(\d{2}:\d{2}:\d{2},\d{3} --> \d{2}:\d{2}:\d{2},\d{3})', srt_content)
+
+            # 获取新内容行
+            new_lines = content.split('\n')
+            new_lines = [line.strip() for line in new_lines if line.strip()]
+
+            if not new_lines:
+                self.show_error("错误", "字幕内容为空")
+                return
+
+            # 生成新SRT文件
+            with open(output_path, 'w', encoding='utf-8') as f:
+                for i in range(min(len(new_lines), len(times))):
+                    f.write(f"{i+1}\n")
+                    f.write(f"{times[i]}\n")
+                    f.write(f"{new_lines[i]}\n\n")
+
+            self.show_success("完成", f"调整后的字幕文件已保存: {output_path}")
+
+        except Exception as e:
+            self.show_error("错误", f"调整字幕失败: {str(e)}")
+
+class MergeSubtitlePage(BasePage):
+    """整合视频字幕页面"""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.init_ui()
+
+    def init_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setSpacing(20)
+
+        # 标题
+        title = SubtitleLabel("🎬 整合视频字幕")
+        title.setFont(TITLE_FONT)
+        layout.addWidget(title)
+
+        # 文件选择组
+        file_group = QGroupBox("文件选择")
+        file_layout = QGridLayout()
+
+        file_layout.addWidget(QLabel("视频文件:"), 0, 0)
+        self.video_path_edit = LineEdit()
+        self.video_path_edit.setPlaceholderText("选择视频文件...")
+        self.video_path_edit.setFixedHeight(35)
+        file_layout.addWidget(self.video_path_edit, 0, 1)
+
+        video_btn = PushButton(FluentIcon.VIDEO, "浏览")
+        video_btn.setFixedWidth(80)
+        video_btn.clicked.connect(lambda: self.browse_file("video"))
+        file_layout.addWidget(video_btn, 0, 2)
+
+        file_layout.addWidget(QLabel("SRT字幕文件:"), 1, 0)
+        self.srt_path_edit = LineEdit()
+        self.srt_path_edit.setPlaceholderText("选择SRT字幕文件...")
+        self.srt_path_edit.setFixedHeight(35)
+        file_layout.addWidget(self.srt_path_edit, 1, 1)
+
+        srt_btn = PushButton(FluentIcon.DOCUMENT, "浏览")
+        srt_btn.setFixedWidth(80)
+        srt_btn.clicked.connect(lambda: self.browse_file("srt"))
+        file_layout.addWidget(srt_btn, 1, 2)
+
+        file_group.setLayout(file_layout)
+        layout.addWidget(file_group)
+
+        # 字幕样式设置组
+        style_group = QGroupBox("字幕样式")
+        style_layout = QGridLayout()
+
+        style_layout.addWidget(QLabel("字体文件:"), 0, 0)
+        self.font_path_edit = LineEdit()
+        self.font_path_edit.setText("font/Light.otf")
+        self.font_path_edit.setPlaceholderText("选择字体文件...")
+        self.font_path_edit.setFixedHeight(35)
+        style_layout.addWidget(self.font_path_edit, 0, 1)
+
+        font_btn = PushButton(FluentIcon.FONT, "浏览")
+        font_btn.setFixedWidth(80)
+        font_btn.clicked.connect(lambda: self.browse_file("font"))
+        style_layout.addWidget(font_btn, 0, 2)
+
+        style_layout.addWidget(QLabel("字体大小:"), 1, 0)
+        self.font_size_spin = QSpinBox()
+        self.font_size_spin.setRange(10, 72)
+        self.font_size_spin.setValue(18)
+        self.font_size_spin.setFixedHeight(35)
+        style_layout.addWidget(self.font_size_spin, 1, 1)
+
+        style_layout.addWidget(QLabel("背景色值:"), 2, 0)
+        self.bg_color_edit = LineEdit()
+        self.bg_color_edit.setText("#333333")
+        self.bg_color_edit.setPlaceholderText("如 #333333")
+        self.bg_color_edit.setFixedHeight(35)
+        style_layout.addWidget(self.bg_color_edit, 2, 1)
+
+        style_layout.addWidget(QLabel("字幕位置:"), 3, 0)
+        self.position_combo = ComboBox()
+        position_options = ["bottom", "top"]
+        self.position_combo.addItems(position_options)
+        self.position_combo.setCurrentIndex(0)
+        self.position_combo.setFixedHeight(35)
+        style_layout.addWidget(self.position_combo, 3, 1)
+
+        style_group.setLayout(style_layout)
+        layout.addWidget(style_group)
+
+        # 输出设置组
+        output_group = QGroupBox("输出设置")
+        output_layout = QGridLayout()
+
+        output_layout.addWidget(QLabel("输出视频名称:"), 0, 0)
+        self.output_name_edit = LineEdit()
+        self.output_name_edit.setPlaceholderText("输入输出视频名称...")
+        self.output_name_edit.setFixedHeight(35)
+        output_layout.addWidget(self.output_name_edit, 0, 1)
+
+        merge_btn = PrimaryPushButton(FluentIcon.MEDIA, "整合总视频")
+        merge_btn.setFixedHeight(45)
+        merge_btn.clicked.connect(self.merge_video_subtitle)
+        output_layout.addWidget(merge_btn, 0, 2)
+
+        output_group.setLayout(output_layout)
+        layout.addWidget(output_group)
+
+        layout.addStretch()
+
+    def browse_file(self, file_type):
+        if file_type == "video":
+            file_path = self.get_file_path("选择视频文件",
+                "视频文件 (*.mp4 *.mov *.avi);;所有文件 (*)")
+            if file_path:
+                self.video_path_edit.setText(file_path)
+        elif file_type == "srt":
+            file_path = self.get_file_path("选择SRT字幕文件",
+                "SRT字幕文件 (*.srt);;所有文件 (*)")
+            if file_path:
+                self.srt_path_edit.setText(file_path)
+        elif file_type == "font":
+            file_path = self.get_file_path("选择字体文件",
+                "字体文件 (*.otf *.ttf);;所有文件 (*)")
+            if file_path:
+                self.font_path_edit.setText(file_path)
+
+    def merge_video_subtitle(self):
+        video_path = self.video_path_edit.text().strip()
+        srt_path = self.srt_path_edit.text().strip()
+        font_path = self.font_path_edit.text().strip()
+        font_size = self.font_size_spin.value()
+        bg_color = self.bg_color_edit.text().strip()
+        position = self.position_combo.currentText()
+        output_name = self.output_name_edit.text().strip() or "output"
+
+        # 验证输入
+        if not all([video_path, srt_path, font_path]):
+            self.show_error("错误", "请选择视频、字幕和字体文件")
+            return
+
+        if not all([os.path.exists(video_path), os.path.exists(srt_path), os.path.exists(font_path)]):
+            self.show_error("错误", "请确保所有文件路径都有效")
+            return
+
+        try:
+            temp_dir = os.path.join(os.getcwd(), 'temp')
+            os.makedirs(temp_dir, exist_ok=True)
+
+            ts = datetime.now().strftime("%Y%m%d%H%M")
+            output_path = os.path.join(temp_dir, f"{output_name}-{ts}.mp4")
+
+            # 位置映射
+            pos_map = {"bottom": "2", "top": "8"}
+            alignment = pos_map.get(position, "2")
+
+            # 颜色格式转换（ASS格式：&HBBGGRR&）
+            def hex_to_ass_color(hex_color):
+                hex_color = hex_color.lstrip('#')
+                if len(hex_color) == 6:
+                    b, g, r = hex_color[4:6], hex_color[2:4], hex_color[0:2]
+                    return f"&H00{b}{g}{r}&"
+                elif len(hex_color) == 8:  # 带透明度
+                    a, b, g, r = hex_color[0:2], hex_color[6:8], hex_color[4:6], hex_color[2:4]
+                    return f"&H{a}{b}{g}{r}&"
+                else:
+                    return "&H000000&"
+
+            ass_color = hex_to_ass_color(bg_color)
+
+            # 字体名只要文件名不带扩展
+            fontname = os.path.splitext(os.path.basename(font_path))[0]
+
+            # 构造force_style
+            force_style = f"FontName={fontname},FontSize={font_size},OutlineColour={ass_color},Alignment={alignment}"
+
+            # FFmpeg命令
             cmd = [
-                "ffmpeg", "-y",
-                "-loop", "1", "-framerate", str(fps), "-t", str(duration), "-i", img_path,
-                "-i", bg_img,
-                "-filter_complex", filter_complex,
-                "-c:v", "libx264",
-                "-pix_fmt", "yuv420p",
-                "-r", str(fps),
-                out_path
+                "ffmpeg", "-y", "-i", video_path, "-vf",
+                f"subtitles='{srt_path}':force_style='{force_style}'",
+                "-c:a", "copy", output_path
             ]
-            print(f"[图片转视频] 合成视频命令: {' '.join(cmd)}")
-            subprocess.run(cmd)
-            print(f"[图片转视频] 生成视频片段: {out_path}")
-        # messagebox.showinfo("完成", "图片转视频片段已生成")
-        print("[图片转视频] 所有图片处理完成！")
 
-    def merge_videos_with_audio(self):
-        temp_dir = os.path.join(os.getcwd(), 'temp')
-        video_dir = self.v_entry.get()
-        audio_file = self.a_entry.get()
-        cover_file = self.cover_entry.get()
-        out_name = self.name_entry.get().strip() or "output"
-        ts = datetime.now().strftime("%Y%m%d%H%M")
-        out_path = os.path.join(temp_dir, f"{out_name}-{ts}.mp4")
-        print(f"[合并视频] 视频片段文件夹: {video_dir}")
-        print(f"[合并视频] 音频文件: {audio_file}")
-        print(f"[合并视频] 封面文件: {cover_file}")
-        if not os.path.isdir(video_dir) or not os.path.isfile(audio_file):
-            messagebox.showerror("错误", "请正确选择视频片段文件夹和音频文件")
-            print("[错误] 视频片段文件夹或音频文件无效")
-            return
-        # 合并视频片段（直接转码，保证参数统一）
-        filelist = os.path.join(temp_dir, "filelist.txt")
-        videos = [f for f in os.listdir(video_dir) if f.lower().endswith('.mp4')]
-        videos.sort()
-        with open(filelist, 'w') as f:
-            for v in videos:
-                f.write(f"file '{os.path.join(video_dir, v)}'\n")
-        concat_path = os.path.join(temp_dir, f"concat_{ts}.mp4")
-        cmd_concat = [
-            "ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", filelist,
-            "-c:v", "libx264", "-preset", "fast", "-crf", "18",
-            "-c:a", "aac", "-b:a", "192k",
-            concat_path
-        ]
-        print(f"[合并视频] 合并视频命令: {' '.join(cmd_concat)}")
-        result_concat = subprocess.run(cmd_concat, capture_output=True, text=True)
-        print(result_concat.stdout)
-        print(result_concat.stderr)
-        # 合成音视频（推荐转码，保证同步）
-        cmd_merge = [
-            "ffmpeg", "-y", "-i", concat_path, "-i", audio_file,
-            "-c:v", "libx264", "-preset", "fast", "-crf", "18",
-            "-c:a", "aac", "-b:a", "192k",
-            "-map", "0:v:0", "-map", "1:a:0",
-            "-shortest", out_path
-        ]
-        print(f"[合并视频] 合成音视频命令: {' '.join(cmd_merge)}")
-        result_merge = subprocess.run(cmd_merge, capture_output=True, text=True)
-        print(result_merge.stdout)
-        print(result_merge.stderr)
-        # 检查输出文件大小
-        if not os.path.isfile(out_path) or os.path.getsize(out_path) < 1024:
-            messagebox.showerror("错误", "合成失败，输出文件为空，请检查日志")
-            print("[错误] 合成失败，输出文件为空")
-            return
-        # 添加封面（如果有）
-        if cover_file and os.path.isfile(cover_file):
-            # 若为png，先转为jpg
-            cover_ext = os.path.splitext(cover_file)[1].lower()
-            if cover_ext == ".png":
-                cover_jpg = os.path.join(temp_dir, f"cover_{ts}.jpg")
-                self.convert_png_to_jpg(cover_file, cover_jpg)
-                cover_file_to_use = cover_jpg
+            self.show_info("开始整合", "正在整合视频和字幕...")
+
+            # 执行FFmpeg命令
+            result = subprocess.run(cmd, capture_output=True, text=True)
+
+            if os.path.exists(output_path) and os.path.getsize(output_path) > 1024:
+                self.show_success("完成", f"带字幕视频已保存: {output_path}")
             else:
-                cover_file_to_use = cover_file
-            out_with_cover = os.path.join(temp_dir, f"{out_name}-{ts}-cover.mp4")
-            cmd_cover = [
-                "ffmpeg", "-y", "-i", out_path, "-i", cover_file_to_use,
-                "-map", "0", "-map", "1", "-c", "copy", "-disposition:v:1", "attached_pic", out_with_cover
-            ]
-            print(f"[合并视频] 添加封面命令: {' '.join(cmd_cover)}")
-            result_cover = subprocess.run(cmd_cover, capture_output=True, text=True)
-            print(result_cover.stdout)
-            print(result_cover.stderr)
-            if not os.path.isfile(out_with_cover) or os.path.getsize(out_with_cover) < 1024:
-                messagebox.showerror("错误", "添加封面失败，输出文件为空，请检查日志")
-                print("[错误] 添加封面失败，输出文件为空")
-                return
-            os.replace(out_with_cover, out_path)
-        # messagebox.showinfo("完成", f"合成视频已保存到: {out_path}")
-        print(f"[合并视频] 合成视频已保存到: {out_path}")
-        # 自动填充到"整合视频字幕"tab的输入框
-        self.video_entry.delete(0, tk.END)
-        self.video_entry.insert(0, out_path)
+                self.show_error("错误", f"整合失败: {result.stderr}")
 
-    def convert_png_to_jpg(self, png_path, jpg_path):
-        img = Image.open(png_path)
-        rgb_img = img.convert('RGB')
-        rgb_img.save(jpg_path, quality=95)
-
-    def generate_txt_from_audio(self):
-        srt_dir = os.path.join(os.getcwd(), 'SRT')
-        os.makedirs(srt_dir, exist_ok=True)
-        audio_file = self.audio_entry.get()
-        out_name = self.srt_entry.get().strip() or "audio_text"
-        ts = datetime.now().strftime("%Y%m%d%H%M")
-        out_path = os.path.join(srt_dir, f"{out_name}-{ts}.txt")
-        api_key = os.environ.get("SiliconCloud_API_KEY")
-        print(f"[语音转文本] 音频文件: {audio_file}")
-        print(f"[语音转文本] 输出路径: {out_path}")
-        if not api_key:
-            messagebox.showerror("错误", "未检测到API KEY")
-            print("[错误] 未检测到API KEY")
-            return
-        if not os.path.isfile(audio_file):
-            messagebox.showerror("错误", "请选择音频文件")
-            print("[错误] 音频文件无效")
-            return
-        url = "https://api.siliconflow.cn/v1/audio/transcriptions"
-        headers = {"Authorization": f"Bearer {api_key}"}
-        files = {"file": open(audio_file, "rb")}
-        data = {"model": "FunAudioLLM/SenseVoiceSmall"}
-        try:
-            print(f"[语音转文本] 请求API: {url}")
-            resp = requests.post(url, headers=headers, files=files, data=data)
-            if resp.status_code == 200:
-                try:
-                    result = resp.json()
-                    text = result.get("text", "").strip()
-                except Exception as e:
-                    messagebox.showerror("错误", f"API返回解析失败: {e}")
-                    print(f"[错误] API返回解析失败: {e}")
-                    return
-                if not text:
-                    messagebox.showerror("错误", "API未返回有效文本")
-                    print("[错误] API未返回有效文本")
-                    return
-                with open(out_path, 'w', encoding='utf-8') as f:
-                    f.write(text)
-                # messagebox.showinfo("完成", f"文本文件已保存到: {out_path}")
-                print(f"[语音转文本] 文本文件已保存到: {out_path}")
-            else:
-                messagebox.showerror("错误", f"API请求失败: {resp.text}")
-                print(f"[错误] API请求失败: {resp.text}")
         except Exception as e:
-            messagebox.showerror("错误", str(e))
-            print(f"[错误] {e}")
+            self.show_error("错误", f"整合异常: {str(e)}")
 
-    def adjust_srt_file(self):
-        srt_dir = os.path.join(os.getcwd(), 'SRT')
-        srt_file = self.srtfile_entry.get()
-        lines = self.text_box.get("1.0", tk.END).strip().splitlines()
-        print(f"[调整字幕] 原SRT文件: {srt_file}")
-        if not os.path.isfile(srt_file):
-            messagebox.showerror("错误", "请选择SRT字幕文件")
-            print("[错误] SRT字幕文件无效")
-            return
-        if len(lines) == 0:
-            messagebox.showerror("错误", "请输入字幕内容")
-            print("[错误] 未输入字幕内容")
-            return
-        base = os.path.splitext(os.path.basename(srt_file))[0]
-        out_path = os.path.join(srt_dir, f"{base}-1.srt")
-        with open(srt_file, 'r', encoding='utf-8') as f:
-            srt_content = f.read()
-        times = re.findall(r'(\d{2}:\d{2}:\d{2},\d{3} --> \d{2}:\d{2}:\d{2},\d{3})', srt_content)
-        n = min(len(lines), len(times))
-        with open(out_path, 'w', encoding='utf-8') as f:
-            for i in range(n):
-                f.write(f"{i+1}\n{times[i]}\n{lines[i]}\n\n")
-        # messagebox.showinfo("完成", f"新字幕文件已保存到: {out_path}")
-        print(f"[调整字幕] 新字幕文件已保存到: {out_path}")
+# 主窗口类
+class MainWindow(FluentWindow):
+    def __init__(self):
+        super().__init__()
 
-    def merge_video_with_srt(self):
-        temp_dir = os.path.join(os.getcwd(), 'temp')
-        video_file = self.video_entry.get()
-        srt_file = self.srt2_entry.get()
-        font_file = self.font_entry.get()
-        font_size = self.size2_entry.get()
-        bg_color = self.color_entry.get()
-        pos = self.pos_entry.get()
-        out_name = self.name2_entry.get().strip() or "output"
-        ts = datetime.now().strftime("%Y%m%d%H%M")
-        out_path = os.path.join(temp_dir, f"{out_name}-{ts}.mp4")
-        print(f"[整合字幕] 视频文件: {video_file}")
-        print(f"[整合字幕] 字幕文件: {srt_file}")
-        print(f"[整合字幕] 字体: {font_file}, 字号: {font_size}, 背景色: {bg_color}, 位置: {pos}")
-        if not (os.path.isfile(video_file) and os.path.isfile(srt_file) and os.path.isfile(font_file)):
-            messagebox.showerror("错误", "请正确选择视频、字幕和字体文件")
-            print("[错误] 视频、字幕或字体文件无效")
-            return
+        self.init_window()
+        self.init_navigation()
 
-        # 位置映射
-        pos_map = {"bottom": "2", "top": "8"}
-        alignment = pos_map.get(pos, "2")  # 默认底部居中
+    def init_window(self):
+        """初始化主窗口"""
+        self.setWindowTitle("BOZO-MCN 多媒体编辑器 2.0")
+        self.setMinimumSize(1200, 800)
+        self.resize(1400, 900)
 
-        # 颜色格式转换（ASS格式：&HBBGGRR&，如&H000080&，注意顺序）
-        def hex_to_ass_color(hex_color):
-            hex_color = hex_color.lstrip('#')
-            if len(hex_color) == 6:
-                b, g, r = hex_color[4:6], hex_color[2:4], hex_color[0:2]
-                return f"&H00{b}{g}{r}&"
-            elif len(hex_color) == 8:  # 带透明度
-                a, b, g, r = hex_color[0:2], hex_color[6:8], hex_color[4:6], hex_color[2:4]
-                return f"&H{a}{b}{g}{r}&"
-            else:
-                return "&H000000&"
+        # 设置应用图标
+        # self.setWindowIcon(QIcon("icon.png"))
 
-        ass_color = hex_to_ass_color(bg_color)
-
-        # 字体名只要文件名不带扩展
-        fontname = os.path.splitext(os.path.basename(font_file))[0]
-
-        # 构造force_style
-        force_style = f"FontName={fontname},FontSize={font_size},OutlineColour={ass_color},Alignment={alignment}"
-
-        cmd = [
-            "ffmpeg", "-y", "-i", video_file, "-vf",
-            f"subtitles='{srt_file}':force_style='{force_style}'",
-            "-c:a", "copy", out_path
-        ]
-        print(f"[整合字幕] 合成命令: {' '.join(cmd)}")
-        result = subprocess.run(cmd, capture_output=True, text=True)
-        print(result.stdout)
-        print(result.stderr)
-        if not os.path.isfile(out_path) or os.path.getsize(out_path) < 1024:
-            messagebox.showerror("错误", "整合字幕失败，输出文件为空，请检查日志")
-            print("[错误] 整合字幕失败，输出文件为空")
-            return
-        # messagebox.showinfo("完成", f"带字幕视频已保存到: {out_path}")
-        print(f"[整合字幕] 带字幕视频已保存到: {out_path}")
-
-    def generate_srt_with_whisper(self):
-        srt_dir = os.path.join(os.getcwd(), 'SRT')
-        os.makedirs(srt_dir, exist_ok=True)
-        audio_file = self.audio_entry.get()
-        out_name = self.local_srt_entry.get().strip() or "subtitle"
-        ml_value = self.ml_entry.get().strip() or "30"
-        ts = datetime.now().strftime("%Y%m%d%H%M")
-        srt_path = os.path.join(srt_dir, f"{out_name}-{ts}.srt")
-        # 检查音频格式，若不是wav，转为wav
-        if not os.path.isfile(audio_file):
-            messagebox.showerror("错误", "请选择音频文件")
-            print("[错误] 音频文件无效")
-            return
-        ext = os.path.splitext(audio_file)[1].lower()
-        wav_path = audio_file
-        if ext != ".wav":
-            wav_path = os.path.join(srt_dir, f"{out_name}-{ts}.wav")
-            cmd_ffmpeg = [
-                "ffmpeg", "-y", "-i", audio_file, wav_path
-            ]
-            print(f"[whisper.cpp] 转码命令: {' '.join(cmd_ffmpeg)}")
-            result = subprocess.run(cmd_ffmpeg, capture_output=True, text=True)
-            print(result.stdout)
-            print(result.stderr)
-            if not os.path.isfile(wav_path):
-                messagebox.showerror("错误", "音频转码为wav失败")
-                print("[错误] 音频转码为wav失败")
-                return
-        # whisper.cpp命令
-        whisper_bin = "/Users/yons/AI/whisper.cpp/build/bin/whisper-cli"
-        whisper_model = "/Users/yons/AI/whisper.cpp/models/ggml-large-v3-turbo-q5_0.bin"
-        of_path = os.path.splitext(srt_path)[0]  # 不带扩展名
-        # 设置线程数（根据 CPU 核心数调整）
-        threads = os.cpu_count() or 4  # 使用系统 CPU 核心数，或默认 4
-
-        cmd_whisper = [
-            whisper_bin,
-            "-m", whisper_model,
-            "-f", wav_path,
-            "-l", "zh",  # 明确指定中文
-            "-ml", str(ml_value),
-            "-osrt",
-            "-of", of_path,
-            "-t", str(threads),          # 设置线程数（根据 CPU 核心数调整）
-            # "--no-translate",  # 额外保险参数（部分版本适用）
-        ]
-        print(f"[whisper.cpp] 命令: {' '.join(cmd_whisper)}")
-        # 在conda环境下执行
-        conda_prefix = os.environ.get("CONDA_PREFIX", "")
-        activate_cmd = f"conda activate modelscope && {' '.join(cmd_whisper)}"
-        shell_cmd = f"source ~/.zshrc && {activate_cmd}" if shutil.which("zsh") else f"source ~/.bashrc && {activate_cmd}"
-        try:
-            result = subprocess.run(shell_cmd, shell=True, capture_output=True, text=True, executable="/bin/zsh")
-            # 检测输出的编码
-            stdout = result.stdout.decode(encoding)
-            stderr = result.stderr.decode(encoding)
-
-            print(result.stdout)
-            print(result.stderr)
-            if os.path.isfile(srt_path):
-                # messagebox.showerror("错误", "字幕文件生成失败，请检查日志")
-                print(f"[生成字幕] 字幕文件已保存到: {srt_path}")
-            else:
-                # messagebox.showerror("错误", "生成字幕失败，请检查日志")
-                print("[错误] 生成字幕失败，输出文件未找到")
-        except Exception as e:
-            messagebox.showerror("错误", str(e))
-            print(f"[错误] {e}")
-
-    def select_vc_video(self):
-        path = filedialog.askopenfilename(
-            filetypes=[
-                ("MP4视频", "*.mp4"),
-                ("MOV视频", "*.mov"),
-                ("AVI视频", "*.avi"),
-                ("所有视频", "*.*")
-            ]
+    def init_navigation(self):
+        """初始化导航栏"""
+        # 添加导航项
+        self.addSubInterface(
+            self.create_video_convert_page(),
+            FluentIcon.VIDEO,
+            "视频转换",
+            NavigationItemPosition.TOP
         )
-        if path:
-            self.vc_video_entry.delete(0, tk.END)
-            self.vc_video_entry.insert(0, path)
 
-    def convert_to_mute_video(self):
-        import glob
-        temp_dir = os.path.join(os.getcwd(), 'temp')
-        os.makedirs(temp_dir, exist_ok=True)
-        ts = datetime.now().strftime("%Y%m%d%H%M")
-        if self.vc_batch_var.get() and self.vc_batch_entry.get():
-            folder = self.vc_batch_entry.get()
-            for f in os.listdir(folder):
-                if f.lower().endswith(('.mp4', '.mov', '.avi')):
-                    video_file = os.path.join(folder, f)
-                    base = os.path.splitext(os.path.basename(f))[0]
-                    out_path = os.path.join(temp_dir, f"{base}-mute-{ts}.mp4")
-                    cmd = [
-                        "ffmpeg", "-y", "-i", video_file, "-an", out_path
-                    ]
-                    print(f"[批量无声视频] {f}: {' '.join(cmd)}")
-                    result = subprocess.run(cmd, capture_output=True, text=True)
-                    print(result.stdout)
-                    print(result.stderr)
-            print(f"[批量无声视频] 批量处理完成，输出目录: {temp_dir}")
-        else:
-            video_file = self.vc_video_entry.get()
-            mute_name = self.mute_entry.get().strip() or "mute_video"
-            out_path = os.path.join(temp_dir, f"{mute_name}-{ts}.mp4")
-            if not os.path.isfile(video_file):
-                messagebox.showerror("错误", "请选择视频文件")
-                print("[错误] 视频文件无效")
-                return
-            cmd = [
-                "ffmpeg", "-y", "-i", video_file, "-an", out_path
-            ]
-            print(f"[视频转换] 无声视频命令: {' '.join(cmd)}")
-            result = subprocess.run(cmd, capture_output=True, text=True)
-            print(result.stdout)
-            print(result.stderr)
-            print(f"[视频转换] 无声视频已保存到: {out_path}")
+        self.addSubInterface(
+            self.create_image_to_video_page(),
+            FluentIcon.IMAGE,
+            "图片转视频",
+            NavigationItemPosition.TOP
+        )
 
-    def convert_to_audio_file(self):
-        import glob
-        temp_dir = os.path.join(os.getcwd(), 'temp')
-        os.makedirs(temp_dir, exist_ok=True)
-        ts = datetime.now().strftime("%Y%m%d%H%M")
-        if self.vc_batch_var.get() and self.vc_batch_entry.get():
-            folder = self.vc_batch_entry.get()
-            for f in os.listdir(folder):
-                if f.lower().endswith(('.mp4', '.mov', '.avi')):
-                    video_file = os.path.join(folder, f)
-                    base = os.path.splitext(os.path.basename(f))[0]
-                    out_path = os.path.join(temp_dir, f"{base}-audio-{ts}.wav")
-                    cmd = [
-                        "ffmpeg", "-y", "-i", video_file, "-vn", "-acodec", "pcm_s16le", out_path
-                    ]
-                    print(f"[批量音频提取] {f}: {' '.join(cmd)}")
-                    result = subprocess.run(cmd, capture_output=True, text=True)
-                    print(result.stdout)
-                    print(result.stderr)
-            print(f"[批量音频提取] 批量处理完成，输出目录: {temp_dir}")
-        else:
-            video_file = self.vc_video_entry.get()
-            audio_name = self.audio_out_entry.get().strip() or "audio"
-            out_path = os.path.join(temp_dir, f"{audio_name}-{ts}.wav")
-            if not os.path.isfile(video_file):
-                messagebox.showerror("错误", "请选择视频文件")
-                print("[错误] 视频文件无效")
-                return
-            cmd = [
-                "ffmpeg", "-y", "-i", video_file, "-vn", "-acodec", "pcm_s16le", out_path
-            ]
-            print(f"[视频转换] 音频提取命令: {' '.join(cmd)}")
-            result = subprocess.run(cmd, capture_output=True, text=True)
-            print(result.stdout)
-            print(result.stderr)
-            print(f"[视频转换] 音频文件已保存到: {out_path}")
-            # 自动填充到生成字幕文件tab的音频输入框
-            try:
-                self.audio_entry.delete(0, tk.END)
-                self.audio_entry.insert(0, out_path)
-            except Exception as e:
-                print(f"[警告] 自动填充音频输入框失败: {e}")
+        self.addSubInterface(
+            self.create_merge_page(),
+            FluentIcon.MERGE,
+            "合并视频音频",
+            NavigationItemPosition.TOP
+        )
 
-    def split_video_by_count(self):
-        video_file = self.vc_video_entry.get()
-        seg_name = self.seg_entry.get().strip() or "segment"
-        count = self.count_entry.get().strip()
-        temp_dir = os.path.join(os.getcwd(), 'temp')
-        ts = datetime.now().strftime("%Y%m%d%H%M")
-        seg_dir = os.path.join(temp_dir, f"{seg_name}-{ts}")
-        os.makedirs(seg_dir, exist_ok=True)
-        if not os.path.isfile(video_file):
-            messagebox.showerror("错误", "请选择视频文件")
-            print("[错误] 视频文件无效")
-            return
-        try:
-            count = int(count)
-            if count < 1:
-                raise ValueError
-        except Exception:
-            messagebox.showerror("错误", "分割数量需为正整数")
-            print("[错误] 分割数量无效")
-            return
-        # 获取视频总时长
-        cmd_probe = [
-            "ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", video_file
-        ]
-        result = subprocess.run(cmd_probe, capture_output=True, text=True)
-        try:
-            duration = float(result.stdout.strip())
-        except Exception:
-            messagebox.showerror("错误", "无法获取视频时长")
-            print("[错误] 无法获取视频时长")
-            return
-        seg_len = duration / count
-        for i in range(count):
-            start = i * seg_len
-            out_path = os.path.join(seg_dir, f"{seg_name}_{i+1}.mp4")
-            cmd = [
-                "ffmpeg", "-y", "-i", video_file, "-ss", str(start), "-t", str(seg_len),
-                "-c:v", "libx264", "-c:a", "copy", out_path
-            ]
-            print(f"[视频分割] 片段{i+1}命令: {' '.join(cmd)}")
-            result = subprocess.run(cmd, capture_output=True, text=True)
-            print(result.stdout)
-            print(result.stderr)
-        print(f"[视频分割] 所有片段已保存到: {seg_dir}")
+        self.addSubInterface(
+            self.create_subtitle_page(),
+            FluentIcon.DOCUMENT,
+            "生成字幕",
+            NavigationItemPosition.TOP
+        )
 
-    def get_video_duration(self, path):
-        import subprocess
-        cmd = [
-            "ffprobe", "-v", "error", "-show_entries", "format=duration",
-            "-of", "default=noprint_wrappers=1:nokey=1", path
-        ]
-        result = subprocess.run(cmd, capture_output=True, text=True)
-        try:
-            return float(result.stdout.strip())
-        except Exception:
-            return None
+        self.addSubInterface(
+            self.create_subtitle_text_page(),
+            FluentIcon.FONT,
+            "字幕转文本",
+            NavigationItemPosition.TOP
+        )
 
-    def merge_all_videos_with_filters(self):
-        import glob
-        import shutil
-        video_dir = self.v_entry.get()
-        audio_file = self.a_entry.get()
-        out_name = self.name_entry.get().strip() or "output"
-        ts = datetime.now().strftime("%Y%m%d%H%M")
-        temp_dir = os.path.join(os.getcwd(), 'temp')
-        os.makedirs(temp_dir, exist_ok=True)
-        filtered_list = []
-        zoom_enabled = self.zoom_var.get()
-        try:
-            zoom_end = float(self.zoom_to_entry.get().strip() or "1.2")
-        except Exception:
-            messagebox.showerror("错误", "缩放结束值必须为数字！")
-            return
-        filter_type = self.filter_var.get()
-        videos = [f for f in os.listdir(video_dir) if f.lower().endswith('.mp4')]
-        videos.sort()
-        if not videos:
-            messagebox.showerror("错误", "片段文件夹内没有mp4视频文件！")
-            print("[错误] 片段文件夹内没有mp4视频文件！")
-            return
-        for idx, v in enumerate(videos):
-            in_path = os.path.join(video_dir, v)
-            filtered_path = os.path.join(temp_dir, f"filtered_{idx+1}.mp4")
-            if zoom_enabled and filter_type in ["scale+zoom", "scale+zoompan"]:
-                # 先获取视频时长
-                duration = self.get_video_duration(in_path)
-                if not duration or duration <= 0:
-                    messagebox.showerror("错误", f"无法获取视频时长: {in_path}")
-                    return
-                zoom_ratio = zoom_end - 1
-                # 构造ffmpeg表达式，避免duration变量未定义
-                vf_str = f"scale=iw*(1+{zoom_ratio}*t/{duration}):ih*(1+{zoom_ratio}*t/{duration}),crop=iw:ih"
-                cmd = [
-                    "ffmpeg", "-y", "-i", in_path, "-vf", vf_str,
-                    "-c:v", "libx264", "-c:a", "aac", filtered_path
-                ]
-                print(f"[滤镜处理-ffmpeg动画] {v}: {' '.join(cmd)}")
-                result = subprocess.run(cmd, capture_output=True, text=True)
-                print(result.stdout)
-                print(result.stderr)
-                if not os.path.isfile(filtered_path):
-                    messagebox.showerror("错误", f"滤镜处理失败: {filtered_path} 未生成，请检查ffmpeg输出！")
-                    print(f"[错误] {filtered_path} 未生成，命令输出：\n{result.stderr}")
-                    return
-            else:
-                vf_str = "scale=iw:ih"
-                cmd = [
-                    "ffmpeg", "-y", "-i", in_path, "-vf", vf_str,
-                    "-c:v", "libx264", "-c:a", "copy", filtered_path
-                ]
-                print(f"[滤镜处理] {v}: {' '.join(cmd)}")
-                result = subprocess.run(cmd, capture_output=True, text=True)
-                print(result.stdout)
-                print(result.stderr)
-                if not os.path.isfile(filtered_path):
-                    messagebox.showerror("错误", f"滤镜处理失败: {filtered_path} 未生成，请检查ffmpeg输出！")
-                    print(f"[错误] {filtered_path} 未生成，命令输出：\n{result.stderr}")
-                    return
-            filtered_list.append(filtered_path)
-        if not filtered_list:
-            messagebox.showerror("错误", "没有生成任何滤镜视频片段，请检查片段文件夹和ffmpeg命令！")
-            print("[错误] 没有生成任何滤镜视频片段")
-            return
-        # 生成filelist.txt
-        filelist_path = os.path.join(temp_dir, "filelist.txt")
-        with open(filelist_path, "w") as f:
-            for fp in filtered_list:
-                f.write(f"file '{fp}'\n")
-        merged_path = os.path.join(temp_dir, f"{out_name}-{ts}-merged.mp4")
-        cmd_concat = [
-            "ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", filelist_path,
-            "-c", "copy", merged_path
-        ]
-        print(f"[合并片段] {' '.join(cmd_concat)}")
-        result_concat = subprocess.run(cmd_concat, capture_output=True, text=True)
-        print(result_concat.stdout)
-        print(result_concat.stderr)
-        if not os.path.isfile(merged_path):
-            messagebox.showerror("错误", f"合并片段失败: {merged_path} 未生成，请检查ffmpeg输出！")
-            print(f"[错误] {merged_path} 未生成，命令输出：\n{result_concat.stderr}")
-            return
-        # 合成音视频
-        final_path = os.path.join(temp_dir, f"{out_name}-{ts}-final.mp4")
-        cmd_merge = [
-            "ffmpeg", "-y", "-i", merged_path, "-i", audio_file,
-            "-c:v", "copy", "-c:a", "aac", "-shortest", final_path
-        ]
-        print(f"[合成音视频] {' '.join(cmd_merge)}")
-        result_merge = subprocess.run(cmd_merge, capture_output=True, text=True)
-        print(result_merge.stdout)
-        print(result_merge.stderr)
-        if not os.path.isfile(final_path):
-            messagebox.showerror("错误", f"合成音视频失败: {final_path} 未生成，请检查ffmpeg输出！")
-            print(f"[错误] {final_path} 未生成，命令输出：\n{result_merge.stderr}")
-            return
-        print(f"[完成] 合成视频已保存到: {final_path}")
-        # 可自动填充到下游tab
+        self.addSubInterface(
+            self.create_adjust_subtitle_page(),
+            FluentIcon.EDIT,
+            "调整字幕",
+            NavigationItemPosition.TOP
+        )
+
+        self.addSubInterface(
+            self.create_merge_subtitle_page(),
+            FluentIcon.MEDIA,
+            "整合字幕",
+            NavigationItemPosition.TOP
+        )
+
+        self.addSubInterface(
+            self.create_settings_page(),
+            FluentIcon.SETTING,
+            "设置",
+            NavigationItemPosition.BOTTOM
+        )
+
+    def create_video_convert_page(self):
+        """创建视频转换页面"""
+        self.video_convert_page = VideoConvertPage(self)
+        return self.video_convert_page
+
+    def create_image_to_video_page(self):
+        """创建图片转视频页面"""
+        self.image_to_video_page = ImageToVideoPage(self)
+        return self.image_to_video_page
+
+    def create_merge_page(self):
+        """创建合并页面"""
+        self.merge_page = MergeVideoAudioPage(self)
+        return self.merge_page
+
+    def create_subtitle_page(self):
+        """创建字幕生成页面"""
+        self.subtitle_page = SubtitleGenerationPage(self)
+        return self.subtitle_page
+
+    def create_subtitle_text_page(self):
+        """创建字幕转文本页面"""
+        page = SubtitleTextPage(self)
+        return page
+
+    def create_adjust_subtitle_page(self):
+        """创建调整字幕页面"""
+        page = AdjustSubtitlePage(self)
+        return page
+
+    def create_merge_subtitle_page(self):
+        """创建整合字幕页面"""
+        page = MergeSubtitlePage(self)
+        return page
+
+    def create_settings_page(self):
+        """创建设置页面"""
+        from qfluentwidgets import ScrollArea, SmoothScrollArea
+
+        page = SmoothScrollArea()
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+
+        title = SubtitleLabel("⚙️ 设置")
+        title.setFont(TITLE_FONT)
+        layout.addWidget(title)
+
+        # 主题切换
+        theme_group = QGroupBox("界面主题")
+        theme_layout = QVBoxLayout()
+
+        from qfluentwidgets import setTheme, Theme, RadioButton
+
+        self.light_radio = RadioButton("浅色主题")
+        self.dark_radio = RadioButton("深色主题")
+        self.dark_radio.setChecked(True)
+
+        self.light_radio.clicked.connect(lambda: setTheme(Theme.LIGHT))
+        self.dark_radio.clicked.connect(lambda: setTheme(Theme.DARK))
+
+        theme_layout.addWidget(self.light_radio)
+        theme_layout.addWidget(self.dark_radio)
+        theme_group.setLayout(theme_layout)
+
+        layout.addWidget(theme_group)
+
+        # 打开文件夹按钮
+        folders_group = QGroupBox("常用文件夹")
+        folders_layout = QGridLayout()
+
+        font_btn = PushButton(FluentIcon.FONT, "字体文件夹")
+        font_btn.clicked.connect(lambda: self.open_folder("font"))
+        folders_layout.addWidget(font_btn, 0, 0)
+
+        temp_btn = PushButton(FluentIcon.FOLDER, "临时文件")
+        temp_btn.clicked.connect(lambda: self.open_folder("temp"))
+        folders_layout.addWidget(temp_btn, 0, 1)
+
+        srt_btn = PushButton(FluentIcon.DOCUMENT, "字幕文件夹")
+        srt_btn.clicked.connect(lambda: self.open_folder("SRT"))
+        folders_layout.addWidget(srt_btn, 1, 0)
+
+        speech_btn = PushButton(FluentIcon.MICROPHONE, "语音文件夹")
+        speech_btn.clicked.connect(lambda: self.open_folder("speech"))
+        folders_layout.addWidget(speech_btn, 1, 1)
+
+        folders_group.setLayout(folders_layout)
+        layout.addWidget(folders_group)
+
+        layout.addStretch()
+
+        page.setWidget(widget)
+        page.setWidgetResizable(True)
+        return page
+
+    def open_folder(self, folder_name):
+        """打开指定文件夹"""
+        folder_path = os.path.join(os.getcwd(), folder_name)
+        os.makedirs(folder_path, exist_ok=True)
+
+        if sys.platform == "darwin":  # macOS
+            subprocess.run(["open", folder_path])
+        elif sys.platform == "win32":  # Windows
+            subprocess.run(["explorer", folder_path])
+        else:  # Linux
+            subprocess.run(["xdg-open", folder_path])
+
+def main():
+    # 设置高DPI支持
+    QApplication.setAttribute(Qt.AA_EnableHighDpiScaling)
+    QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps)
+
+    app = QApplication(sys.argv)
+
+    # 设置应用信息
+    app.setApplicationName("BOZO-MCN多媒体编辑器")
+    app.setApplicationVersion("2.0")
+
+    # 设置深色主题
+    setTheme(Theme.DARK)
+
+    # 创建主窗口
+    window = MainWindow()
+    window.show()
+
+    sys.exit(app.exec_())
 
 if __name__ == "__main__":
-    app = MultimediaEditor()
-    app.mainloop() 
+    main()
