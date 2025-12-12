@@ -15,14 +15,16 @@ from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                             QPushButton, QFileDialog, QTextEdit, QCheckBox,
                             QComboBox, QSpinBox, QProgressBar, QMessageBox,
                             QSplitter, QFrame, QScrollArea, QGroupBox, QDoubleSpinBox,
-                            QMenu, QAction, QDialog, QFormLayout, QDialogButtonBox)
-from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer, QUrl
-from PyQt5.QtGui import QFont, QIcon, QDesktopServices
+                            QMenu, QAction, QDialog, QFormLayout, QDialogButtonBox,
+                            QStackedWidget, QTableWidget, QTableWidgetItem, QHeaderView)
+from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer, QUrl, QSize
+from PyQt5.QtGui import QFont, QIcon, QDesktopServices, QColor
 from qfluentwidgets import (FluentIcon, NavigationInterface, NavigationItemPosition,
                           FluentWindow, SubtitleLabel, BodyLabel, PrimaryPushButton,
                           PushButton, LineEdit, ComboBox, CheckBox, SpinBox,
                           ProgressBar, InfoBar, InfoBarPosition, ToolTipFilter,
-                          setTheme, Theme, FluentIcon as FIcon, SmoothScrollArea)
+                          setTheme, Theme, FluentIcon as FIcon, SmoothScrollArea,
+                          Pivot, TableWidget)
 
 # 配置常量 - 使用系统默认字体
 TITLE_FONT = QFont()
@@ -559,18 +561,18 @@ class HomePage(BasePage):
         # 美化菜单样式
         menu.setStyleSheet("""
             QMenu {
-                font-size: 14px;
-                padding: 5px;
-                background-color: #ffff00;
-                border: 1px solid #dcdcdc;
+                font-size: 16px;
+                padding: 10px;
+                background-color: #666666;
                 border-radius: 8px;
+                color:#111111;
             }
             QMenu::item {
                 padding: 8px 30px;
                 border-radius: 4px;
             }
             QMenu::item:selected {
-                background-color: #f0f0f0;
+                background-color: #f0f0ff;
             }
         """)
         
@@ -666,6 +668,438 @@ class HomePage(BasePage):
         self.load_buttons()
         self.render_buttons()
         self.show_info("刷新", "按钮已刷新")
+
+class VoiceManagerPage(BasePage):
+    """声音管理平台"""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.init_ui()
+
+    def init_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setSpacing(20)
+
+        # 标题
+        title = SubtitleLabel("🎵 声音操作管理平台")
+        title.setFont(TITLE_FONT)
+        layout.addWidget(title)
+
+        # 顶部导航 Pivot
+        self.pivot = Pivot(self)
+        self.pivot.addItem(routeKey="user_voice", text="用户预置音色")
+        self.pivot.addItem(routeKey="system_voice", text="使用系统音色")
+        self.pivot.addItem(routeKey="base64_upload", text="Base64上传音色")
+        self.pivot.addItem(routeKey="file_upload", text="音频文件上传")
+        self.pivot.addItem(routeKey="voice_list", text="云端音色列表")
+        self.pivot.addItem(routeKey="delete_voice", text="删除云端音色")
+        layout.addWidget(self.pivot)
+
+        # 堆叠窗口
+        self.stackedWidget = QStackedWidget(self)
+        layout.addWidget(self.stackedWidget)
+
+        # 添加子页面
+        self.stackedWidget.addWidget(self.create_user_voice_tab())
+        self.stackedWidget.addWidget(self.create_system_voice_tab())
+        self.stackedWidget.addWidget(self.create_base64_upload_tab())
+        self.stackedWidget.addWidget(self.create_file_upload_tab())
+        self.stackedWidget.addWidget(self.create_voice_list_tab())
+        self.stackedWidget.addWidget(self.create_delete_voice_tab())
+
+        # 连接信号
+        self.pivot.currentItemChanged.connect(
+            lambda k: self.stackedWidget.setCurrentIndex(
+                ["user_voice", "system_voice", "base64_upload", "file_upload", "voice_list", "delete_voice"].index(k)
+            )
+        )
+
+    def create_tab_widget(self):
+        """创建子标签页的基础 Widget"""
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(15)
+        layout.addStretch() # 底部填充
+        return widget, layout
+
+    def create_form_row(self, label_text, widget):
+        """创建表单行"""
+        row = QHBoxLayout()
+        label = BodyLabel(label_text)
+        label.setFixedWidth(100)
+        row.addWidget(label)
+        row.addWidget(widget)
+        return row
+
+    def get_api_key(self):
+        key = os.environ.get("SiliconCloud_API_KEY")
+        if not key:
+            self.show_error("错误", "请设置环境变量 SiliconCloud_API_KEY")
+            return None
+        return key
+
+    # --- 1. 用户预置音色 ---
+    def create_user_voice_tab(self):
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+        layout.setContentsMargins(0, 20, 0, 0)
+        layout.setSpacing(15)
+
+        self.uv_model = LineEdit()
+        self.uv_model.setText("FunAudioLLM/CosyVoice2-0.5B")
+        layout.addLayout(self.create_form_row("模型名称:", self.uv_model))
+
+        self.uv_uri = LineEdit()
+        self.uv_uri.setPlaceholderText("speech:xxxx:xxxx:xxxx")
+        layout.addLayout(self.create_form_row("音色URI:", self.uv_uri))
+
+        layout.addWidget(BodyLabel("输入文本:"))
+        self.uv_text = QTextEdit()
+        self.uv_text.setPlaceholderText("请输入要生成的文本内容...")
+        self.uv_text.setMinimumHeight(120)
+        layout.addWidget(self.uv_text)
+
+        format_layout = QHBoxLayout()
+        format_layout.addWidget(BodyLabel("输出格式:"))
+        self.uv_format = ComboBox()
+        self.uv_format.addItems(["mp3", "wav", "opus", "pcm"])
+        self.uv_format.setFixedWidth(150)
+        format_layout.addWidget(self.uv_format)
+        format_layout.addStretch()
+        layout.addLayout(format_layout)
+
+        btn = PrimaryPushButton("生成语音")
+        btn.setFixedWidth(200)
+        btn.clicked.connect(self.generate_user_voice)
+        layout.addWidget(btn, 0, Qt.AlignHCenter)
+        layout.addStretch()
+        return widget
+
+    def generate_user_voice(self):
+        self.generate_voice(
+            self.uv_model.text(),
+            self.uv_uri.text(),
+            self.uv_text.toPlainText(),
+            self.uv_format.currentText()
+        )
+
+    # --- 2. 使用系统音色 ---
+    def create_system_voice_tab(self):
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+        layout.setContentsMargins(0, 20, 0, 0)
+        layout.setSpacing(15)
+
+        self.sv_model = LineEdit()
+        self.sv_model.setText("FunAudioLLM/CosyVoice2-0.5B")
+        layout.addLayout(self.create_form_row("模型名称:", self.sv_model))
+
+        self.sv_voice = ComboBox()
+        voice_options = [
+            ("沉稳男声", "alex"), ("低沉男声", "benjamin"), ("磁性男声", "charles"), ("欢快男声", "david"),
+            ("沉稳女声", "anna"), ("激情女声", "bella"), ("温柔女声", "claire"), ("欢快女声", "diana")
+        ]
+        for name, code in voice_options:
+            self.sv_voice.addItem(f"{name} ({code})", code)
+        layout.addLayout(self.create_form_row("选择系统音色:", self.sv_voice))
+
+        layout.addWidget(BodyLabel("输入文本:"))
+        self.sv_text = QTextEdit()
+        self.sv_text.setPlaceholderText("请输入要生成的文本内容...")
+        self.sv_text.setMinimumHeight(120)
+        layout.addWidget(self.sv_text)
+
+        format_layout = QHBoxLayout()
+        format_layout.addWidget(BodyLabel("输出格式:"))
+        self.sv_format = ComboBox()
+        self.sv_format.addItems(["mp3", "wav", "opus", "pcm"])
+        self.sv_format.setFixedWidth(150)
+        format_layout.addWidget(self.sv_format)
+        format_layout.addStretch()
+        layout.addLayout(format_layout)
+
+        btn = PrimaryPushButton("生成语音")
+        btn.setFixedWidth(200)
+        btn.clicked.connect(self.generate_system_voice)
+        layout.addWidget(btn, 0, Qt.AlignHCenter)
+        layout.addStretch()
+        return widget
+
+    def generate_system_voice(self):
+        voice_code = self.sv_voice.itemData(self.sv_voice.currentIndex())
+        voice_uri = f"{self.sv_model.text()}:{voice_code}"
+        self.generate_voice(
+            self.sv_model.text(),
+            voice_uri,
+            self.sv_text.toPlainText(),
+            self.sv_format.currentText(),
+            voice_code
+        )
+
+    # 通用语音生成逻辑
+    def generate_voice(self, model, voice, text, fmt, filename_prefix=None):
+        api_key = self.get_api_key()
+        if not api_key: return
+        if not text.strip():
+            self.show_error("错误", "请输入文本内容")
+            return
+
+        ts = datetime.now().strftime("%Y%m%d%H%M")
+        name = filename_prefix if filename_prefix else (voice.split(":")[-1] if ":" in voice else "voice")
+        os.makedirs("speech", exist_ok=True)
+        output_path = os.path.abspath(f"speech/{name}-{ts}.{fmt}")
+
+        url = "https://api.siliconflow.cn/v1/audio/speech"
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json"
+        }
+        data = {
+            "model": model,
+            "input": text,
+            "voice": voice,
+            "response_format": fmt
+        }
+
+        try:
+            self.show_info("处理中", "正在生成语音...")
+            response = requests.post(url, headers=headers, json=data, stream=True)
+            if response.status_code == 200:
+                with open(output_path, 'wb') as f:
+                    for chunk in response.iter_content(chunk_size=1024):
+                        if chunk: f.write(chunk)
+                
+                self.show_success("成功", f"语音生成完成: {output_path}")
+                # 尝试打开文件夹
+                if sys.platform == "darwin":
+                    subprocess.run(["open", os.path.dirname(output_path)])
+                elif sys.platform == "win32":
+                    os.startfile(os.path.dirname(output_path))
+            else:
+                self.show_error("生成失败", response.text)
+        except Exception as e:
+            self.show_error("异常", str(e))
+
+    # --- 3. Base64上传 ---
+    def create_base64_upload_tab(self):
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+        layout.setContentsMargins(0, 20, 0, 0)
+        layout.setSpacing(15)
+
+        self.b64_model = LineEdit()
+        self.b64_model.setText("FunAudioLLM/CosyVoice2-0.5B")
+        layout.addLayout(self.create_form_row("模型名称:", self.b64_model))
+
+        self.b64_name = LineEdit()
+        self.b64_name.setPlaceholderText("自定义音色名称")
+        layout.addLayout(self.create_form_row("音色名称:", self.b64_name))
+
+        self.b64_text = LineEdit()
+        self.b64_text.setPlaceholderText("输入生成的参考文本")
+        layout.addLayout(self.create_form_row("参考文本:", self.b64_text))
+
+        layout.addWidget(BodyLabel("Base64音频数据:"))
+        self.b64_data = QTextEdit()
+        self.b64_data.setPlaceholderText("粘贴Base64音频字符串...")
+        self.b64_data.setMinimumHeight(150)
+        layout.addWidget(self.b64_data)
+
+        btn = PrimaryPushButton("上传音色")
+        btn.setFixedWidth(200)
+        btn.clicked.connect(self.upload_base64)
+        layout.addWidget(btn, 0, Qt.AlignHCenter)
+        layout.addStretch()
+        return widget
+
+    def upload_base64(self):
+        api_key = self.get_api_key()
+        if not api_key: return
+
+        url = "https://api.siliconflow.cn/v1/uploads/audio/voice"
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json"
+        }
+        data = {
+            "model": self.b64_model.text(),
+            "customName": self.b64_name.text(),
+            "audio": self.b64_data.toPlainText().strip(),
+            "text": self.b64_text.text()
+        }
+
+        try:
+            self.show_info("上传中", "正在上传音色...")
+            resp = requests.post(url, headers=headers, json=data)
+            if resp.status_code == 200:
+                self.show_success("成功", f"上传成功: {resp.json().get('uri', '未知URI')}")
+            else:
+                self.show_error("失败", resp.text)
+        except Exception as e:
+            self.show_error("异常", str(e))
+
+    # --- 4. 文件上传 ---
+    def create_file_upload_tab(self):
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+        layout.setContentsMargins(0, 20, 0, 0)
+        layout.setSpacing(15)
+
+        self.fu_model = LineEdit()
+        self.fu_model.setText("FunAudioLLM/CosyVoice2-0.5B")
+        layout.addLayout(self.create_form_row("模型名称:", self.fu_model))
+
+        self.fu_name = LineEdit()
+        self.fu_name.setPlaceholderText("自定义音色名称")
+        layout.addLayout(self.create_form_row("音色名称:", self.fu_name))
+
+        file_layout = QHBoxLayout()
+        file_layout.addWidget(BodyLabel("音频文件:"))
+        self.fu_path = LineEdit()
+        file_layout.addWidget(self.fu_path)
+        browse_btn = PushButton("浏览")
+        browse_btn.clicked.connect(lambda: self.fu_path.setText(self.get_file_path("选择音频", "Audio (*.mp3 *.wav *.opus)")))
+        file_layout.addWidget(browse_btn)
+        layout.addLayout(file_layout)
+
+        layout.addWidget(BodyLabel("参考文本:"))
+        self.fu_text = QTextEdit()
+        self.fu_text.setPlaceholderText("输入音频对应的参考文本...")
+        self.fu_text.setMinimumHeight(100)
+        layout.addWidget(self.fu_text)
+
+        btn = PrimaryPushButton("上传音色")
+        btn.setFixedWidth(200)
+        btn.clicked.connect(self.upload_file)
+        layout.addWidget(btn, 0, Qt.AlignHCenter)
+        layout.addStretch()
+        return widget
+
+    def upload_file(self):
+        api_key = self.get_api_key()
+        if not api_key: return
+        file_path = self.fu_path.text()
+        if not os.path.exists(file_path):
+            self.show_error("错误", "文件不存在")
+            return
+
+        url = "https://api.siliconflow.cn/v1/uploads/audio/voice"
+        headers = {"Authorization": f"Bearer {api_key}"}
+
+        try:
+            self.show_info("上传中", "正在上传文件...")
+            with open(file_path, "rb") as f:
+                files = {"file": f}
+                data = {
+                    "model": self.fu_model.text(),
+                    "customName": self.fu_name.text(),
+                    "text": self.fu_text.toPlainText().strip()
+                }
+                resp = requests.post(url, headers=headers, files=files, data=data)
+
+            if resp.status_code == 200:
+                self.show_success("成功", f"上传成功: {resp.json().get('uri', '未知URI')}")
+            else:
+                self.show_error("失败", resp.text)
+        except Exception as e:
+            self.show_error("异常", str(e))
+
+    # --- 5. 云端音色列表 ---
+    def create_voice_list_tab(self):
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+        layout.setContentsMargins(0, 20, 0, 0)
+
+        # 刷新按钮
+        refresh_btn = PushButton(FluentIcon.SYNC, "刷新列表")
+        refresh_btn.clicked.connect(self.refresh_voice_list)
+        layout.addWidget(refresh_btn, 0, Qt.AlignLeft)
+
+        # 列表
+        self.voice_table = TableWidget(self)
+        self.voice_table.setColumnCount(3)
+        self.voice_table.setHorizontalHeaderLabels(["音色名称", "模型", "URI"])
+        self.voice_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.voice_table.itemClicked.connect(self.copy_uri_from_table)
+        layout.addWidget(self.voice_table)
+
+        return widget
+
+    def refresh_voice_list(self):
+        api_key = self.get_api_key()
+        if not api_key: return
+
+        url = "https://api.siliconflow.cn/v1/audio/voice/list"
+        headers = {"Authorization": f"Bearer {api_key}"}
+
+        try:
+            self.show_info("加载中", "正在获取音色列表...")
+            resp = requests.get(url, headers=headers)
+            if resp.status_code == 200:
+                data = resp.json().get("result", [])
+                self.voice_table.setRowCount(len(data))
+                for i, item in enumerate(data):
+                    self.voice_table.setItem(i, 0, QTableWidgetItem(item.get("customName", "")))
+                    self.voice_table.setItem(i, 1, QTableWidgetItem(item.get("model", "")))
+                    self.voice_table.setItem(i, 2, QTableWidgetItem(item.get("uri", "")))
+                self.show_success("成功", f"加载了 {len(data)} 个音色")
+            else:
+                self.show_error("失败", resp.text)
+        except Exception as e:
+            self.show_error("异常", str(e))
+
+    def copy_uri_from_table(self, item):
+        row = item.row()
+        uri = self.voice_table.item(row, 2).text()
+        QApplication.clipboard().setText(uri)
+        self.show_info("已复制", f"URI 已复制到剪贴板: {uri}")
+
+    # --- 6. 删除云端音色 ---
+    def create_delete_voice_tab(self):
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+        layout.setContentsMargins(0, 20, 0, 0)
+        layout.setSpacing(15)
+        
+        layout.addWidget(BodyLabel("输入要删除的音色 URI:"))
+        self.del_uri = LineEdit()
+        self.del_uri.setPlaceholderText("speech:xxxx:xxxx:xxxx")
+        layout.addWidget(self.del_uri)
+
+        del_btn = PrimaryPushButton(FluentIcon.DELETE, "删除音色")
+        del_btn.setFixedWidth(200)
+        del_btn.clicked.connect(self.delete_voice)
+        layout.addWidget(del_btn, 0, Qt.AlignHCenter)
+
+        layout.addStretch()
+        return widget
+
+    def delete_voice(self):
+        api_key = self.get_api_key()
+        if not api_key: return
+        uri = self.del_uri.text().strip()
+        if not uri: return
+
+        url = "https://api.siliconflow.cn/v1/audio/voice/deletions"
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json"
+        }
+        
+        reply = QMessageBox.question(self, "确认删除", f"确定要删除音色 {uri} 吗？", 
+                                   QMessageBox.Yes | QMessageBox.No)
+        if reply != QMessageBox.Yes: return
+
+        try:
+            resp = requests.post(url, headers=headers, json={"uri": uri})
+            if resp.status_code == 200:
+                self.show_success("成功", "删除成功")
+                self.del_uri.clear()
+            else:
+                self.show_error("失败", resp.text)
+        except Exception as e:
+            self.show_error("异常", str(e))
 
 
 class VideoConvertPage(BasePage):
@@ -2210,6 +2644,14 @@ class MainWindow(FluentWindow):
             NavigationItemPosition.TOP
         )
 
+        # 添加声音管理
+        self.addSubInterface(
+            self.create_voice_manager_page(),
+            FluentIcon.MUSIC,
+            "声音管理",
+            NavigationItemPosition.TOP
+        )
+
         # 添加导航项
         self.addSubInterface(
             self.create_video_convert_page(),
@@ -2273,6 +2715,12 @@ class MainWindow(FluentWindow):
         self.home_page = HomePage(self)
         self.home_page.setObjectName("home_page")
         return self.home_page
+
+    def create_voice_manager_page(self):
+        """创建声音管理页面"""
+        self.voice_manager_page = VoiceManagerPage(self)
+        self.voice_manager_page.setObjectName("voice_manager_page")
+        return self.voice_manager_page
 
     def create_video_convert_page(self):
         """创建视频转换页面"""
