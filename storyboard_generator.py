@@ -22,7 +22,8 @@ from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                             QHBoxLayout, QGridLayout, QLabel, QLineEdit,
                             QPushButton, QFileDialog, QTextEdit, QSpinBox,
                             QProgressBar, QMessageBox, QSplitter, QGroupBox,
-                            QDialog, QToolButton, QSizePolicy, QButtonGroup) # 引入 QButtonGroup
+                            QDialog, QToolButton, QSizePolicy, QButtonGroup,
+                            QTabWidget, QScrollArea) # 引入 QTabWidget, QScrollArea
 from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer, QUrl, QSettings, QSize, pyqtSlot
 from PyQt5.QtGui import QFont, QIcon, QDesktopServices, QPixmap
 from qfluentwidgets import (FluentIcon, NavigationInterface, NavigationItemPosition,
@@ -38,23 +39,20 @@ logger = logging.getLogger(__name__)
 # API 配置
 MODEL_API_KEY = os.getenv('SiliconCloud_API_KEY')
 
-# 预设尺寸和比例数据
+# 预设尺寸和比例数据 (已更新为更常见且合理的选项)
 PRESET_RESOLUTIONS = {
     "1080P": (1920, 1080), 
     "960P": (1707, 960),
-    "768P": (1024, 768),
     "720P": (1280, 720),
-    "512P": (768, 512),
 }
 
 ASPECT_RATIOS = {
     "16:9": 16/9,
     "4:3": 4/3,
-    "21:9": 21/9,
     "1:1": 1/1,
     "2:3": 2/3,
-    "2:5": 2/5,
-    "3:5": 3/5,
+    "9:16 (竖)": 9/16,
+    "3:4 (竖)": 3/4,
 }
 
 
@@ -78,6 +76,7 @@ class AdvancedConfigManager:
 
     def get_initial_templates(self):
         """定义初始模板内容（处理换行符转义）"""
+        # 模板内容已简化，以适应代码结构
         return {
             "story_title": {
                 "name": "故事分镜标题模板",
@@ -359,6 +358,7 @@ class ImageGenerationWorker(QThread):
         self.web_app_id = config_manager.get('bizyair_params.web_app_id', 39808)
 
     def run(self):
+        """运行图片生成"""
         try:
             api_key = config_manager.get('api.api_key', MODEL_API_KEY)
             if not api_key:
@@ -504,7 +504,7 @@ class TemplateManagerDialog(QDialog):
         load_btn.clicked.connect(self.load_template_content)
         button_layout.addWidget(load_btn)
 
-        save_btn = PushButton(FluentIcon.SAVE, "保存模板")
+        save_btn = PrimaryPushButton(FluentIcon.SAVE, "保存模板")
         save_btn.clicked.connect(self.save_template_content)
         button_layout.addWidget(save_btn)
 
@@ -783,9 +783,11 @@ class ImagePreviewWidget(CardWidget):
 
 # 顶部控制栏 (新增)
 class TopControlBar(QWidget):
-    """用于放置一键生成和导出按钮的顶部控制栏"""
+    """用于放置一键生成、尺寸设置、模板管理和导出按钮的顶部控制栏"""
     
     # 信号用于触发主页面的功能
+    show_size_dialog_requested = pyqtSignal() # 新增信号
+    show_template_manager_requested = pyqtSignal() # 新增信号
     generate_all_requested = pyqtSignal()
     export_md_requested = pyqtSignal()
     export_images_requested = pyqtSignal()
@@ -803,27 +805,39 @@ class TopControlBar(QWidget):
         title = SubtitleLabel("🚀 BOZO-MCN 分镜脚本与图片生成器")
         layout.addWidget(title)
         layout.addStretch()
+        
+        # 1. 图片尺寸设置按钮 (新位置)
+        self.size_settings_btn = PushButton(FluentIcon.SETTING, "图片尺寸设置")
+        self.size_settings_btn.setFixedHeight(36)
+        self.size_settings_btn.clicked.connect(self.show_size_dialog_requested.emit)
+        layout.addWidget(self.size_settings_btn)
 
-        # 1. 一键生成按钮
+        # 2. 一键生成按钮
         self.generate_all_btn = PrimaryPushButton(FluentIcon.PLAY, "一键生成全部")
         self.generate_all_btn.setFixedHeight(36)
         self.generate_all_btn.clicked.connect(self.generate_all_requested.emit)
         layout.addWidget(self.generate_all_btn)
 
-        # 2. 导出 Markdown
+        # 3. 模板管理按钮 (新位置)
+        self.template_manager_btn = PushButton(FluentIcon.EDIT, "管理提示词模板")
+        self.template_manager_btn.setFixedHeight(36)
+        self.template_manager_btn.clicked.connect(self.show_template_manager_requested.emit)
+        layout.addWidget(self.template_manager_btn)
+
+        # 4. 导出 Markdown
         self.export_md_btn = PushButton(FluentIcon.SAVE, "导出Markdown")
         self.export_md_btn.setFixedHeight(36)
         self.export_md_btn.clicked.connect(self.export_md_requested.emit)
         layout.addWidget(self.export_md_btn)
 
-        # 3. 导出全部图片
+        # 5. 导出全部图片
         self.export_images_btn = PushButton(FluentIcon.FOLDER, "导出全部图片")
         self.export_images_btn.setFixedHeight(36)
         self.export_images_btn.clicked.connect(self.export_images_requested.emit)
         layout.addWidget(self.export_images_btn)
     
     def set_generate_enabled(self, enabled):
-        """控制一键生成按钮的启用状态"""
+        """控制一键生成按钮和导出按钮的启用状态"""
         self.generate_all_btn.setEnabled(enabled)
         # 导出按钮的状态可以独立控制，但为了安全，在生成时也禁用
         if not enabled:
@@ -834,7 +848,211 @@ class TopControlBar(QWidget):
              self.export_md_btn.setEnabled(True)
              self.export_images_btn.setEnabled(True)
 
-# 主功能页面 (主要修改区域)
+# 图片尺寸/数量设置对话框 (新增)
+class ImageControlDialog(QDialog):
+    """用于设置图片尺寸和数量的模态对话框"""
+    
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("图片生成参数设置")
+        self.setMinimumSize(500, 450)
+        self.init_ui()
+        self.load_current_config()
+    
+    def init_ui(self):
+        layout = QVBoxLayout(self)
+        
+        # --- 尺寸/互换 ---
+        size_group = QGroupBox("尺寸设置")
+        size_group.setStyleSheet("QGroupBox { border: 1px solid #ccc; margin-top: 1ex; padding: 10px; }")
+        size_layout = QGridLayout(size_group)
+        
+        # 宽度
+        size_layout.addWidget(QLabel("图片宽度 (W):"), 0, 0)
+        self.width_spin = QSpinBox()
+        self.width_spin.setRange(256, 4096)
+        self.width_spin.setSingleStep(64)
+        self.width_spin.setFixedWidth(100)
+        size_layout.addWidget(self.width_spin, 0, 1)
+
+        # 互换按钮
+        self.swap_size_btn = QToolButton()
+        self.swap_size_btn.setIcon(FluentIcon.ROTATE.icon())
+        self.swap_size_btn.setToolTip("互换宽度和高度")
+        self.swap_size_btn.clicked.connect(self.swap_image_size)
+        size_layout.addWidget(self.swap_size_btn, 0, 2)
+
+        # 高度
+        size_layout.addWidget(QLabel("图片高度 (H):"), 1, 0)
+        self.height_spin = QSpinBox()
+        self.height_spin.setRange(256, 4096)
+        self.height_spin.setSingleStep(64)
+        self.height_spin.setFixedWidth(100)
+        size_layout.addWidget(self.height_spin, 1, 1)
+
+        layout.addWidget(size_group)
+
+        # --- 分辨率预设 ---
+        res_group = QGroupBox("分辨率预设")
+        res_group.setStyleSheet("QGroupBox { border: 1px solid #ccc; margin-top: 1ex; padding: 10px; }")
+        res_layout = QHBoxLayout(res_group)
+        self.resolution_group = QButtonGroup(self)
+        self.resolution_group.setExclusive(True)
+        
+        btn_id = 1
+        for name, size in PRESET_RESOLUTIONS.items():
+            btn = RadioButton(name)
+            res_layout.addWidget(btn)
+            self.resolution_group.addButton(btn, id=btn_id) 
+            btn.setProperty("data", size)
+            btn_id += 1 
+        
+        self.resolution_group.buttonClicked[int].connect(self.set_preset_resolution)
+        layout.addWidget(res_group)
+
+        # --- 比例预设 ---
+        ratio_group = QGroupBox("比例预设")
+        ratio_group.setStyleSheet("QGroupBox { border: 1px solid #ccc; margin-top: 1ex; padding: 10px; }")
+        ratio_layout = QHBoxLayout(ratio_group)
+        self.ratio_group = QButtonGroup(self)
+        self.ratio_group.setExclusive(True)
+        
+        btn_id = 101
+        for name, ratio in ASPECT_RATIOS.items():
+            btn = RadioButton(name)
+            ratio_layout.addWidget(btn)
+            self.ratio_group.addButton(btn, id=btn_id)
+            btn.setProperty("data", ratio)
+            btn_id += 1
+            
+        self.ratio_group.buttonClicked[int].connect(self.set_aspect_ratio)
+        layout.addWidget(ratio_group)
+
+        # --- 图片数量 ---
+        count_group = QGroupBox("图片数量")
+        count_group.setStyleSheet("QGroupBox { border: 1px solid #ccc; margin-top: 1ex; padding: 10px; }")
+        count_layout = QHBoxLayout(count_group)
+        
+        self.image_count_spin = QSpinBox()
+        self.image_count_spin.setRange(5, 20)
+        self.image_count_spin.setSingleStep(5)
+        self.image_count_spin.setFixedWidth(80)
+        count_layout.addWidget(self.image_count_spin)
+        count_layout.addWidget(QLabel("张 (5的倍数)"))
+        count_layout.addStretch()
+        layout.addWidget(count_group)
+
+        # --- 底部按钮 ---
+        button_box = QHBoxLayout()
+        save_btn = PrimaryPushButton("确定并应用")
+        save_btn.clicked.connect(self.apply_config_and_accept)
+        cancel_btn = PushButton("取消")
+        cancel_btn.clicked.connect(self.reject)
+        
+        button_box.addStretch()
+        button_box.addWidget(save_btn)
+        button_box.addWidget(cancel_btn)
+        layout.addLayout(button_box)
+        
+    def load_current_config(self):
+        """从配置管理器加载当前的设置值"""
+        self.width_spin.setValue(config_manager.get('bizyair_params.default_width', 1080))
+        self.height_spin.setValue(config_manager.get('bizyair_params.default_height', 1920))
+        self.image_count_spin.setValue(config_manager.get('ui.default_image_count', 10))
+
+    def swap_image_size(self):
+        """互换宽度和高度"""
+        current_width = self.width_spin.value()
+        current_height = self.height_spin.value()
+        self.width_spin.setValue(current_height)
+        self.height_spin.setValue(current_width)
+        
+    @pyqtSlot(int)
+    def set_preset_resolution(self, id):
+        """根据选择的分辨率预设设置尺寸"""
+        checked_button = self.resolution_group.button(id)
+        if not checked_button:
+            return
+            
+        size_data = checked_button.property("data")
+        if size_data and isinstance(size_data, tuple):
+            width, height = size_data
+            self.width_spin.setValue(width)
+            self.height_spin.setValue(height)
+            
+        # 取消比例预设的选中状态
+        if self.ratio_group.checkedButton():
+            self.ratio_group.checkedButton().setChecked(False)
+
+    @pyqtSlot(int)
+    def set_aspect_ratio(self, id):
+        """根据选择的比例预设设置尺寸"""
+        checked_button = self.ratio_group.button(id)
+        if not checked_button:
+            return
+
+        ratio = checked_button.property("data")
+            
+        if ratio and isinstance(ratio, (float, int)):
+            # 保持较大的尺寸（至少 1080）作为基准，避免缩放至过小
+            current_max_size = max(self.width_spin.value(), self.height_spin.value(), 1080)
+            
+            if self.width_spin.value() >= self.height_spin.value():
+                # 当前是横向或方形，以宽度为基准
+                new_width = current_max_size
+                new_height = int(new_width / ratio)
+            else:
+                # 当前是纵向，以高度为基准
+                new_height = current_max_size
+                new_width = int(new_height * ratio)
+
+            # 保持整数且不超过最大限制
+            self.width_spin.setValue(min(new_width, 4096))
+            self.height_spin.setValue(min(new_height, 4096))
+            
+        # 取消分辨率预设的选中状态
+        if self.resolution_group.checkedButton():
+            self.resolution_group.checkedButton().setChecked(False)
+
+    def apply_config_and_accept(self):
+        """应用配置并关闭对话框"""
+        width = self.width_spin.value()
+        height = self.height_spin.value()
+        count = self.image_count_spin.value()
+        
+        config_manager.set('bizyair_params.default_width', width)
+        config_manager.set('bizyair_params.default_height', height)
+        config_manager.set('ui.default_image_count', count)
+        config_manager.save_config()
+        
+        # 通知主页面更新（通过保存到配置，主页面在需要时会读取）
+        self.accept()
+
+
+# 内容页面的基类 (新增)
+class BaseTextPage(QScrollArea):
+    """用于左侧 TabWidget 的内容页面基类"""
+    def __init__(self, title, input_widget, button_layout=None, parent=None):
+        super().__init__(parent)
+        self.setWidgetResizable(True)
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+        layout.setContentsMargins(20, 20, 20, 20)
+        
+        title_label = SubtitleLabel(title)
+        title_label.setFont(QFont("", 14, QFont.Bold))
+        layout.addWidget(title_label)
+        
+        layout.addWidget(input_widget)
+        
+        if button_layout:
+            layout.addLayout(button_layout)
+        
+        layout.addStretch()
+        self.setWidget(widget)
+
+
+# 主功能页面 (重大重构)
 class StoryboardPage(SmoothScrollArea):
     """分镜脚本与图片生成主页面"""
 
@@ -845,385 +1063,145 @@ class StoryboardPage(SmoothScrollArea):
         self.current_summaries = []
         self.current_prompts = []
         self.image_widgets = []
-        self.image_urls = [] # 添加 URL 列表
-        self.all_generation_step = 0 # 0: idle, 1: title, 2: summary, 3: prompt, 4: image
+        self.image_urls = [] 
+        self.all_generation_step = 0 
+        
+        # 控件初始化 (在 init_ui 之前)
+        self.init_text_widgets()
         
         # 创建顶部控制栏
         self.top_control_bar = TopControlBar()
+        self.top_control_bar.show_size_dialog_requested.connect(self.show_image_control_dialog)
+        self.top_control_bar.show_template_manager_requested.connect(self.show_template_manager)
         self.top_control_bar.generate_all_requested.connect(self.generate_all)
         self.top_control_bar.export_md_requested.connect(self.export_markdown)
         self.top_control_bar.export_images_requested.connect(self.export_all_images)
         
         self.init_ui()
-        self.init_image_widgets() # 确保初始化图片小部件，以便后续更新
+        self.init_image_widgets() 
+        self.adjust_font_size(13) # 调整字体大小
+
+    def init_text_widgets(self):
+        """初始化所有文本编辑框和按钮"""
+        # 故事内容
+        self.content_edit = QTextEdit()
+        self.content_edit.setPlaceholderText("请输入您的故事内容或创意描述...")
+        
+        # 分镜标题
+        self.title_output_edit = QTextEdit()
+        self.title_output_edit.setPlaceholderText("生成的分镜标题将显示在这里...")
+        
+        # 分镜描述
+        self.summary_output_edit = QTextEdit()
+        self.summary_output_edit.setPlaceholderText("生成的分镜描述将显示在这里...")
+        
+        # 绘图提示词
+        self.generated_prompts_edit = QTextEdit()
+        self.generated_prompts_edit.setPlaceholderText("这里将显示生成的绘图提示词，您可以编辑修改...")
+
+        # 进度条和按钮 (原 left_panel 按钮)
+        self.generate_title_btn = PrimaryPushButton(FluentIcon.ADD, "生成分镜标题")
+        self.title_progress = ProgressBar()
+        self.generate_summary_btn = PrimaryPushButton(FluentIcon.EDIT, "生成分镜描述")
+        self.summary_progress = ProgressBar()
+        self.generate_prompt_btn = PrimaryPushButton(FluentIcon.LINK, "生成绘图提示词")
+        self.prompt_progress = ProgressBar()
+        
+        self.generate_title_btn.clicked.connect(self.generate_titles)
+        self.generate_summary_btn.clicked.connect(self.generate_summaries)
+        self.generate_prompt_btn.clicked.connect(self.generate_prompts)
+
+    def adjust_font_size(self, size):
+        """全局调整主要文本区域的字体大小"""
+        font = QFont("", size)
+        self.content_edit.setFont(font)
+        self.title_output_edit.setFont(font)
+        self.summary_output_edit.setFont(font)
+        self.generated_prompts_edit.setFont(font)
 
     def init_ui(self):
         widget = QWidget()
         layout = QVBoxLayout(widget)
-        layout.setSpacing(20)
+        layout.setSpacing(10)
 
         # 1. 顶部控制栏
         layout.addWidget(self.top_control_bar)
-
 
         # 2. 主要内容区域 - 左右分栏
         main_splitter = QSplitter(Qt.Horizontal)
         layout.addWidget(main_splitter)
 
-        # 左侧面板 - 文字内容区
-        left_panel = self.create_left_panel()
+        # 左侧面板 - Tab Widget
+        left_panel = self.create_left_tab_panel()
         main_splitter.addWidget(left_panel)
 
         # 右侧面板 - 图片生成区
         right_panel = self.create_right_panel()
         main_splitter.addWidget(right_panel)
 
-        # 设置分割比例 (左50% : 右50%)
+        # 设置分割比例 (左 50% : 右 50%)
         main_splitter.setSizes([800, 800])
 
         self.setWidget(widget)
         self.setWidgetResizable(True)
 
-    def create_left_panel(self):
-        """创建左侧面板 - 文字内容区"""
-        left_widget = QWidget()
-        left_layout = QVBoxLayout(left_widget)
-        left_layout.setSpacing(15)
-
-        # 故事内容输入区
-        content_card = ElevatedCardWidget()
-        content_layout = QVBoxLayout(content_card)
-        content_layout.setContentsMargins(20, 20, 20, 20)
-
-        content_title = SubtitleLabel("📝 故事内容")
-        content_title.setFont(QFont("", 14, QFont.Bold))
-        content_layout.addWidget(content_title)
-
-        self.content_edit = QTextEdit()
-        self.content_edit.setPlaceholderText("请输入您的故事内容或创意描述...\n\n示例：一个被遗弃的机器人在荒芜的废土中漫无目的地游荡，直到它在破旧的瓦砾下发现了一株发出微光的植物。")
-        self.content_edit.setMinimumHeight(150)
-        content_layout.addWidget(self.content_edit)
-
-        # 快速操作按钮
+    def create_left_tab_panel(self):
+        """创建左侧选项卡面板"""
+        tab_widget = QTabWidget()
+        tab_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        
+        # 0. 故事内容页
+        content_page_widget = QWidget()
+        content_page_layout = QVBoxLayout(content_page_widget)
+        content_page_layout.setContentsMargins(20, 20, 20, 20)
+        content_page_layout.addWidget(self.content_edit)
+        
         quick_actions_layout = QHBoxLayout()
-
         clear_btn = PushButton(FluentIcon.DELETE, "清空")
         clear_btn.clicked.connect(self.clear_content)
-        quick_actions_layout.addWidget(clear_btn)
-
         load_btn = PushButton(FluentIcon.FOLDER, "加载示例")
         load_btn.clicked.connect(self.load_example)
+        quick_actions_layout.addWidget(clear_btn)
         quick_actions_layout.addWidget(load_btn)
-
         quick_actions_layout.addStretch()
-        content_layout.addLayout(quick_actions_layout)
-        left_layout.addWidget(content_card)
+        content_page_layout.addLayout(quick_actions_layout)
 
-        # 分镜标题生成区
-        title_card = CardWidget()
-        title_layout = QVBoxLayout(title_card)
-        title_layout.setContentsMargins(20, 20, 20, 20)
+        tab_widget.addTab(content_page_widget, "1. 故事内容")
 
-        title_header_layout = QHBoxLayout()
-        title_header = SubtitleLabel("🎭 分镜标题生成")
-        title_header.setFont(QFont("", 14, QFont.Bold))
-        title_header_layout.addWidget(title_header)
-        title_header_layout.addStretch()
-        title_layout.addLayout(title_header_layout)
-
+        # 1. 分镜标题页
         title_btn_layout = QHBoxLayout()
-        self.generate_title_btn = PrimaryPushButton(FluentIcon.ADD, "生成分镜标题")
-        self.generate_title_btn.clicked.connect(self.generate_titles)
         title_btn_layout.addWidget(self.generate_title_btn)
-
-        self.title_progress = ProgressBar()
-        self.title_progress.setFixedHeight(8)
         title_btn_layout.addWidget(self.title_progress)
-        title_layout.addLayout(title_btn_layout)
+        title_page = BaseTextPage("🎭 分镜标题生成", self.title_output_edit, title_btn_layout)
+        tab_widget.addTab(title_page, "2. 分镜标题")
 
-        self.title_output_edit = QTextEdit()
-        self.title_output_edit.setPlaceholderText("生成的分镜标题将显示在这里...")
-        self.title_output_edit.setMinimumHeight(120)
-        title_layout.addWidget(self.title_output_edit)
-
-        left_layout.addWidget(title_card)
-
-        # 分镜描述生成区
-        summary_card = CardWidget()
-        summary_layout = QVBoxLayout(summary_card)
-        summary_layout.setContentsMargins(20, 20, 20, 20)
-
-        summary_header_layout = QHBoxLayout()
-        summary_header = SubtitleLabel("📝 分镜描述生成")
-        summary_header.setFont(QFont("", 14, QFont.Bold))
-        summary_header_layout.addWidget(summary_header)
-        summary_header_layout.addStretch()
-        summary_layout.addLayout(summary_header_layout)
-
+        # 2. 分镜描述页
         summary_btn_layout = QHBoxLayout()
-        self.generate_summary_btn = PrimaryPushButton(FluentIcon.EDIT, "生成分镜描述")
-        self.generate_summary_btn.clicked.connect(self.generate_summaries)
         summary_btn_layout.addWidget(self.generate_summary_btn)
-
-        self.summary_progress = ProgressBar()
-        self.summary_progress.setFixedHeight(8)
         summary_btn_layout.addWidget(self.summary_progress)
-        summary_layout.addLayout(summary_btn_layout)
+        summary_page = BaseTextPage("📝 分镜描述生成", self.summary_output_edit, summary_btn_layout)
+        tab_widget.addTab(summary_page, "3. 分镜描述")
 
-        self.summary_output_edit = QTextEdit()
-        self.summary_output_edit.setPlaceholderText("生成的分镜描述将显示在这里...")
-        self.summary_output_edit.setMinimumHeight(120)
-        summary_layout.addWidget(self.summary_output_edit)
+        # 3. 绘图提示词页
+        prompt_btn_layout = QHBoxLayout()
+        prompt_btn_layout.addWidget(self.generate_prompt_btn)
+        prompt_btn_layout.addWidget(self.prompt_progress)
+        prompt_page = BaseTextPage("🎨 绘图提示词", self.generated_prompts_edit, prompt_btn_layout)
+        tab_widget.addTab(prompt_page, "4. 绘图提示词")
 
-        left_layout.addWidget(summary_card)
+        return tab_widget
 
-        # 生成控制区 (调整为三列布局)
-        control_card = CardWidget()
-        control_layout = QVBoxLayout(control_card)
-        control_layout.setContentsMargins(10, 10, 10, 10) # 减小边距以适应紧凑布局
-
-        # 标题 (单独一行，确保不被挤压)
-        control_title_layout = QHBoxLayout()
-        control_header = SubtitleLabel("⚙️ 生成控制")
-        control_header.setFont(QFont("", 14, QFont.Bold))
-        control_title_layout.addWidget(control_header)
-        control_title_layout.addStretch()
-        control_layout.addLayout(control_title_layout)
-
-        # 功能模块布局 (所有主要设置在一行)
-        control_modules_layout = QHBoxLayout()
-        control_modules_layout.setSpacing(10) # 模块间距
-        control_modules_layout.setContentsMargins(0, 0, 0, 0) # 移除模块布局的边距
-        
-        # --- 1. 宽度/高度/互换 (左) ---
-        size_widget = QWidget()
-        size_widget.setObjectName("size_widget")
-        size_layout = QVBoxLayout(size_widget)
-        size_layout.setContentsMargins(0, 0, 0, 0)
-        
-        # 尺寸输入 (W/H/互换 同一行)
-        size_input_layout = QHBoxLayout()
-        size_input_layout.setContentsMargins(0, 0, 0, 0)
-        
-        size_input_layout.addWidget(QLabel("图片宽度 W:"))
-        self.width_spin = QSpinBox()
-        self.width_spin.setRange(256, 4096)
-        self.width_spin.setValue(config_manager.get('bizyair_params.default_width', 1080))
-        self.width_spin.setSingleStep(64)
-        self.width_spin.setFixedWidth(200)
-        size_input_layout.addWidget(self.width_spin)
-
-        # 互换按钮
-        self.swap_size_btn = QToolButton()
-        self.swap_size_btn.setIcon(FluentIcon.ROTATE.icon()) 
-        self.swap_size_btn.setToolTip("互换宽度和高度")
-        self.swap_size_btn.clicked.connect(self.swap_image_size)
-        size_input_layout.addWidget(self.swap_size_btn)
-
-        # 高度
-        size_input_layout.addWidget(QLabel("图片高度 H:"))
-        self.height_spin = QSpinBox()
-        self.height_spin.setRange(256, 4096)
-        self.height_spin.setValue(config_manager.get('bizyair_params.default_height', 1920))
-        self.height_spin.setSingleStep(64)
-        self.height_spin.setFixedWidth(200)
-        size_input_layout.addWidget(self.height_spin)
-        size_layout.addLayout(size_input_layout)
-        
-        # --- 分辨率预设 (单选按钮) ---
-        resolution_label = QLabel("") #分辨率预设
-        resolution_label.setStyleSheet("font-weight: bold;")
-        size_layout.addWidget(resolution_label)
-
-        resolution_btn_layout = QHBoxLayout()
-        self.resolution_group = QButtonGroup(self)
-        self.resolution_group.setExclusive(True)
-
-        btn_id = 1
-        for name, size in PRESET_RESOLUTIONS.items():
-            btn = RadioButton(name)
-            resolution_btn_layout.addWidget(btn)
-            # 修正：将 id 设为整数
-            self.resolution_group.addButton(btn, id=btn_id) 
-            btn_id += 1 
-        
-        # 修正：信号连接改为接收整数 ID
-        self.resolution_group.buttonClicked[int].connect(self.set_preset_resolution)
-        size_layout.addLayout(resolution_btn_layout)
-        
-        # --- 比例预设 (单选按钮) ---
-        aspect_ratio_label = QLabel("") #比例预设
-        aspect_ratio_label.setStyleSheet("font-weight: bold; margin-top: 5px;")
-        size_layout.addWidget(aspect_ratio_label)
-
-        ratio_btn_layout = QHBoxLayout()
-        self.ratio_group = QButtonGroup(self)
-        self.ratio_group.setExclusive(True)
-
-        btn_id = 101 # 使用不同的起始ID以确保唯一性
-        
-        for name, ratio in ASPECT_RATIOS.items():
-            btn = RadioButton(name)
-            ratio_btn_layout.addWidget(btn)
-            # 修正：将 id 设为整数
-            self.ratio_group.addButton(btn, id=btn_id) 
-            btn_id += 1
-            
-        self.ratio_group.buttonClicked[int].connect(self.set_aspect_ratio)
-        size_layout.addLayout(ratio_btn_layout)
-        
-        control_modules_layout.addWidget(size_widget)
-        control_modules_layout.setStretchFactor(size_widget, 4) # 尺寸区域占更大比例
-
-
-        # --- 2. 图片数量 & 模板编辑 (右侧，上下排列) ---
-        right_column_widget = QWidget()
-        right_column_layout = QVBoxLayout(right_column_widget)
-        right_column_layout.setContentsMargins(0, 0, 0, 0)
-        right_column_layout.setSpacing(10)
-        
-        # 图片数量
-        count_widget = QWidget()
-        count_widget.setObjectName("count_widget")
-        count_layout = QVBoxLayout(count_widget)
-        count_layout.setContentsMargins(0, 0, 0, 0)
-        
-        count_input_layout = QHBoxLayout()
-        count_input_layout.setContentsMargins(0, 0, 0, 0)
-        self.image_count_spin = QSpinBox()
-        self.image_count_spin.setRange(5, 20)
-        self.image_count_spin.setSingleStep(5)
-        self.image_count_spin.setValue(config_manager.get('ui.default_image_count', 10))
-        self.image_count_spin.setFixedWidth(80)
-        self.image_count_spin.valueChanged.connect(self.image_count_changed)
-        count_input_layout.addWidget(self.image_count_spin)
-
-        count_info = QLabel("张 (5的倍数)")
-        count_info.setStyleSheet("color: #666; font-size: 12px;")
-        count_input_layout.addWidget(count_info)
-        count_input_layout.addStretch()
-        count_layout.addLayout(count_input_layout)
-        
-        count_layout.addWidget(QLabel("")) #图片总数
-        right_column_layout.addWidget(count_widget)
-
-        # 模板管理
-        template_widget = QWidget()
-        template_widget.setObjectName("template_widget")
-        template_layout = QVBoxLayout(template_widget)
-        template_layout.setContentsMargins(0, 0, 0, 0)
-
-        template_btn = PushButton(FluentIcon.EDIT, "管理提示词模板")
-        template_btn.clicked.connect(self.show_template_manager)
-        template_layout.addWidget(template_btn)
-        
-        template_layout.addWidget(QLabel("")) #模板编辑
-        right_column_layout.addWidget(template_widget)
-        
-        control_modules_layout.addWidget(right_column_widget)
-        control_modules_layout.setStretchFactor(right_column_widget, 1)
-
-
-        # 添加到主布局
-        control_layout.addLayout(control_modules_layout)
-
-        left_layout.addWidget(control_card)
-        left_layout.addStretch()
-
-        return left_widget
-
-    # --- 尺寸预设逻辑 (使用 RadioButton 和 ID) ---
-    @pyqtSlot(int)
-    def set_preset_resolution(self, id):
-        """根据选择的分辨率预设设置尺寸"""
-        # 1. 根据 ID 找到按钮文本 (例如 "1080P")
-        checked_button = self.resolution_group.button(id)
-        if not checked_button:
-            return
-            
-        name = checked_button.text()
-
-        if name in PRESET_RESOLUTIONS:
-            width, height = PRESET_RESOLUTIONS[name]
-            self.width_spin.setValue(width)
-            self.height_spin.setValue(height)
-            
-        # 不需要延迟重置，因为 RadioButton 是互斥的，不会干扰渲染
-
-    @pyqtSlot(int)
-    def set_aspect_ratio(self, id):
-        """根据选择的比例预设设置尺寸"""
-        # 1. 根据 ID 找到按钮文本 (例如 "16:9")
-        checked_button = self.ratio_group.button(id)
-        if not checked_button:
-            return
-
-        name = checked_button.text()
-            
-        if name in ASPECT_RATIOS:
-            ratio = ASPECT_RATIOS[name]
-            current_width = self.width_spin.value()
-            current_height = self.height_spin.value()
-            
-            # 使用较高的尺寸（至少 1080）作为基准，避免缩放至过小
-            base_size = max(current_width, current_height, 1080)
-            
-            if ratio >= 1: # 横向或方形 (如 16:9, 4:3, 1:1, 21:9)
-                # 保持高度为基准，计算宽度
-                new_height = base_size 
-                new_width = int(new_height * ratio)
-            else: # 纵向 (如 2:3)
-                # 保持宽度为基准，计算高度
-                new_width = base_size
-                new_height = int(new_width / ratio)
-
-            self.width_spin.setValue(new_width)
-            self.height_spin.setValue(new_height)
-    # --- 尺寸预设逻辑结束 ---
-    
     def create_right_panel(self):
         """创建右侧面板 - 图片生成区"""
         right_widget = QWidget()
         right_layout = QVBoxLayout(right_widget)
         right_layout.setSpacing(15)
 
-        # 图片生成设置区 (保留)
-        generate_card = ElevatedCardWidget()
-        generate_layout = QVBoxLayout(generate_card)
-        generate_layout.setContentsMargins(20, 20, 20, 20)
-
-        generate_title = SubtitleLabel("🎨 图片生成设置")
-        generate_title.setFont(QFont("", 14, QFont.Bold))
-        generate_layout.addWidget(generate_title)
-
-        # 生成绘图提示词
-        prompt_btn_layout = QHBoxLayout()
-        self.generate_prompt_btn = PrimaryPushButton(FluentIcon.LINK, "生成绘图提示词")
-        self.generate_prompt_btn.clicked.connect(self.generate_prompts)
-        prompt_btn_layout.addWidget(self.generate_prompt_btn)
-
-        self.prompt_progress = ProgressBar()
-        self.prompt_progress.setFixedHeight(8)
-        prompt_btn_layout.addWidget(self.prompt_progress)
-        generate_layout.addLayout(prompt_btn_layout)
-        
-        # 生成的绘图提示词显示区
-        prompts_label = QLabel("绘图提示词 (可编辑):")
-        prompts_label.setFont(QFont("", 12, QFont.Bold))
-        generate_layout.addWidget(prompts_label)
-
-        self.generated_prompts_edit = QTextEdit()
-        self.generated_prompts_edit.setPlaceholderText("点击\"生成绘图提示词\"后，这里将显示生成的提示词，您可以编辑修改...")
-        self.generated_prompts_edit.setMinimumHeight(120)
-        self.generated_prompts_edit.setMaximumHeight(200)
-        generate_layout.addWidget(self.generated_prompts_edit)
-
-        # 仅生成图片按钮
+        # 仅生成图片按钮 (放在顶部，但仅作用于图片生成)
         self.generate_images_btn = PrimaryPushButton(FluentIcon.PHOTO, "仅生成图片")
         self.generate_images_btn.clicked.connect(self.generate_images_only)
-        generate_layout.addWidget(self.generate_images_btn)
+        right_layout.addWidget(self.generate_images_btn)
 
-        right_layout.addWidget(generate_card)
 
         # 图片生成进度区
         progress_card = CardWidget()
@@ -1265,12 +1243,42 @@ class StoryboardPage(SmoothScrollArea):
 
         right_layout.addWidget(preview_card)
         
+        right_layout.addStretch()
+
         return right_widget
+
+    @pyqtSlot()
+    def show_image_control_dialog(self):
+        """显示图片尺寸和数量设置对话框"""
+        # 每次打开对话框前，确保主页面的数据是最新的
+        dialog = ImageControlDialog(self)
+        if dialog.exec_() == QDialog.Accepted:
+            # 应用配置，并确保图片预览区大小更新
+            
+            # 由于配置已在 dialog.apply_config_and_accept 中保存，
+            # 我们只需要确保 StoryboardPage 中的 spinbox 引用能同步更新即可。
+            # 这里依赖配置管理器重新读取，并更新图片列表
+            self.init_image_widgets() # 重新初始化图片预览区以反映新的图片数量
+            
+        # 注意：此处没有 self.width_spin/self.height_spin 等，因为它们在 Dialog 内部。
+
+    # --- 尺寸预设逻辑 (现在在 Dialog 中，但为了调用方便，保留占位方法) ---
+    def set_preset_resolution(self, id):
+        """(旧代码，已移入 ImageControlDialog)"""
+        pass
     
-    # ... (其他方法保持不变)
+    def set_aspect_ratio(self, id):
+        """(旧代码，已移入 ImageControlDialog)"""
+        pass
+    
+    def swap_image_size(self):
+        """(旧代码，已移入 ImageControlDialog)"""
+        pass
+    # --- 尺寸预设逻辑结束 ---
 
     def image_count_changed(self, value):
         """图片数量改变时，重新初始化图片预览小部件"""
+        # 此方法不再由主界面 spinbox 直接调用，但保留其核心逻辑
         config_manager.set('ui.default_image_count', value)
         config_manager.save_config()
         self.init_image_widgets()
@@ -1285,7 +1293,8 @@ class StoryboardPage(SmoothScrollArea):
 
         self.image_widgets.clear()
         self.image_urls.clear() # 清空URL列表
-        image_count = self.image_count_spin.value()
+        # 从配置中获取最新的图片数量
+        image_count = config_manager.get('ui.default_image_count', 10) 
         
         # 创建新的小部件网格
         cols = 3
@@ -1302,7 +1311,7 @@ class StoryboardPage(SmoothScrollArea):
             spacer = QWidget()
             spacer.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
             # 确保添加到下一行
-            self.image_grid_layout.addWidget(spacer, (self.image_count_spin.value() + cols - 1) // cols, 0)
+            self.image_grid_layout.addWidget(spacer, (image_count + cols - 1) // cols, 0)
 
 
     def clear_content(self):
@@ -1338,29 +1347,8 @@ class StoryboardPage(SmoothScrollArea):
         """显示模板管理对话框"""
         dialog = TemplateManagerDialog(self)
         dialog.exec_()
-
-    def set_image_size(self, width, height):
-        """设置图片尺寸"""
-        self.width_spin.setValue(width)
-        self.height_spin.setValue(height)
-        config_manager.set('bizyair_params.default_width', width)
-        config_manager.set('bizyair_params.default_height', height)
-        config_manager.save_config()
         
-    def swap_image_size(self):
-        """互换宽度和高度"""
-        current_width = self.width_spin.value()
-        current_height = self.height_spin.value()
-        
-        self.width_spin.setValue(current_height)
-        self.height_spin.setValue(current_width)
-        
-        config_manager.set('bizyair_params.default_width', current_height)
-        config_manager.set('bizyair_params.default_height', current_width)
-        config_manager.save_config()
-
-
-    # --- 文本生成核心逻辑 (保留，仅清理了部分不用的打印和变量) ---
+    # --- 文本生成核心逻辑 (保持不变) ---
 
     def generate_titles(self):
         """生成分镜标题"""
@@ -1418,7 +1406,7 @@ class StoryboardPage(SmoothScrollArea):
             titles = [t.strip() for t in result.split('\n') if t.strip()]
             
             # 确保标题数量与图片数量匹配
-            target_count = self.image_count_spin.value()
+            target_count = config_manager.get('ui.default_image_count', 10)
             if len(titles) >= target_count:
                 self.current_titles = titles[:target_count]
             else:
@@ -1481,7 +1469,7 @@ class StoryboardPage(SmoothScrollArea):
             summaries = [s.strip() for s in result.split('\n') if s.strip()]
             
             # 确保描述数量与图片数量匹配
-            target_count = self.image_count_spin.value()
+            target_count = config_manager.get('ui.default_image_count', 10)
             if len(summaries) >= target_count:
                 self.current_summaries = summaries[:target_count]
             else:
@@ -1497,7 +1485,6 @@ class StoryboardPage(SmoothScrollArea):
             if hasattr(self, 'all_generation_step') and self.all_generation_step == 2:
                 self.top_control_bar.set_generate_enabled(True)
 
-    # --- 修复：单次 API 调用生成所有绘图提示词 ---
     def generate_prompts(self):
         """生成绘图提示词 (单次 API 调用)"""
         summary_text = self.summary_output_edit.toPlainText().strip()
@@ -1552,14 +1539,13 @@ class StoryboardPage(SmoothScrollArea):
 
         if success:
             # 清理和解析生成的提示词
-            # 移除所有空行、可能出现的序号和解释
             raw_prompts = [line.strip() for line in result.split('\n') if line.strip()]
             
             # 重新格式化并解析为 self.current_prompts 列表
             final_display_text = ""
             self.current_prompts.clear()
             
-            target_count = self.image_count_spin.value()
+            target_count = config_manager.get('ui.default_image_count', 10)
             
             # 过滤掉标题、序号和非英文内容，只保留实际的英文提示词
             clean_prompts = []
@@ -1602,7 +1588,7 @@ class StoryboardPage(SmoothScrollArea):
 
         self.generated_prompts_edit.setPlainText(prompts_text.strip())
 
-    # --- 图片生成核心逻辑 (修改：适配 BizyAIR 批量，移除旧的单图逻辑) ---
+    # --- 图片生成核心逻辑 (保持不变) ---
 
     def generate_images_only(self):
         """仅生成图片"""
@@ -1618,8 +1604,8 @@ class StoryboardPage(SmoothScrollArea):
             QMessageBox.warning(self, "警告", "请输入有效的绘图提示词")
             return
 
-        # 确保提示词数量与 UI 设置的数量一致
-        target_count = self.image_count_spin.value()
+        # 确保提示词数量与 UI 设置的数量一致 (从配置中读取)
+        target_count = config_manager.get('ui.default_image_count', 10)
         if len(self.current_prompts) > target_count:
             self.current_prompts = self.current_prompts[:target_count]
         elif len(self.current_prompts) < target_count:
@@ -1627,14 +1613,11 @@ class StoryboardPage(SmoothScrollArea):
             last_prompt = self.current_prompts[-1] if self.current_prompts else ""
             self.current_prompts.extend([last_prompt] * (target_count - len(self.current_prompts)))
 
-        # 获取当前尺寸设置
-        width = self.width_spin.value()
-        height = self.height_spin.value()
+        # 获取当前尺寸设置 (从配置中读取)
+        width = config_manager.get('bizyair_params.default_width', 1080)
+        height = config_manager.get('bizyair_params.default_height', 1920)
 
-        # 更新 BizyAIR 默认配置
-        config_manager.set('bizyair_params.default_width', width)
-        config_manager.set('bizyair_params.default_height', height)
-        config_manager.save_config()
+        # 不需要再次保存配置，因为尺寸和数量已在 ImageControlDialog 中保存
 
         self.start_image_generation(width, height)
 
@@ -1669,8 +1652,8 @@ class StoryboardPage(SmoothScrollArea):
         self.image_progress.setValue(0)
         self.image_status_label.setText("准备生成图片...")
         
-        # 获取图片数量（以 UI 设置为准）
-        image_count = self.image_count_spin.value()
+        # 获取图片数量（从配置中读取）
+        image_count = config_manager.get('ui.default_image_count', 10)
 
         # 创建图片生成worker
         self.image_worker = ImageGenerationWorker(
@@ -1710,7 +1693,7 @@ class StoryboardPage(SmoothScrollArea):
         if success:
             self.image_status_label.setText("图片生成完成！")
             success_count = sum(1 for url in urls if url)
-            QMessageBox.information(self, "成功", f"成功生成 {success_count}/{self.image_count_spin.value()} 张图片！")
+            QMessageBox.information(self, "成功", f"成功生成 {success_count}/{config_manager.get('ui.default_image_count', 10)} 张图片！")
         else:
             self.image_status_label.setText("图片生成失败")
             QMessageBox.critical(self, "错误", "图片生成失败")
@@ -1782,7 +1765,7 @@ class StoryboardPage(SmoothScrollArea):
                     f.write(f"生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
                     f.write("---\n\n")
 
-                    image_count = self.image_count_spin.value()
+                    image_count = config_manager.get('ui.default_image_count', 10)
                     for i in range(image_count):
                         f.write(f"## 📺 分镜 {i+1}\n\n")
                         
@@ -2039,7 +2022,7 @@ class MainWindow(FluentWindow):
         # 更新默认图片数量，并同步到 StoryboardPage
         new_image_count = self.default_image_count_spin.value()
         config_manager.set('ui.default_image_count', new_image_count)
-        self.storyboard_page.image_count_spin.setValue(new_image_count)
+        self.storyboard_page.init_image_widgets() # 强制更新主页面的图片数量
 
         if config_manager.save_config():
             InfoBar.success(
@@ -2104,11 +2087,29 @@ def main():
             left: 10px;
             padding: 0 5px 0 5px;
         }
-        /* 移除生成控制区内部模块的QGroupBox样式 */
+        /* 移除 Tab Widget内部页面的QGroupBox样式 */
         #count_widget, #template_widget, #size_widget {
             border: none;
             padding: 0;
             margin: 0;
+        }
+        QTabWidget::pane {
+             /* 增加 Tab Pane 边距 */
+             border: 1px solid #cccccc;
+             border-top: none;
+        }
+        QTabWidget::tab-bar {
+            left: 5px; 
+        }
+        QToolButton#swap_size_btn {
+             /* 调整互换按钮的尺寸和样式 */
+             border: 1px solid #ccc;
+             border-radius: 4px;
+             padding: 4px;
+             width: 30px;
+        }
+        QToolButton#swap_size_btn:hover {
+            border-color: #0078d4;
         }
         ComboBox, LineEdit, SpinBox, DoubleSpinBox {
             padding: 5px;
@@ -2124,7 +2125,7 @@ def main():
         }
         /* 确保 RadioButton 布局紧凑 */
         QRadioButton {
-            margin-right: 5px; 
+            margin-right: 10px; 
         }
     """)
 
