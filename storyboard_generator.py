@@ -12,8 +12,6 @@ import subprocess
 import requests
 import logging
 from datetime import datetime
-import chardet
-from concurrent.futures import ThreadPoolExecutor
 import threading
 import time
 from io import BytesIO
@@ -22,23 +20,16 @@ from openai import OpenAI
 
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                             QHBoxLayout, QGridLayout, QLabel, QLineEdit,
-                            QPushButton, QFileDialog, QTextEdit, QCheckBox,
-                            QComboBox, QSpinBox, QProgressBar, QMessageBox,
-                            QSplitter, QFrame, QScrollArea, QGroupBox, QDoubleSpinBox,
-                            QDialog, QDialogButtonBox, QFormLayout, QTabWidget,
-                            QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView,
-                            QListWidget, QListWidgetItem, QSlider, QToolButton,
-                            QSpinBox, QDoubleSpinBox, QSizePolicy, QButtonGroup)
+                            QPushButton, QFileDialog, QTextEdit, QSpinBox,
+                            QProgressBar, QMessageBox, QSplitter, QGroupBox,
+                            QDialog, QToolButton, QSizePolicy)
 from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer, QUrl, QSettings, QSize, pyqtSlot
-from PyQt5.QtGui import QFont, QIcon, QDesktopServices, QPixmap, QImage, QPainter, QTextCursor
+from PyQt5.QtGui import QFont, QIcon, QDesktopServices, QPixmap
 from qfluentwidgets import (FluentIcon, NavigationInterface, NavigationItemPosition,
                           FluentWindow, SubtitleLabel, BodyLabel, PrimaryPushButton,
-                          PushButton, LineEdit, ComboBox, CheckBox, SpinBox,
-                          ProgressBar, InfoBar, InfoBarPosition, ToolTipFilter,
-                          setTheme, Theme, FluentIcon as FIcon, SmoothScrollArea, 
-                          RadioButton, CardWidget, ElevatedCardWidget, SimpleCardWidget,
-                          PipsPager, PipsScrollButtonDisplayMode, ScrollArea, 
-                          HeaderCardWidget, InfoBadge, InfoBadgePosition, ToolTipPosition)
+                          PushButton, LineEdit, ComboBox, RadioButton,
+                          ProgressBar, InfoBar, InfoBarPosition, SmoothScrollArea, 
+                          CardWidget, ElevatedCardWidget, setTheme, Theme) # 确保导入了 setTheme 和 Theme
 
 # 配置日志
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -56,6 +47,10 @@ class AdvancedConfigManager:
         self.config = self.load_config()
         self.templates_dir = "templates"
         self.ensure_templates_dir()
+        
+        # 写入 BizyAIR API 特有配置
+        self.set_bizyair_defaults()
+
 
     def ensure_templates_dir(self):
         """确保模板目录存在"""
@@ -74,6 +69,16 @@ class AdvancedConfigManager:
         else:
             logger.info("配置文件不存在，使用默认配置")
             return self.get_default_config()
+    
+    def set_bizyair_defaults(self):
+        """设置 BizyAIR 相关的默认值，如果不存在"""
+        if 'bizyair_params' not in self.config:
+             self.config['bizyair_params'] = {}
+        
+        # 根据用户提供的 API 文档，设置默认值
+        self.config['bizyair_params']['web_app_id'] = self.config['bizyair_params'].get('web_app_id', 39808)
+        self.config['bizyair_params']['default_width'] = self.config['bizyair_params'].get('default_width', 1080)
+        self.config['bizyair_params']['default_height'] = self.config['bizyair_params'].get('default_height', 1920)
 
     def get_default_config(self):
         """获取默认配置"""
@@ -84,21 +89,27 @@ class AdvancedConfigManager:
                 "enable_thinking": True,
                 "api_key": MODEL_API_KEY or ""
             },
+            # 精简后的 image_models 和 image_params 部分已移除
+            "bizyair_params": {
+                "web_app_id": 39808, 
+                "default_width": 1080,
+                "default_height": 1920,
+            },
             "prompt_templates": {
                 "story_title": {
                     "name": "故事分镜标题模板",
                     "template": """你是一位专业的故事绘本撰写专家，擅长电影级别的故事绘本脚本编辑。请根据用户提供的一段话或一个叙事事件内容，展开联想拓展形成一个完整的故事情节。通过故事情节的时间线拆解生成从头到尾10个完整吸引人的故事绘本分镜标题脚本。每个分镜脚本标题控制在64字以内，分镜脚本标题需要有景别，视角，运镜，画面内容，遵循主体（主体描述）＋场景（场景描述）＋运动（运动描述）＋镜头语言+价值主张的原则。
-    分镜脚本标题应该具有吸引力，精炼，能够引起观看者的兴趣，同时准确反映该分镜的核心内容。
-    
-    ## 在分析过程中，请思考：
-    1. 故事绘本的核心主题和关键价值点
-    2. 目标受众的兴趣点
-    3. 不同角度的故事绘本表达方式（景别，视角，运镜、画面情感激发等），景别除开特别注明要求，最好能全部保持一致性，不用超过3种以上的景别跳跃。
-    4. 遵循主体+场景+运动+情感+价值主张的原则。故事绘本分镜脚本标题=主体（主体描述）＋场景（场景描述）＋运动（运动描述）＋镜头语言
-    5. 主体描述：主体描述是对主体外观特征细节的描述，可通过形容词或短句列举。如果标题上有主体，每段标题都必须有统一主体描述，保持主体的服装或者人物一致性。这样方便后续的配图主体统一。
-    6. 场景描述：场景描述是对主体所处环境特征细节的描述，可通过形容词或短句列举。
-    7. 运动描述：运动描述是对运动特征细节的描述，包含运动的幅度、速率和运动作用的效果。
-    8. 镜头语言：镜头语言包含景别、视角、镜头、运镜等。分镜脚本标题中的景别最好能全部保持一致性，不用超过3种以上的景别跳跃。
+
+## 在分析过程中，请思考：
+1. 故事绘本的核心主题和关键价值点
+2. 目标受众的兴趣点
+3. 不同角度的故事绘本表达方式（景别，视角，运镜、画面情感激发等），景别除开特别注明要求，最好能全部保持一致性，不用超过3种以上的景别跳跃。
+4. 遵循主体+场景+运动+情感+价值主张的原则。故事绘本分镜脚本标题=主体（主体描述）＋场景（场景描述）＋运动（运动描述）＋镜头语言
+5. 主体描述：主体描述是对主体外观特征细节的描述，可通过形容词或短句列举。如果标题上有主体，每段标题都必须有统一主体描述，保持主体的服装或者人物一致性。这样方便后续的配图主体统一。
+6. 场景描述：场景描述是对主体所处环境特征细节的描述，可通过形容词或短句列举。
+7. 运动描述：运动描述是对运动特征细节的描述，包含运动的幅度、速率和运动作用的效果。
+8. 镜头语言：镜头语言包含景别、视角、镜头、运镜等。分镜脚本标题中的景别最好能全部保持一致性，不用超过3种以上的景别跳跃。
+
 ### 分镜标题示例：
 
 - 分镜标题1. 【全景俯视】锈迹斑斑机器人在荒芜废土中孤独游荡，身后拖着能源即将耗尽的微弱蓝光轨迹，镜头缓缓下摇展现末世荒凉。
@@ -118,6 +129,7 @@ class AdvancedConfigManager:
     4. 丰富细节，聚焦视频片段的主要观点，遵循主体+场景+运动+情感+价值主张的原则。
     5. 视频片段描述=运镜描述+主体（主体描述）＋场景（场景描述）+运动（运动描述）+镜头语言。
     6. 运镜描述是对镜头运动的具体描述，在时间线上，景别最好能保持一致性，不用太离谱的跳跃。将镜头运动和画面内容的变化有效结合可以有效提升视频叙事的丰富性和专业度。用户可以通过代入导演的视角来想象和书写运镜过程。时间上，需要注意将镜头运动的时长合理控制在5s内，避免过于复杂的运镜，短视频脚本描述中的运镜不要超过3种以上。
+
     ### 分镜描述示例：
     **分镜1：**
 远景俯视跟拍，锈迹斑斑的老式机器人在荒芜金属废土中孤独踱步，蓝眼微光闪烁。沙尘弥漫的末世景象中，镜头缓缓下降跟随其沉重步伐。破败的高楼废墟背景烘托出绝望氛围，机器人踉跄的身影诠释着废弃文明中最后守望者的坚韧与孤寂。
@@ -137,13 +149,13 @@ class AdvancedConfigManager:
                     "template": """请根据用户提供的故事分镜描述，将中文描述的分镜头脚本内容翻译成英文，并按照每个分镜头一个句子的原则，每行仅包含一个分镜头的描述。请保证翻译的准确性以及对原意的忠实度，同时使描述适合用于AI绘画生成工具的输入。最终输出应该是一个专业用于AI绘画软件（如Midjourney,comfyui,stable diffusion）的简约易用的英文提示词，不需要解释，并确保输出中没有中文及特殊符号，放在同一行显示。prompt英文提示词应该图片主体描述统一，包含画面主题内容描述、风格指导和质量提升词，精炼，简约明了，不要过长。
     ### AI绘图提示词（示例），一行标题，一行AI绘画提示词，空一行： 
 === 分镜 1 ===
-Face the camera, showing the upper body Aerial view following an old, rusted robot walking alone in a desolate metal wasteland, with its blue eyes faintly glowing.
+Aerial view following an old, rusted robot walking alone in a desolate metal wasteland, with its blue eyes faintly glowing, realistic photo.
 
 === 分镜 2 ===
-Face the camera, showing the upper body Aerial view following an old, rusted robot walking alone in a desolate metal wasteland, with its blue eyes faintly glowing. The camera slowly descends as dust fills the post-apocalyptic landscape. Background of ruined skyscrapers creates a desperate atmosphere, while the robot's staggering figure embodies the resilience and solitude of the last guardian in an abandoned civilization.
+Medium shot side view pushing in on an exploration robot with a damaged body moving through the ruins of a broken city, its energy indicator flickering on and off, cinematic shot.
 
 === 分镜 3 ===
-Face the camera, showing the upper body Medium shot side view pushing in on an exploration robot with a damaged body moving through the ruins of a broken city, its energy indicator flickering on and off.
+Close-up static shot of an old robot's dull blue eye suddenly blinking with light, pupil contracting and focusing on a mysterious faint glow emanating from under a pile of rubble, high quality, detailed.
 
 ……其他AI绘画提示词分镜按序号依次列出。
 
@@ -204,18 +216,10 @@ Face the camera, showing the upper body Medium shot side view pushing in on an e
         self.set(f'prompt_templates.{template_name}', template_data)
         return self.save_config()
 
-    def get_image_model(self, model_id):
-        """获取图片模型信息"""
-        models = self.get('image_models.available', [])
-        for model in models:
-            if model['id'] == model_id:
-                return model
-        return None
-
 # 全局配置管理器
 config_manager = AdvancedConfigManager()
 
-# 线程管理器
+# 线程管理器 (精简了部分不必要的线程操作，保留核心)
 class ThreadManager:
     """线程管理器，负责管理所有活跃的工作线程"""
 
@@ -226,22 +230,13 @@ class ThreadManager:
     def add_worker(self, worker):
         """添加新的工作线程"""
         with self.lock:
-            # 清理已完成的线程
             self.cleanup()
-            # 添加新线程
             self.active_workers.append(worker)
-            logger.info(f"添加新线程，当前活跃线程数: {len(self.active_workers)}")
 
     def cleanup(self):
         """清理已完成的线程"""
         with self.lock:
-            # 过滤出仍在运行的线程
-            before_count = len(self.active_workers)
             self.active_workers = [w for w in self.active_workers if w.isRunning()]
-            after_count = len(self.active_workers)
-
-            if before_count != after_count:
-                logger.info(f"清理了 {before_count - after_count} 个已完成的线程")
 
     def cancel_all(self):
         """取消所有活跃线程"""
@@ -252,16 +247,9 @@ class ThreadManager:
                 if hasattr(worker, 'quit'):
                     worker.quit()
                 if hasattr(worker, 'wait'):
-                    worker.wait(1000)  # 等待最多1秒
+                    worker.wait(100) # 减少等待时间
 
             self.active_workers.clear()
-            logger.info("已取消所有活跃线程")
-
-    def get_active_count(self):
-        """获取活跃线程数量"""
-        with self.lock:
-            self.cleanup()
-            return len(self.active_workers)
 
 # 全局线程管理器
 thread_manager = ThreadManager()
@@ -269,7 +257,7 @@ thread_manager = ThreadManager()
 # 全局请求时间跟踪
 _last_request_time = 0
 
-# 文本生成工作线程
+# 文本生成工作线程 (保留不变，用于与 SiliconFlow API 交互)
 class TextGenerationWorker(QThread):
     """文本生成工作线程"""
     progress_updated = pyqtSignal(str)
@@ -291,20 +279,11 @@ class TextGenerationWorker(QThread):
     def run(self):
         """运行文本生成"""
         try:
-            # 记录开始时间
             self.start_time = time.time()
-            print(f"[{time.strftime('%H:%M:%S')}] [Worker] 开始生成内容...")
-            print(f"[{time.strftime('%H:%M:%S')}] [Worker] 模型: {self.model_id}")
-            print(f"[{time.strftime('%H:%M:%S')}] [Worker] 输入长度: {len(self.content)} 字符")
-
-            # 发送初始状态
-            print(f"[{time.strftime('%H:%M:%S')}] [Worker] 发送初始化信号...")
             self.progress_updated.emit("正在初始化AI模型...")
 
             api_key = config_manager.get('api.api_key', MODEL_API_KEY)
-            print(f"[{time.strftime('%H:%M:%S')}] [Worker] API密钥: {'已配置' if api_key else '未配置'}")
             if not api_key:
-                print(f"[{time.strftime('%H:%M:%S')}] [Worker] 错误: API密钥未配置")
                 self.finished.emit(False, "API密钥未配置")
                 return
 
@@ -313,22 +292,16 @@ class TextGenerationWorker(QThread):
             elapsed = time.time() - _last_request_time
             if elapsed < 1.5:  # 两次请求间隔至少1.5秒
                 wait_time = 1.5 - elapsed
-                print(f"[{time.strftime('%H:%M:%S')}] [Worker] 等待 {wait_time:.1f} 秒以避免频率限制...")
                 time.sleep(wait_time)
             _last_request_time = time.time()
 
-            print(f"[{time.strftime('%H:%M:%S')}] [Worker] 创建OpenAI客户端...")
             # 使用SiliconFlow API
             client = OpenAI(
-                base_url=config_manager.get('api.siliconflow_text', 'https://api.siliconflow.cn/v1/'),
+                base_url=config_manager.get('api.base_url', 'https://api.siliconflow.cn/v1/'),
                 api_key=api_key,
             )
-
-            print(f"[{time.strftime('%H:%M:%S')}] [Worker] 发送生成内容信号...")
             self.progress_updated.emit("正在生成内容...")
 
-            # 创建响应
-            print(f"[{time.strftime('%H:%M:%S')}] [Worker] 创建API请求...")
             response = client.chat.completions.create(
                 model=self.model_id,
                 messages=[
@@ -343,22 +316,15 @@ class TextGenerationWorker(QThread):
                 ],
                 stream=True
             )
-            print(f"[{time.strftime('%H:%M:%S')}] [Worker] API请求已创建，开始处理响应...")
 
             content_text = ""
             char_count = 0
-            chunk_count = 0
-
+            
             # 处理流式响应
             for chunk in response:
-                chunk_count += 1
-                if chunk_count % 10 == 0:  # 每10个chunk打印一次
-                    print(f"[{time.strftime('%H:%M:%S')}] [Worker] 已处理 {chunk_count} 个chunks")
                 if self.is_cancelled:
                     break
-
                 try:
-                    # 安全访问API响应
                     if not chunk.choices or len(chunk.choices) == 0:
                         continue
 
@@ -366,14 +332,11 @@ class TextGenerationWorker(QThread):
                     if not hasattr(choice, 'delta') or not choice.delta:
                         continue
 
-                    delta = choice.delta
-                    content_chunk = getattr(delta, 'content', None)
+                    content_chunk = getattr(choice.delta, 'content', None)
 
                     if content_chunk and content_chunk != '':
                         content_text += content_chunk
                         char_count += len(content_chunk)
-
-                        # 实时更新内容显示
                         self.content_updated.emit(content_text)
 
                         # 每500字符更新一次进度
@@ -386,14 +349,6 @@ class TextGenerationWorker(QThread):
                     logger.error(f"处理API响应时出错: {e}")
                     continue
 
-            # 计算总用时
-            elapsed_time = time.time() - self.start_time
-            print(f"[{time.strftime('%H:%M:%S')}] 生成完成！")
-            print(f"[{time.strftime('%H:%M:%S')}] 输出长度: {len(content_text)} 字符")
-            print(f"[{time.strftime('%H:%M:%S')}] 总用时: {elapsed_time:.2f} 秒")
-            print(f"[{time.strftime('%H:%M:%S')}] 平均速度: {len(content_text)/elapsed_time:.1f} 字符/秒")
-            print("-" * 50)
-
             # 确保最终结果被发送
             if not self.is_cancelled:
                 self.finished.emit(True, content_text)
@@ -402,10 +357,10 @@ class TextGenerationWorker(QThread):
 
         except Exception as e:
             logger.error(f"文本生成失败: {e}")
-            print(f"[{time.strftime('%H:%M:%S')}] 生成失败: {str(e)}")
             self.finished.emit(False, f"生成失败: {str(e)}")
 
-# 图片生成工作线程（使用新的异步接口）
+
+# 图片生成工作线程 (精简适配 BizyAIR 批量接口)
 class ImageGenerationWorker(QThread):
     """图片生成工作线程"""
     progress_updated = pyqtSignal(int, str)
@@ -417,8 +372,8 @@ class ImageGenerationWorker(QThread):
         self.prompts = prompts
         self.width = width
         self.height = height
-        # BizyAIR API 一次最多 5 张，这里我们将所有提示词一次性传给它
-        self.image_count = min(image_count, len(prompts)) 
+        # BizyAIR API 一次最多 5 张，我们限制数量为 5 的倍数
+        self.image_count = image_count # 这里使用 UI 传入的数量
         self.is_cancelled = False
         self.image_urls = [''] * self.image_count
         self.web_app_id = config_manager.get('bizyair_params.web_app_id', 39808)
@@ -436,70 +391,89 @@ class ImageGenerationWorker(QThread):
                 "Content-Type": "application/json",
             }
             
-            # 确保提示词数量是 5 的倍数，不足则用空字符串填充到下一个 5 的倍数
             batch_size = 5
-            total_prompts_to_send = (self.image_count + batch_size - 1) // batch_size * batch_size
-
-            # 填充提示词
-            batch_prompts = self.prompts[:self.image_count]
-            while len(batch_prompts) < total_prompts_to_send:
-                # 填充空字符串，确保 API 接收 5 的倍数数量
-                batch_prompts.append("") 
             
-            # 构建 input_values
-            input_values = {
-                "35:EmptyLatentImage.width": self.width,
-                "35:EmptyLatentImage.height": self.height
-            }
-            for i, prompt in enumerate(batch_prompts):
-                input_values[f"42:easy promptList.prompt_{i+1}"] = prompt
+            # 计算需要发送的批次数量，每个批次 5 张
+            num_batches = (self.image_count + batch_size - 1) // batch_size 
             
-            # 提交任务
-            self.progress_updated.emit(5, "正在提交 BizyAIR 图片生成任务...")
-            response = requests.post(
-                base_url,
-                headers=common_headers,
-                json={
-                    "web_app_id": self.web_app_id,
-                    "suppress_preview_output": False,
-                    "input_values": input_values
-                },
-                timeout=180
-            )
+            final_urls = []
+            
+            for batch_index in range(num_batches):
+                if self.is_cancelled:
+                    break
 
-            response.raise_for_status()
-            result = response.json()
-
-            if result.get("status") == "Success" and result.get("outputs"):
-                outputs = result["outputs"]
+                start_index = batch_index * batch_size
+                end_index = min((batch_index + 1) * batch_size, len(self.prompts))
+                current_prompts = self.prompts[start_index:end_index]
                 
-                # 仅处理实际需要的图片数量
-                for i in range(self.image_count):
-                    if i < len(outputs) and outputs[i].get("object_url"):
-                        img_url = outputs[i]["object_url"]
-                        self.image_urls[i] = img_url
-                        self.image_generated.emit(i, None, img_url)
-                        
-                        # 更新进度 (10% + 已完成百分比 * 90%)
-                        progress = 10 + int(((i + 1) / self.image_count) * 90)
-                        self.progress_updated.emit(progress, f"已生成 {i+1}/{self.image_count} 张图片 URL")
-                    else:
-                        logger.error(f"生成第 {i+1} 张图片失败: 输出缺失")
+                # 填充提示词到 5 个
+                while len(current_prompts) < batch_size:
+                    current_prompts.append("") 
+                
+                # 构建 input_values
+                input_values = {
+                    "35:EmptyLatentImage.width": self.width,
+                    "35:EmptyLatentImage.height": self.height
+                }
+                for i, prompt in enumerate(current_prompts):
+                    # 注意：BizyAIR API 的 prompt 索引从 prompt_1 到 prompt_5
+                    input_values[f"42:easy promptList.prompt_{i+1}"] = prompt
+                
+                # 提交任务
+                progress = int(batch_index / num_batches * 10) # 提交阶段占前 10%
+                self.progress_updated.emit(progress, f"正在提交 BizyAIR 第 {batch_index+1}/{num_batches} 批任务...")
+                
+                response = requests.post(
+                    base_url,
+                    headers=common_headers,
+                    json={
+                        "web_app_id": self.web_app_id,
+                        "suppress_preview_output": False,
+                        "input_values": input_values
+                    },
+                    timeout=300 # 增加超时时间以应对生成较慢的情况
+                )
 
+                response.raise_for_status()
+                result = response.json()
+
+                if result.get("status") == "Success" and result.get("outputs"):
+                    outputs = result["outputs"]
+                    
+                    # 处理当前批次实际生成的图片
+                    for i, output in enumerate(outputs):
+                        global_index = start_index + i
+                        if global_index < self.image_count and output.get("object_url"):
+                            img_url = output["object_url"]
+                            final_urls.append(img_url)
+                            self.image_generated.emit(global_index, None, img_url)
+                        
+                            # 更新进度 (10% + 已完成百分比 * 90%)
+                            progress = 10 + int(len(final_urls) / self.image_count * 90)
+                            self.progress_updated.emit(progress, f"已生成 {len(final_urls)}/{self.image_count} 张图片 URL")
+                else:
+                    logger.error(f"第 {batch_index+1} 批图片生成失败: {result}")
+                    # 即使失败，也继续下一批次
+                    for _ in range(batch_size):
+                        if start_index + _ < self.image_count:
+                             final_urls.append('') # 添加空URL占位
+
+            # 最终返回
+            if not self.is_cancelled:
                 self.progress_updated.emit(100, "图片生成完成!")
-                self.finished.emit(not self.is_cancelled, [], self.image_urls)
+                # 只返回实际需要的 URL 数量
+                self.finished.emit(True, [], final_urls[:self.image_count])
             else:
-                error_msg = result.get("message", "未知错误")
-                logger.error(f"图片生成失败: {result}")
-                self.finished.emit(False, [], [])
+                 self.finished.emit(False, [], final_urls[:self.image_count])
+                 
         except Exception as e:
             logger.error(f"图片生成失败: {e}")
             self.finished.emit(False, [], [])
 
-# 模板管理对话框
-class TemplateManagerDialog(QDialog):
-    """模板管理对话框"""
 
+# 模板管理对话框 (保留不变)
+class TemplateManagerDialog(QDialog):
+    # ... (代码不变)
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("提示词模板管理")
@@ -581,10 +555,8 @@ class TemplateManagerDialog(QDialog):
 
     def new_template(self):
         """新建模板"""
-        # 清空编辑框
         self.template_name_edit.clear()
         self.template_content_edit.clear()
-        # 设置焦点到名称输入框
         self.template_name_edit.setFocus()
 
     def load_templates(self):
@@ -593,6 +565,7 @@ class TemplateManagerDialog(QDialog):
         templates = config_manager.get('prompt_templates', {})
         for key, template in templates.items():
             self.template_combo.addItem(template.get('name', key), key)
+        self.template_combo.setCurrentIndex(-1) # 默认不选中
 
     def load_template_content(self):
         """加载模板内容"""
@@ -650,20 +623,16 @@ class TemplateManagerDialog(QDialog):
                 with open(file_path, 'r', encoding='utf-8') as f:
                     template_data = json.load(f)
 
-                # 验证模板格式
                 if not isinstance(template_data, dict) or 'name' not in template_data or 'template' not in template_data:
                     QMessageBox.warning(self, "警告", "无效的模板文件格式")
                     return
 
-                # 询问模板名称
                 template_name = template_data.get('name', '导入的模板')
                 template_key = template_name.replace(' ', '_').lower()
 
-                # 保存模板
                 if config_manager.save_template(template_key, template_data):
                     QMessageBox.information(self, "成功", f"模板 '{template_name}' 导入成功")
                     self.load_templates()
-                    # 选中刚导入的模板
                     for i in range(self.template_combo.count()):
                         if self.template_combo.itemData(i) == template_key:
                             self.template_combo.setCurrentIndex(i)
@@ -701,7 +670,7 @@ class TemplateManagerDialog(QDialog):
                 QMessageBox.critical(self, "错误", f"导出模板时出错：{str(e)}")
 
 
-# 图片预览小部件
+# 图片预览小部件 (保留不变，但精简了不用的导入)
 class ImagePreviewWidget(CardWidget):
     """图片预览小部件"""
 
@@ -831,7 +800,61 @@ class ImagePreviewWidget(CardWidget):
         if self.image_url:
             QDesktopServices.openUrl(QUrl(self.image_url))
 
-# 主功能页面
+
+# 顶部控制栏 (新增)
+class TopControlBar(QWidget):
+    """用于放置一键生成和导出按钮的顶部控制栏"""
+    
+    # 信号用于触发主页面的功能
+    generate_all_requested = pyqtSignal()
+    export_md_requested = pyqtSignal()
+    export_images_requested = pyqtSignal()
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setFixedHeight(50)
+        self.init_ui()
+
+    def init_ui(self):
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(10, 0, 10, 0)
+        layout.setSpacing(15)
+
+        title = SubtitleLabel("🚀 BOZO-MCN 分镜脚本与图片生成器")
+        layout.addWidget(title)
+        layout.addStretch()
+
+        # 1. 一键生成按钮
+        self.generate_all_btn = PrimaryPushButton(FluentIcon.PLAY, "一键生成全部")
+        self.generate_all_btn.setFixedHeight(36)
+        self.generate_all_btn.clicked.connect(self.generate_all_requested.emit)
+        layout.addWidget(self.generate_all_btn)
+
+        # 2. 导出 Markdown
+        self.export_md_btn = PushButton(FluentIcon.SAVE, "导出Markdown")
+        self.export_md_btn.setFixedHeight(36)
+        self.export_md_btn.clicked.connect(self.export_md_requested.emit)
+        layout.addWidget(self.export_md_btn)
+
+        # 3. 导出全部图片
+        self.export_images_btn = PushButton(FluentIcon.FOLDER, "导出全部图片")
+        self.export_images_btn.setFixedHeight(36)
+        self.export_images_btn.clicked.connect(self.export_images_requested.emit)
+        layout.addWidget(self.export_images_btn)
+    
+    def set_generate_enabled(self, enabled):
+        """控制一键生成按钮的启用状态"""
+        self.generate_all_btn.setEnabled(enabled)
+        # 导出按钮的状态可以独立控制，但为了安全，在生成时也禁用
+        if not enabled:
+            self.export_md_btn.setEnabled(False)
+            self.export_images_btn.setEnabled(False)
+        else:
+            # 导出按钮的状态应由图片/内容是否生成决定，这里先保持启用，等待主页面更新
+             self.export_md_btn.setEnabled(True)
+             self.export_images_btn.setEnabled(True)
+
+# 主功能页面 (主要修改区域)
 class StoryboardPage(SmoothScrollArea):
     """分镜脚本与图片生成主页面"""
 
@@ -842,19 +865,33 @@ class StoryboardPage(SmoothScrollArea):
         self.current_summaries = []
         self.current_prompts = []
         self.image_widgets = []
+        self.image_urls = [] # 添加 URL 列表
+        self.all_generation_step = 0 # 0: idle, 1: title, 2: summary, 3: prompt, 4: image
+        
+        # 创建顶部控制栏
+        self.top_control_bar = TopControlBar()
+        self.top_control_bar.generate_all_requested.connect(self.generate_all)
+        self.top_control_bar.export_md_requested.connect(self.export_markdown)
+        self.top_control_bar.export_images_requested.connect(self.export_all_images)
+        
         self.init_ui()
+        self.init_image_widgets() # 确保初始化图片小部件，以便后续更新
 
     def init_ui(self):
         widget = QWidget()
         layout = QVBoxLayout(widget)
         layout.setSpacing(20)
 
-        # 标题
-        title = SubtitleLabel("🎬 AI分镜脚本与图片生成器")
-        title.setFont(QFont("", 18, QFont.Bold))
-        layout.addWidget(title)
+        # 标题 (移除，因为顶部控制栏已包含功能标题)
+        # title = SubtitleLabel("🎬 AI分镜脚本与图片生成器")
+        # title.setFont(QFont("", 18, QFont.Bold))
+        # layout.addWidget(title)
+        
+        # 1. 顶部控制栏
+        layout.addWidget(self.top_control_bar)
 
-        # 主要内容区域 - 左右分栏
+
+        # 2. 主要内容区域 - 左右分栏
         main_splitter = QSplitter(Qt.Horizontal)
         layout.addWidget(main_splitter)
 
@@ -965,99 +1002,93 @@ class StoryboardPage(SmoothScrollArea):
 
         left_layout.addWidget(summary_card)
 
-        # 生成控制区
+        # 生成控制区 (调整为三列布局)
         control_card = CardWidget()
         control_layout = QVBoxLayout(control_card)
-        control_layout.setContentsMargins(20, 20, 20, 20)
+        control_layout.setContentsMargins(10, 10, 10, 10) # 减小边距以适应紧凑布局
 
+        # 标题 (单独一行，确保不被挤压)
+        control_title_layout = QHBoxLayout()
         control_header = SubtitleLabel("⚙️ 生成控制")
         control_header.setFont(QFont("", 14, QFont.Bold))
-        control_layout.addWidget(control_header)
+        control_title_layout.addWidget(control_header)
+        control_title_layout.addStretch()
+        control_layout.addLayout(control_title_layout)
 
-        # 图片数量和提示词前缀在同一行
+        # 三列功能模块布局
         control_row_layout = QHBoxLayout()
+        control_row_layout.setSpacing(10) # 模块间距
 
-        # 图片数量（必须是5的倍数）
-        count_group = QGroupBox("图片数量 (5的倍数)")
-        count_layout = QHBoxLayout()
-        self.image_count_spin = QSpinBox()
-        self.image_count_spin.setRange(5, 20)
-        self.image_count_spin.setSingleStep(5)  # 步进为5
-        self.image_count_spin.setValue(10)  # 默认值为10
-        self.image_count_spin.setFixedWidth(80)
-        count_layout.addWidget(self.image_count_spin)
-
-        # 添加说明标签
-        count_info = QLabel("批次数×5")
-        count_info.setStyleSheet("color: #666; font-size: 12px;")
-        count_layout.addWidget(count_info)
-
-        count_group.setLayout(count_layout)
-        control_row_layout.addWidget(count_group)
-
-        # 提示词前缀
-        prefix_group = QGroupBox("提示词前缀")
-        prefix_layout = QHBoxLayout()
-        self.prompt_prefix_edit = LineEdit()
-        self.prompt_prefix_edit.setPlaceholderText("统一的风格关键词")
-        self.prompt_prefix_edit.setText("Face the camera, showing the upper body,")
-        self.prompt_prefix_edit.setFixedHeight(32)
-        prefix_layout.addWidget(self.prompt_prefix_edit)
-        prefix_group.setLayout(prefix_layout)
-        control_row_layout.addWidget(prefix_group)
-
-        control_layout.addLayout(control_row_layout)
-
-        # 一键生成按钮
-        self.generate_all_btn = PrimaryPushButton(FluentIcon.PLAY, "一键生成全部")
-        self.generate_all_btn.clicked.connect(self.generate_all)
-        self.generate_all_btn.setFixedHeight(40)
-        control_layout.addWidget(self.generate_all_btn)
-
-        # 设置按钮和图片尺寸
-        settings_layout = QHBoxLayout()
-
-        # 图片尺寸设置
+        # 1. 图片尺寸 (左)
         size_group = QGroupBox("图片尺寸")
-        size_layout = QHBoxLayout()
+        size_layout = QHBoxLayout(size_group)
+        size_layout.setContentsMargins(5, 10, 5, 5)
 
-        size_layout.addWidget(QLabel("宽度:"))
+        # 宽度
+        size_layout.addWidget(QLabel("W:"))
         self.width_spin = QSpinBox()
         self.width_spin.setRange(256, 4096)
-        self.width_spin.setValue(1080)
+        self.width_spin.setValue(config_manager.get('bizyair_params.default_width', 1080))
         self.width_spin.setSingleStep(64)
-        self.width_spin.setFixedWidth(80)
+        self.width_spin.setFixedWidth(55)
         size_layout.addWidget(self.width_spin)
 
-        size_layout.addWidget(QLabel("高度:"))
+        # 互换按钮
+        self.swap_size_btn = QToolButton()
+        self.swap_size_btn.setIcon(FluentIcon.ROTATE.icon()) 
+        self.swap_size_btn.setToolTip("互换宽度和高度")
+        self.swap_size_btn.clicked.connect(self.swap_image_size)
+        size_layout.addWidget(self.swap_size_btn)
+
+        # 高度
+        size_layout.addWidget(QLabel("H:"))
         self.height_spin = QSpinBox()
         self.height_spin.setRange(256, 4096)
-        self.height_spin.setValue(1920)
+        self.height_spin.setValue(config_manager.get('bizyair_params.default_height', 1920))
         self.height_spin.setSingleStep(64)
-        self.height_spin.setFixedWidth(80)
+        self.height_spin.setFixedWidth(55)
         size_layout.addWidget(self.height_spin)
+        
+        control_row_layout.addWidget(size_group)
 
+        # 2. 图片数量 (中)
+        count_group = QGroupBox("图片数量")
+        count_layout = QHBoxLayout(count_group)
+        count_layout.setContentsMargins(5, 10, 5, 5)
+        
+        self.image_count_spin = QSpinBox()
+        self.image_count_spin.setRange(5, 20)
+        self.image_count_spin.setSingleStep(5)
+        self.image_count_spin.setValue(config_manager.get('ui.default_image_count', 10))
+        self.image_count_spin.setFixedWidth(50)
+        self.image_count_spin.valueChanged.connect(self.image_count_changed)
+        count_layout.addWidget(self.image_count_spin)
+
+        count_info = QLabel("张")
+        count_info.setStyleSheet("color: #666; font-size: 12px;")
+        count_layout.addWidget(count_info)
+        
         # 预设尺寸按钮
-        preset_1080p_btn = PushButton("1080P")
-        preset_1080p_btn.setFixedSize(60, 32)
-        preset_1080p_btn.clicked.connect(lambda: self.set_image_size(1080, 1920))
-        size_layout.addWidget(preset_1080p_btn)
+        preset_v_btn = PushButton("竖版")
+        preset_v_btn.setFixedSize(50, 30)
+        preset_v_btn.clicked.connect(lambda: self.set_image_size(1080, 1920))
+        count_layout.addWidget(preset_v_btn)
+        
+        control_row_layout.addWidget(count_group)
+        
+        # 3. 模板管理 (右)
+        template_group = QGroupBox("模板")
+        template_layout = QVBoxLayout(template_group)
+        template_layout.setContentsMargins(5, 10, 5, 5)
 
-        preset_720p_btn = PushButton("720P")
-        preset_720p_btn.setFixedSize(60, 32)
-        preset_720p_btn.clicked.connect(lambda: self.set_image_size(720, 1280))
-        size_layout.addWidget(preset_720p_btn)
-
-        size_group.setLayout(size_layout)
-        settings_layout.addWidget(size_group)
-
-        # 其他按钮
-        template_btn = PushButton(FluentIcon.EDIT, "模板管理")
+        template_btn = PushButton(FluentIcon.EDIT, "管理模板")
         template_btn.clicked.connect(self.show_template_manager)
-        settings_layout.addWidget(template_btn)
+        template_layout.addWidget(template_btn)
+        
+        control_row_layout.addWidget(template_group)
 
-        settings_layout.addStretch()
-        control_layout.addLayout(settings_layout)
+        # 添加到主布局
+        control_layout.addLayout(control_row_layout)
 
         left_layout.addWidget(control_card)
         left_layout.addStretch()
@@ -1070,7 +1101,7 @@ class StoryboardPage(SmoothScrollArea):
         right_layout = QVBoxLayout(right_widget)
         right_layout.setSpacing(15)
 
-        # 图片生成设置区
+        # 图片生成设置区 (保留)
         generate_card = ElevatedCardWidget()
         generate_layout = QVBoxLayout(generate_card)
         generate_layout.setContentsMargins(20, 20, 20, 20)
@@ -1089,7 +1120,7 @@ class StoryboardPage(SmoothScrollArea):
         self.prompt_progress.setFixedHeight(8)
         prompt_btn_layout.addWidget(self.prompt_progress)
         generate_layout.addLayout(prompt_btn_layout)
-
+        
         # 生成的绘图提示词显示区
         prompts_label = QLabel("绘图提示词 (可编辑):")
         prompts_label.setFont(QFont("", 12, QFont.Bold))
@@ -1127,7 +1158,7 @@ class StoryboardPage(SmoothScrollArea):
 
         right_layout.addWidget(progress_card)
 
-        # 图片预览区域
+        # 图片预览区域 (占据剩余空间)
         preview_card = ElevatedCardWidget()
         preview_layout = QVBoxLayout(preview_card)
         preview_layout.setContentsMargins(20, 20, 20, 20)
@@ -1137,45 +1168,38 @@ class StoryboardPage(SmoothScrollArea):
         preview_layout.addWidget(preview_title)
 
         # 创建可滚动的图片网格
-        self.image_scroll_area = ScrollArea()
+        self.image_scroll_area = SmoothScrollArea()
         self.image_scroll_widget = QWidget()
         self.image_grid_layout = QGridLayout(self.image_scroll_widget)
         self.image_grid_layout.setSpacing(15)
-
-        # 初始化图片预览小部件
-        self.init_image_widgets()
 
         self.image_scroll_area.setWidget(self.image_scroll_widget)
         self.image_scroll_area.setWidgetResizable(True)
         preview_layout.addWidget(self.image_scroll_area)
 
         right_layout.addWidget(preview_card)
-
-        # 导出操作区
-        export_card = CardWidget()
-        export_layout = QVBoxLayout(export_card)
-        export_layout.setContentsMargins(20, 20, 20, 20)
-
-        export_title = SubtitleLabel("📤 导出操作")
-        export_title.setFont(QFont("", 14, QFont.Bold))
-        export_layout.addWidget(export_title)
-
-        export_buttons_layout = QHBoxLayout()
-
-        export_md_btn = PrimaryPushButton(FluentIcon.SAVE, "导出Markdown")
-        export_md_btn.clicked.connect(self.export_markdown)
-        export_buttons_layout.addWidget(export_md_btn)
-
-        export_images_btn = PrimaryPushButton(FluentIcon.FOLDER, "导出全部图片")
-        export_images_btn.clicked.connect(self.export_all_images)
-        export_buttons_layout.addWidget(export_images_btn)
-
-        export_layout.addLayout(export_buttons_layout)
-        right_layout.addWidget(export_card)
-
-        right_layout.addStretch()
+        
+        # 导出操作区 (移除，功能已移至顶部)
+        # right_layout.addStretch()
 
         return right_widget
+    
+    # ... (其他方法保持不变)
+    # --- 保持其他方法不变 ---
+    # ... (init_image_widgets, clear_content, load_example, show_template_manager)
+    # ... (set_image_size, swap_image_size)
+    # ... (generate_titles, update_title_content, on_titles_finished)
+    # ... (generate_summaries, on_summaries_finished)
+    # ... (generate_prompts, on_all_prompts_finished, update_prompts_display)
+    # ... (generate_images_only, start_image_generation, on_all_images_finished)
+    # ... (generate_all, step_generate_titles, step_generate_summaries, step_generate_prompts, step_generate_images)
+    # ... (export_markdown, export_all_images)
+
+    def image_count_changed(self, value):
+        """图片数量改变时，重新初始化图片预览小部件"""
+        config_manager.set('ui.default_image_count', value)
+        config_manager.save_config()
+        self.init_image_widgets()
 
     def init_image_widgets(self):
         """初始化图片预览小部件"""
@@ -1186,6 +1210,7 @@ class StoryboardPage(SmoothScrollArea):
                 child.setParent(None)
 
         self.image_widgets.clear()
+        self.image_urls.clear() # 清空URL列表
         image_count = self.image_count_spin.value()
         
         # 创建新的小部件网格
@@ -1193,19 +1218,35 @@ class StoryboardPage(SmoothScrollArea):
         for i in range(image_count):
             widget = ImagePreviewWidget(i)
             self.image_widgets.append(widget)
+            self.image_urls.append('')
             row = i // cols
             col = i % cols
             self.image_grid_layout.addWidget(widget, row, col)
+            
+        # 添加一个空白占位符，确保网格布局正确拉伸
+        if self.image_grid_layout.count() > 0:
+            spacer = QWidget()
+            spacer.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+            # 确保添加到下一行
+            self.image_grid_layout.addWidget(spacer, (self.image_count_spin.value() + cols - 1) // cols, 0)
+
 
     def clear_content(self):
         """清空内容"""
         self.content_edit.clear()
         self.title_output_edit.clear()
         self.summary_output_edit.clear()
-        self.generated_prompts_edit.clear()  # 清空提示词显示框
+        self.generated_prompts_edit.clear()
         self.current_titles.clear()
         self.current_summaries.clear()
         self.current_prompts.clear()
+        self.all_generation_step = 0
+        self.image_progress.setValue(0)
+        self.image_status_label.setText("准备就绪")
+        
+        self.init_image_widgets()
+        self.top_control_bar.set_generate_enabled(True)
+
 
     def load_example(self):
         """加载示例内容"""
@@ -1228,7 +1269,24 @@ class StoryboardPage(SmoothScrollArea):
         """设置图片尺寸"""
         self.width_spin.setValue(width)
         self.height_spin.setValue(height)
+        config_manager.set('bizyair_params.default_width', width)
+        config_manager.set('bizyair_params.default_height', height)
+        config_manager.save_config()
+        
+    def swap_image_size(self):
+        """互换宽度和高度"""
+        current_width = self.width_spin.value()
+        current_height = self.height_spin.value()
+        
+        self.width_spin.setValue(current_height)
+        self.height_spin.setValue(current_width)
+        
+        config_manager.set('bizyair_params.default_width', current_height)
+        config_manager.set('bizyair_params.default_height', current_width)
+        config_manager.save_config()
 
+
+    # --- 文本生成核心逻辑 (保留，仅清理了部分不用的打印和变量) ---
 
     def generate_titles(self):
         """生成分镜标题"""
@@ -1240,50 +1298,36 @@ class StoryboardPage(SmoothScrollArea):
         template = config_manager.get_template('story_title')
         system_prompt = template.get('template', '')
 
-        print(f"[DEBUG] generate_titles called with content: {content[:50]}...")
         self.generate_title_btn.setEnabled(False)
         self.title_progress.setValue(0)
 
         worker = TextGenerationWorker(content, system_prompt)
-        # 使用 unique_connection 避免重复连接
-        print(f"[DEBUG] Connecting signals...")
         worker.content_updated.connect(self.update_title_content, Qt.UniqueConnection)
         worker.progress_updated.connect(self.update_title_progress, Qt.UniqueConnection)
         worker.finished.connect(self.on_titles_finished, Qt.UniqueConnection)
-        print(f"[DEBUG] Signals connected")
 
-        # 不使用线程管理器，直接启动
-        print(f"[DEBUG] Starting worker thread...")
         worker.start()
-        print(f"[DEBUG] Worker thread started, isRunning={worker.isRunning()}")
-
-        # 设置线程清理
         worker.finished.connect(lambda: worker.deleteLater())
 
     def update_title_content(self, text):
         """实时更新标题内容"""
-        print(f"[DEBUG] update_title_content called: {len(text)} chars")
-        # 直接在输出框显示生成的内容
         self.title_output_edit.setPlainText(text)
-        # 滚动到底部
         cursor = self.title_output_edit.textCursor()
         cursor.movePosition(cursor.End)
         self.title_output_edit.setTextCursor(cursor)
 
     def update_title_progress(self, msg):
         """更新标题生成进度"""
-        print(f"[DEBUG] update_title_progress called: {msg}")
         if "初始化" in msg:
-            self.title_progress.setRange(0, 0)  # 显示忙碌状态
+            self.title_progress.setRange(0, 0)
         elif "生成中" in msg:
             self.title_progress.setRange(0, 100)
-            # 解析速度信息
             if "速度" in msg:
                 import re
                 speed_match = re.search(r'速度: ([\d.]+) 字符/秒', msg)
                 if speed_match:
                     speed = float(speed_match.group(1))
-                    self.title_progress.setValue(min(90, int(speed * 2)))  # 根据速度设置进度
+                    self.title_progress.setValue(min(90, int(speed * 2)))
                 else:
                     self.title_progress.setValue(50)
             else:
@@ -1291,33 +1335,30 @@ class StoryboardPage(SmoothScrollArea):
 
     def on_titles_finished(self, success, result):
         """分镜标题生成完成"""
-        print(f"[DEBUG] on_titles_finished called: success={success}, result_length={len(result) if result else 0}")
         self.generate_title_btn.setEnabled(True)
-        self.title_progress.setRange(0, 100)  # 恢复正常进度条
+        self.title_progress.setRange(0, 100)
         self.title_progress.setValue(100 if success else 0)
 
         if success:
-            # 内容已经通过content_updated实时显示，这里确保最终结果正确
             self.title_output_edit.setPlainText(result)
-            # 解析标题列表
             titles = [t.strip() for t in result.split('\n') if t.strip()]
-            if len(titles) >= self.image_count_spin.value():
-                self.current_titles = titles[:self.image_count_spin.value()]
+            
+            # 确保标题数量与图片数量匹配
+            target_count = self.image_count_spin.value()
+            if len(titles) >= target_count:
+                self.current_titles = titles[:target_count]
             else:
-                self.current_titles = titles + [''] * (self.image_count_spin.value() - len(titles))
+                self.current_titles = titles + [''] * (target_count - len(titles))
 
-            # 检查是否是一键生成流程
             if hasattr(self, 'all_generation_step') and self.all_generation_step == 1:
                 QMessageBox.information(self, "成功", "分镜标题生成完成！")
-                # 继续下一步
                 QTimer.singleShot(500, self.step_generate_summaries)
-            else:
+            elif not hasattr(self, 'all_generation_step') or self.all_generation_step == 0:
                 QMessageBox.information(self, "成功", "分镜标题生成完成！")
         else:
             QMessageBox.critical(self, "错误", f"生成失败：{result}")
-            # 检查是否是一键生成流程
             if hasattr(self, 'all_generation_step') and self.all_generation_step == 1:
-                self.generate_all_btn.setEnabled(True)
+                self.top_control_bar.set_generate_enabled(True)
 
     def generate_summaries(self):
         """生成分镜描述"""
@@ -1332,22 +1373,18 @@ class StoryboardPage(SmoothScrollArea):
         self.generate_summary_btn.setEnabled(False)
         self.summary_progress.setValue(0)
 
-        self.current_worker = TextGenerationWorker(titles_text, system_prompt)
-        # 使用 unique_connection 避免重复连接
-        self.current_worker.content_updated.connect(self.update_summary_content, Qt.UniqueConnection)
-        self.current_worker.progress_updated.connect(self.update_summary_progress, Qt.UniqueConnection)
-        self.current_worker.finished.connect(self.on_summaries_finished, Qt.UniqueConnection)
+        worker = TextGenerationWorker(titles_text, system_prompt)
+        worker.content_updated.connect(self.update_summary_content, Qt.UniqueConnection)
+        worker.progress_updated.connect(self.update_summary_progress, Qt.UniqueConnection)
+        worker.finished.connect(self.on_summaries_finished, Qt.UniqueConnection)
 
-        # 直接启动worker
-        print(f"[DEBUG] 启动描述生成worker...")
-        self.current_worker.start()
-        self.current_worker.finished.connect(lambda: self.current_worker.deleteLater())
+        worker.start()
+        worker.finished.connect(lambda: worker.deleteLater())
+        self.current_worker = worker
 
     def update_summary_content(self, text):
         """实时更新描述内容"""
-        # 直接在输出框显示生成的内容
         self.summary_output_edit.setPlainText(text)
-        # 滚动到底部
         cursor = self.summary_output_edit.textCursor()
         cursor.movePosition(cursor.End)
         self.summary_output_edit.setTextCursor(cursor)
@@ -1357,168 +1394,134 @@ class StoryboardPage(SmoothScrollArea):
         if "生成中" in msg:
             self.summary_progress.setValue(50)
         else:
-            self.summary_progress.setRange(0, 0)  # 显示忙碌状态
+            self.summary_progress.setRange(0, 0)
 
     def on_summaries_finished(self, success, result):
         """分镜描述生成完成"""
         self.generate_summary_btn.setEnabled(True)
-        self.summary_progress.setRange(0, 100)  # 恢复正常进度条
+        self.summary_progress.setRange(0, 100)
         self.summary_progress.setValue(100 if success else 0)
 
         if success:
-            # 内容已经通过content_updated实时显示，这里确保最终结果正确
             self.summary_output_edit.setPlainText(result)
-            # 解析描述列表
             summaries = [s.strip() for s in result.split('\n') if s.strip()]
-            if len(summaries) >= self.image_count_spin.value():
-                self.current_summaries = summaries[:self.image_count_spin.value()]
+            
+            # 确保描述数量与图片数量匹配
+            target_count = self.image_count_spin.value()
+            if len(summaries) >= target_count:
+                self.current_summaries = summaries[:target_count]
             else:
-                self.current_summaries = summaries + [''] * (self.image_count_spin.value() - len(summaries))
+                self.current_summaries = summaries + [''] * (target_count - len(summaries))
 
-            # 检查是否是一键生成流程
             if hasattr(self, 'all_generation_step') and self.all_generation_step == 2:
                 QMessageBox.information(self, "成功", "分镜描述生成完成！")
-                # 继续下一步
                 QTimer.singleShot(500, self.step_generate_prompts)
-            else:
+            elif not hasattr(self, 'all_generation_step') or self.all_generation_step == 0:
                 QMessageBox.information(self, "成功", "分镜描述生成完成！")
         else:
             QMessageBox.critical(self, "错误", f"生成失败：{result}")
-            # 检查是否是一键生成流程
             if hasattr(self, 'all_generation_step') and self.all_generation_step == 2:
-                self.generate_all_btn.setEnabled(True)
+                self.top_control_bar.set_generate_enabled(True)
 
     def generate_prompts(self):
         """生成绘图提示词"""
-        # 从分镜描述文本框读取内容
         summary_text = self.summary_output_edit.toPlainText().strip()
         if not summary_text:
             QMessageBox.warning(self, "警告", "请先生成分镜描述")
             return
 
-        # 解析分镜描述列表
         summaries = [s.strip() for s in summary_text.split('\n') if s.strip()]
         if not summaries:
             QMessageBox.warning(self, "警告", "分镜描述内容为空")
             return
-
-        print(f"[DEBUG] 识别到 {len(summaries)} 个分镜描述")
-        for i, summary in enumerate(summaries):
-            print(f"[DEBUG] 分镜{i+1}: {summary[:50]}...")
+        
+        # 仅处理需要生成图片数量的描述
+        self.current_summaries = summaries[:self.image_count_spin.value()]
 
         template = config_manager.get_template('image_prompt')
         system_prompt = template.get('template', '')
 
         self.generate_prompt_btn.setEnabled(False)
         self.prompt_progress.setValue(0)
-        self.prompt_progress.setRange(0, 0)  # 显示忙碌状态
+        self.prompt_progress.setRange(0, 0)
         self.current_prompts.clear()
-        self.generated_prompts_edit.clear()  # 清空显示框
+        self.generated_prompts_edit.clear()
 
-        # 初始化提示词生成参数
         self.completed_prompts = 0
-        self.total_prompts = min(self.image_count_spin.value(), len(summaries))
-
-        print(f"[DEBUG] 将为前 {self.total_prompts} 个分镜生成提示词")
-
-        # 串行生成提示词，避免API频率限制
-        self.current_summary_index = 0
-        self.current_summaries = summaries[:self.total_prompts]
+        self.total_prompts = len(self.current_summaries)
         self.prompt_system_prompt = system_prompt
 
-        # 启动第一个提示词生成任务
         QTimer.singleShot(100, self.start_next_prompt_generation)
 
     def start_next_prompt_generation(self):
         """开始下一个提示词生成"""
-        if self.current_summary_index >= len(self.current_summaries):
-            print("[DEBUG] 所有提示词生成完成")
+        if self.completed_prompts >= self.total_prompts:
+            self.on_all_prompts_finished()
             return
 
-        # 检查是否有内容
-        if not self.current_summaries[self.current_summary_index]:
-            self.current_summary_index += 1
+        summary = self.current_summaries[self.completed_prompts]
+        if not summary:
+            self.completed_prompts += 1
             QTimer.singleShot(500, self.start_next_prompt_generation)
             return
 
-        print(f"[DEBUG] 生成第 {self.current_summary_index + 1} 个提示词")
-
         worker = TextGenerationWorker(
-            self.current_summaries[self.current_summary_index],
+            summary,
             self.prompt_system_prompt
         )
 
-        # 连接信号
         worker.content_updated.connect(self.update_current_prompt_content)
         worker.progress_updated.connect(self.update_prompt_progress)
         worker.finished.connect(self.on_single_prompt_finished)
 
-        # 启动worker
         self.current_worker = worker
         worker.start()
+        worker.finished.connect(lambda: worker.deleteLater())
 
     def update_current_prompt_content(self, text):
-        """更新当前提示词内容"""
-        print(f"[DEBUG] 第 {self.current_summary_index + 1} 个提示词更新: {len(text)} 字符")
+        """更新当前提示词内容（仅用于调试或查看）"""
+        pass
 
     def update_prompt_progress(self, msg):
         """更新提示词生成进度"""
         if "生成中" in msg:
-            progress = int((self.current_summary_index / self.total_prompts) * 100)
+            progress = int((self.completed_prompts / self.total_prompts) * 100)
             self.prompt_progress.setValue(progress)
-            self.image_status_label.setText(f"生成第 {self.current_summary_index + 1}/{self.total_prompts} 个提示词...")
+            self.image_status_label.setText(f"生成第 {self.completed_prompts + 1}/{self.total_prompts} 个提示词...")
 
     def on_single_prompt_finished(self, success, result):
         """单个提示词生成完成"""
+        final_prompt = ""
         if success and result:
-            # 添加前缀
-            prefix = self.prompt_prefix_edit.text().strip()
-            final_prompt = (prefix + ' ' + result.strip()).strip() if prefix else result.strip()
-
-            # 确保列表足够长
-            while len(self.current_prompts) <= self.current_summary_index:
-                self.current_prompts.append('')
-
-            self.current_prompts[self.current_summary_index] = final_prompt
-            print(f"[DEBUG] 第 {self.current_summary_index + 1} 个提示词生成成功")
-        else:
-            print(f"[DEBUG] 第 {self.current_summary_index + 1} 个提示词生成失败")
-            if result:
-                print(f"[DEBUG] 错误信息: {result}")
+            # 移除提示词前缀功能，直接使用结果
+            final_prompt = result.strip()
+        
+        # 确保列表足够长
+        while len(self.current_prompts) <= self.completed_prompts:
+            self.current_prompts.append('')
+        
+        self.current_prompts[self.completed_prompts] = final_prompt
+        self.completed_prompts += 1
 
         # 更新显示
         self.update_prompts_display()
 
-        # 清理worker
-        if hasattr(self, 'current_worker'):
-            self.current_worker.deleteLater()
-            self.current_worker = None
-
-        # 继续下一个
-        self.current_summary_index += 1
-        self.completed_prompts += 1
-
-        # 检查是否全部完成
-        if self.current_summary_index >= self.total_prompts:
+        if self.completed_prompts >= self.total_prompts:
             self.on_all_prompts_finished()
         else:
-            # 等待一段时间后继续，避免API频率限制
-            QTimer.singleShot(1000, self.start_next_prompt_generation)
+            QTimer.singleShot(1000, self.start_next_prompt_generation) # 1秒间隔
 
     def on_all_prompts_finished(self):
         """所有提示词生成完成"""
-        print("[DEBUG] 所有提示词生成任务完成")
         self.prompt_progress.setRange(0, 100)
         self.prompt_progress.setValue(100)
         self.image_status_label.setText("提示词生成完成！")
         self.generate_prompt_btn.setEnabled(True)
 
-        # 检查是否是一键生成流程
         if hasattr(self, 'all_generation_step') and self.all_generation_step == 3:
             QMessageBox.information(self, "成功", "绘图提示词生成完成！")
-            # 继续最后一步 - 生成图片
             QTimer.singleShot(500, self.step_generate_images)
-        else:
+        elif not hasattr(self, 'all_generation_step') or self.all_generation_step == 0:
             QMessageBox.information(self, "成功", "绘图提示词生成完成！")
 
     def update_prompts_display(self):
@@ -1526,89 +1529,37 @@ class StoryboardPage(SmoothScrollArea):
         prompts_text = ""
         for i, prompt in enumerate(self.current_prompts):
             if prompt:
+                # 提示词显示格式保持不变
                 prompts_text += f"=== 分镜 {i+1} ===\n{prompt}\n\n"
 
         self.generated_prompts_edit.setPlainText(prompts_text.strip())
 
+    # --- 图片生成核心逻辑 (修改：适配 BizyAIR 批量，移除旧的单图逻辑) ---
+
     def generate_images_only(self):
         """仅生成图片"""
-        # 从文本框中读取提示词
         prompts_text = self.generated_prompts_edit.toPlainText().strip()
 
         if not prompts_text:
             QMessageBox.warning(self, "警告", "请先生成或输入绘图提示词")
             return
 
-        print("\n[DEBUG] 开始解析绘图提示词...")
-        self.current_prompts = []
-
-        # 1. 先尝试解析英文格式（=== 分镜 X ===）
-        if "=== 分镜" in prompts_text:
-            sections = prompts_text.split("=== 分镜")
-            print(f"[DEBUG] 检测到英文格式，找到 {len(sections)-1} 个分镜")
-
-            for section in sections[1:]:  # 第一个是空的
-                lines = section.strip().split('\n', 1)
-                if len(lines) > 1:
-                    prompt = lines[1].strip()
-                    if prompt:
-                        # 检查是否是中文还是英文
-                        if self._is_chinese_text(prompt[:50]):
-                            print(f"[DEBUG] 分镜 {len(self.current_prompts)+1} - 中文提示词")
-                            # 中文提示词可能需要翻译（这里暂时保留原样）
-                        else:
-                            print(f"[DEBUG] 分镜 {len(self.current_prompts)+1} - 英文提示词")
-                        self.current_prompts.append(prompt)
-
-        # 2. 尝试解析中文格式（**分镜X：**）
-        elif "**分镜" in prompts_text:
-            sections = prompts_text.split("**分镜")
-            print(f"[DEBUG] 检测到中文格式，找到 {len(sections)-1} 个分镜")
-
-            for section in sections[1:]:  # 第一个是空的
-                # 找到第一个冒号后面的内容
-                colon_pos = section.find('：')
-                if colon_pos != -1:
-                    content = section[colon_pos + 1:].strip()
-                    # 按分镜分割
-                    if content.startswith('**'):
-                        next_pos = content.find('**', 2)
-                        if next_pos != -1:
-                            prompt = content[:next_pos].strip()
-                        else:
-                            prompt = content.strip()
-                    else:
-                        # 找下一个分镜标记
-                        next_pos = content.find('**分镜')
-                        if next_pos != -1:
-                            prompt = content[:next_pos].strip()
-                        else:
-                            prompt = content.strip()
-
-                    if prompt:
-                        print(f"[DEBUG] 分镜 {len(self.current_prompts)+1} - 中文提示词")
-                        self.current_prompts.append(prompt)
-
-        # 3. 按行分割（作为备用方案）
-        else:
-            lines = prompts_text.split('\n')
-            print(f"[DEBUG] 使用按行分割，找到 {len(lines)} 行")
-            for line in lines:
-                line = line.strip()
-                if line and not line.startswith('#') and not line.startswith('//'):
-                    self.current_prompts.append(line)
+        self.current_prompts = self._parse_prompts(prompts_text)
 
         if not self.current_prompts:
             QMessageBox.warning(self, "警告", "请输入有效的绘图提示词")
             return
 
-        print(f"[DEBUG] 解析完成，共 {len(self.current_prompts)} 个提示词")
+        # 确保提示词数量与 UI 设置的数量一致
+        target_count = self.image_count_spin.value()
+        if len(self.current_prompts) > target_count:
+            self.current_prompts = self.current_prompts[:target_count]
+        elif len(self.current_prompts) < target_count:
+            # 填充提示词
+            last_prompt = self.current_prompts[-1] if self.current_prompts else ""
+            self.current_prompts.extend([last_prompt] * (target_count - len(self.current_prompts)))
 
-        # 确保有足够数量的提示词
-        while len(self.current_prompts) < self.image_count_spin.value():
-            self.current_prompts.append(self.current_prompts[-1] if self.current_prompts else "")
-
-        # 获取当前尺寸设置    
+        # 获取当前尺寸设置
         width = self.width_spin.value()
         height = self.height_spin.value()
 
@@ -1617,65 +1568,58 @@ class StoryboardPage(SmoothScrollArea):
         config_manager.set('bizyair_params.default_height', height)
         config_manager.save_config()
 
-        self.start_image_generation(width, height) # 传递尺寸参数
+        self.start_image_generation(width, height)
 
-    def _is_chinese_text(self, text):
-        """检查文本是否包含中文"""
-        for char in text:
-            if '\u4e00' <= char <= '\u9fff':
-                return True
-        return False
+    def _parse_prompts(self, prompts_text):
+        """解析提示词文本框内容"""
+        prompts = []
+        if "=== 分镜" in prompts_text:
+            sections = prompts_text.split("=== 分镜")
+            for section in sections[1:]:
+                lines = section.strip().split('\n', 1)
+                if len(lines) > 1:
+                    prompt = lines[1].strip()
+                    if prompt:
+                        prompts.append(prompt)
+        # 备用：按行分割
+        elif not prompts:
+            lines = prompts_text.split('\n')
+            for line in lines:
+                line = line.strip()
+                if line and not line.startswith('#') and not line.startswith('//'):
+                    prompts.append(line)
+        return prompts
 
-    def start_image_generation(self):
+    def start_image_generation(self, width, height):
         """开始图片生成"""
-        print(f"[DEBUG] 开始生成图片，共 {len(self.current_prompts)} 个")
-
-        # 初始化图片生成参数
-        self.current_image_index = 0
-        self.total_images = len(self.current_prompts)
-        self.image_params = {
-            'model_id': config_manager.get('image_models.default', 'Tongyi-MAI/Z-Image-Turbo'),
-            'size': config_manager.get('image.default_size', '756x1344'),
-            'steps': config_manager.get('image.default_steps', 9),
-            'guidance': config_manager.get('image.default_guidance', 1),
-            'sampler': config_manager.get('image.default_sampler', 'Euler'),
-            'negative_prompt': config_manager.get('image.default_negative_prompt', '')
-        }
-
-        # 初始化图片数组
-        self.current_images = [None] * self.total_images
-        self.image_urls = [''] * self.total_images
-
-        # 清空图片显示
-        for i in reversed(range(self.image_grid_layout.count())):
-            self.image_grid_layout.itemAt(i).widget().setParent(None)
-
+        # 重新初始化图片预览小部件以确保数量正确
+        self.init_image_widgets()
+        
         # 启动图片生成 (批量一次性发送)
         self.generate_images_btn.setEnabled(False)
+        self.top_control_bar.set_generate_enabled(False) # 禁用一键生成按钮和导出按钮
         self.image_progress.setValue(0)
         self.image_status_label.setText("准备生成图片...")
         
-        # 获取图片数量（必须是 5 的倍数）
+        # 获取图片数量（以 UI 设置为准）
         image_count = self.image_count_spin.value()
 
-        # 创建图片生成worker (一次性发送所有提示词)
+        # 创建图片生成worker
         self.image_worker = ImageGenerationWorker(
             self.current_prompts,
             width,
             height,
             image_count
         )
+        
         # 连接信号
-        # 注意：这里的 on_single_image_generated 实际上是接收批量生成的 URL
         self.image_worker.progress_updated.connect(self.on_batch_image_progress)
         self.image_worker.image_generated.connect(self.on_batch_image_url_received)
         self.image_worker.finished.connect(self.on_all_images_finished)
 
         # 启动worker
         self.image_worker.start()
-
-        # 开始第一个图片生成
-        QTimer.singleShot(500, self.generate_next_image)
+        self.image_worker.finished.connect(lambda: self.image_worker.deleteLater())
 
     def on_batch_image_progress(self, progress, msg):
         """批量图片生成进度"""
@@ -1686,192 +1630,24 @@ class StoryboardPage(SmoothScrollArea):
         """接收单个图片 URL 并更新显示"""
         if index < len(self.image_widgets):
             self.image_widgets[index].set_image(image, url)
+            self.image_urls[index] = url # 保存 URL 用于导出
 
     def on_all_images_finished(self, success, images, urls):
         """所有图片生成完成"""
         self.generate_images_btn.setEnabled(True)
+        self.top_control_bar.set_generate_enabled(True) # 重新启用按钮
         self.image_progress.setValue(100 if success else 0)
+        self.all_generation_step = 0 # 重置步骤
 
         if success:
             self.image_status_label.setText("图片生成完成！")
-            # 统计成功的数量
             success_count = sum(1 for url in urls if url)
-            QMessageBox.information(self, "成功", f"成功生成 {success_count}/{len(urls)} 张图片！")
+            QMessageBox.information(self, "成功", f"成功生成 {success_count}/{self.image_count_spin.value()} 张图片！")
         else:
             self.image_status_label.setText("图片生成失败")
             QMessageBox.critical(self, "错误", "图片生成失败")
 
-        if hasattr(self, 'all_generation_step') and self.all_generation_step == 4:
-            self.generate_all_btn.setEnabled(True)
-            self.all_generation_step = 0 # 重置
-
-    # def on_all_images_finished(self):
-    #     """所有图片生成完成"""
-    #     print("\n[DEBUG] 所有图片生成完成")
-    #     self.image_status_label.setText("图片生成完成！")
-    #     self.image_progress.setValue(100)
-    #     self.generate_images_btn.setEnabled(True)
-
-    #     # 统计成功生成的图片数量
-    #     success_count = sum(1 for img in self.current_images if img is not None)
-    #     QMessageBox.information(self, "成功", f"成功生成 {success_count}/{self.total_images} 张图片！")
-
-    def generate_next_image(self):
-        """生成下一张图片"""
-        if self.current_image_index >= self.total_images:
-            self.on_all_images_finished()
-            return
-
-        # 检查是否有提示词
-        prompt = self.current_prompts[self.current_image_index]
-        if not prompt:
-            print(f"[DEBUG] 第 {self.current_image_index + 1} 个提示词为空，跳过")
-            self.current_image_index += 1
-            QTimer.singleShot(500, self.generate_next_image)
-            return
-
-        print(f"\n[DEBUG] 开始生成第 {self.current_image_index + 1} 张图片")
-        print(f"[DEBUG] 提示词: {prompt[:100]}...")
-
-        self.image_status_label.setText(f"正在生成第 {self.current_image_index + 1}/{self.total_images} 张图片...")
-
-        # 创建图片生成worker（一次只生成一张）
-        self.image_worker = ImageGenerationWorker(
-            [prompt],  # 只传一个提示词
-            self.image_params['model_id'],
-            self.image_params,
-            1  # 只生成一张图片
-        )
-
-        # 连接信号
-        self.image_worker.progress_updated.connect(self.on_single_image_progress)
-        self.image_worker.image_generated.connect(self.on_single_image_generated)
-        self.image_worker.finished.connect(self.on_single_image_finished)
-
-        # 启动worker
-        self.image_worker.start()
-
-    def on_single_image_progress(self, index, msg):
-        """单张图片生成进度"""
-        # index 在这里是0，因为我们只生成一张图片
-        progress = int((self.current_image_index / self.total_images) * 100)
-        self.image_progress.setValue(progress)
-        if "提交任务" in msg:
-            self.image_status_label.setText(f"第 {self.current_image_index + 1} 张：提交任务中...")
-        elif "等待中" in msg:
-            self.image_status_label.setText(f"第 {self.current_image_index + 1} 张：等待生成...")
-
-    def on_single_image_generated(self, index, image, url):
-        """单张图片生成完成"""
-        print(f"[DEBUG] 第 {self.current_image_index + 1} 张图片生成完成")
-        # 保存图片
-        self.current_images[self.current_image_index] = image
-        self.image_urls[self.current_image_index] = url
-        # 更新图片显示
-        self.update_single_image_display(self.current_image_index, image)
-
-    def on_single_image_finished(self, success, images, urls):
-        """单张图片生成完成回调"""
-        if hasattr(self, 'image_worker'):
-            self.image_worker.deleteLater()
-            self.image_worker = None
-
-        if success and images:
-            print(f"[DEBUG] 第 {self.current_image_index + 1} 张图片生成成功")
-            # 继续下一张
-            self.current_image_index += 1
-
-            # 更新进度
-            progress = int((self.current_image_index / self.total_images) * 100)
-            self.image_progress.setValue(progress)
-
-            # 等待一段时间后继续，避免API频率限制
-            QTimer.singleShot(1000, self.generate_next_image)
-        else:
-            print(f"[DEBUG] 第 {self.current_image_index + 1} 张图片生成失败")
-            # 继续下一张
-            self.current_image_index += 1
-            QTimer.singleShot(1000, self.generate_next_image)
-
-    def update_single_image_display(self, index, image):
-        """更新单张图片显示"""
-        from PyQt5.QtWidgets import QLabel
-        from PyQt5.QtGui import QPixmap
-        from PyQt5.QtCore import Qt
-
-        cols = 3
-        row = index // cols
-        col = index % cols
-
-        # 创建图片容器
-        container = QWidget()
-        container_layout = QVBoxLayout(container)
-        container_layout.setContentsMargins(5, 5, 5, 5)
-
-        # 图片标签
-        label = QLabel()
-        pixmap = QPixmap()
-        pixmap.loadFromData(image)
-        label.setPixmap(pixmap.scaled(200, 200, Qt.KeepAspectRatio, Qt.SmoothTransformation))
-        label.setAlignment(Qt.AlignCenter)
-        label.setStyleSheet("border: 1px solid #ddd; border-radius: 4px;")
-        container_layout.addWidget(label)
-
-        # 分镜标题
-        title_label = QLabel(f"分镜 {index + 1}")
-        title_label.setAlignment(Qt.AlignCenter)
-        title_label.setStyleSheet("font-size: 12px; color: #666;")
-        container_layout.addWidget(title_label)
-
-        # 添加到网格布局
-        self.image_grid_layout.addWidget(container, row, col)
-
-    def update_image_progress(self, index, msg):
-        """更新图片生成进度（旧的，保留兼容）"""
-        pass
-
-    def on_image_generated(self, index, image, url):
-        """单张图片生成完成（旧的，保留兼容）"""
-        pass
-
-    def on_images_finished(self, success, images, urls):
-        """所有图片生成完成"""
-        self.generate_images_btn.setEnabled(True)
-        self.image_progress.setValue(100 if success else 0)
-
-        if success:
-            self.image_status_label.setText("图片生成完成！")
-            QMessageBox.information(self, "成功", f"成功生成 {len(images)} 张图片！")
-        else:
-            self.image_status_label.setText("图片生成失败")
-            QMessageBox.critical(self, "错误", "图片生成失败")
-
-    def update_image_display(self):
-        """更新图片显示"""
-        # 清空现有显示
-        for i in reversed(range(self.image_grid_layout.count())):
-            self.image_grid_layout.itemAt(i).widget().setParent(None)
-
-        # 显示图片
-        cols = 3
-        for i, image in enumerate(self.current_images):
-            if image:
-                row = i // cols
-                col = i % cols
-
-                # 创建图片标签
-                from PyQt5.QtWidgets import QLabel
-                from PyQt5.QtGui import QPixmap
-                from PyQt5.QtCore import Qt
-
-                label = QLabel()
-                pixmap = QPixmap()
-                pixmap.loadFromData(image)
-                label.setPixmap(pixmap.scaled(200, 200, Qt.KeepAspectRatio, Qt.SmoothTransformation))
-                label.setAlignment(Qt.AlignCenter)
-                label.setStyleSheet("border: 1px solid #ddd; border-radius: 4px;")
-
-                self.image_grid_layout.addWidget(label, row, col)
+    # --- 一键生成逻辑 ---
 
     def generate_all(self):
         """一键生成全部"""
@@ -1880,9 +1656,9 @@ class StoryboardPage(SmoothScrollArea):
             QMessageBox.warning(self, "警告", "请先输入故事内容")
             return
 
-        # 按步骤生成
-        self.generate_all_btn.setEnabled(False)
+        self.top_control_bar.set_generate_enabled(False) # 禁用一键生成按钮和导出按钮
         self.all_generation_step = 0
+        self.clear_content() # 清空所有旧内容
 
         # 1. 生成标题
         QTimer.singleShot(100, self.step_generate_titles)
@@ -1895,52 +1671,27 @@ class StoryboardPage(SmoothScrollArea):
     def step_generate_summaries(self):
         """步骤2：生成描述"""
         self.all_generation_step = 2
-        QTimer.singleShot(500, self.generate_summaries)
+        self.generate_summaries()
 
     def step_generate_prompts(self):
         """步骤3：生成提示词"""
         self.all_generation_step = 3
-        QTimer.singleShot(500, self.generate_prompts)
+        self.generate_prompts()
 
     def step_generate_images(self):
         """步骤4：生成图片"""
         self.all_generation_step = 4
-        QTimer.singleShot(500, self.generate_images_only)
+        # 获取最新的提示词（因为用户可能在步骤3后修改了）
+        prompts_text = self.generated_prompts_edit.toPlainText().strip()
+        self.current_prompts = self._parse_prompts(prompts_text)
+        
+        self.generate_images_only()
 
-    
-    def on_summaries_finished(self, success, result):
-        """分镜描述生成完成（一键生成流程）"""
-        # 先执行基础逻辑
-        self.generate_summary_btn.setEnabled(True)
-        self.summary_progress.setRange(0, 100)  # 恢复正常进度条
-        self.summary_progress.setValue(100 if success else 0)
-
-        if success:
-            # 内容已经通过content_updated实时显示，这里确保最终结果正确
-            self.summary_output_edit.setPlainText(result)
-            # 解析描述列表
-            summaries = [s.strip() for s in result.split('\n') if s.strip()]
-            if len(summaries) >= self.image_count_spin.value():
-                self.current_summaries = summaries[:self.image_count_spin.value()]
-            else:
-                self.current_summaries = summaries + [''] * (self.image_count_spin.value() - len(summaries))
-
-            # 检查是否是一键生成流程
-            if hasattr(self, 'all_generation_step') and self.all_generation_step == 2:
-                QMessageBox.information(self, "成功", "分镜描述生成完成！")
-                # 继续下一步
-                QTimer.singleShot(500, self.step_generate_prompts)
-            else:
-                QMessageBox.information(self, "成功", "分镜描述生成完成！")
-        else:
-            QMessageBox.critical(self, "错误", f"生成失败：{result}")
-            # 检查是否是一键生成流程
-            if hasattr(self, 'all_generation_step') and self.all_generation_step == 2:
-                self.generate_all_btn.setEnabled(True)
+    # --- 导出逻辑 (已移至 TopControlBar 信号触发) ---
 
     def export_markdown(self):
         """导出Markdown文件"""
-        if not self.current_titles and not self.current_summaries:
+        if not self.current_titles and not self.current_summaries and not any(self.image_widgets):
             QMessageBox.warning(self, "警告", "没有可导出的内容")
             return
 
@@ -1957,27 +1708,32 @@ class StoryboardPage(SmoothScrollArea):
                     f.write(f"生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
                     f.write("---\n\n")
 
-                    for i in range(self.image_count_spin.value()):
+                    image_count = self.image_count_spin.value()
+                    for i in range(image_count):
                         f.write(f"## 📺 分镜 {i+1}\n\n")
                         
-                        if i < len(self.current_titles) and self.current_titles[i]:
-                            f.write(f"**🎭 分镜标题:** {self.current_titles[i]}\n\n")
+                        title = self.current_titles[i] if i < len(self.current_titles) and self.current_titles[i] else ""
+                        summary = self.current_summaries[i] if i < len(self.current_summaries) and self.current_summaries[i] else ""
+                        prompt = self.current_prompts[i] if i < len(self.current_prompts) and self.current_prompts[i] else ""
+                        image_url = self.image_widgets[i].image_url if i < len(self.image_widgets) and self.image_widgets[i].image_url else ""
                         
-                        if i < len(self.current_summaries) and self.current_summaries[i]:
-                            f.write(f"**📝 分镜描述:** {self.current_summaries[i]}\n\n")
+                        if title:
+                            f.write(f"**🎭 分镜标题:** {title}\n\n")
                         
-                        if i < len(self.current_prompts) and self.current_prompts[i]:
-                            f.write(f"**🎨 AI绘图提示词:** {self.current_prompts[i]}\n\n")
+                        if summary:
+                            f.write(f"**📝 分镜描述:** {summary}\n\n")
                         
-                        if i < len(self.image_widgets) and self.image_widgets[i].image_url:
+                        if prompt:
+                            f.write(f"**🎨 AI绘图提示词:** {prompt}\n\n")
+                        
+                        if image_url:
                             f.write(f"**🖼️ 图片:**\n")
-                            f.write(f"![分镜{i+1}]({self.image_widgets[i].image_url})\n\n")
+                            f.write(f"![分镜{i+1}]({image_url})\n\n")
                         
                         f.write("---\n\n")
 
                 QMessageBox.information(self, "成功", f"Markdown文件已保存到: {file_path}")
                 
-                # 询问是否打开文件
                 reply = QMessageBox.question(self, "打开文件", "是否立即打开导出的文件？",
                                            QMessageBox.Yes | QMessageBox.No)
                 if reply == QMessageBox.Yes:
@@ -1996,19 +1752,19 @@ class StoryboardPage(SmoothScrollArea):
         export_count = 0
 
         for i, widget in enumerate(self.image_widgets):
-            if widget.image:
+            if widget.image_url: # 使用 URL 而不是 widget.image
                 try:
                     file_name = f"storyboard_{timestamp}_{i+1}.png"
                     file_path = os.path.join(output_dir, file_name)
                     
-                    # 将QImage转换为PIL Image
-                    if isinstance(widget.image, QImage):
-                        pil_image = Image.fromqimage(widget.image)
+                    # 从 URL 下载图片并保存
+                    response = requests.get(widget.image_url, timeout=30)
+                    if response.status_code == 200:
+                        with open(file_path, 'wb') as f:
+                            f.write(response.content)
+                        export_count += 1
                     else:
-                        pil_image = Image.fromqpixmap(widget.image)
-                    
-                    pil_image.save(file_path)
-                    export_count += 1
+                        logger.error(f"下载图片失败: HTTP {response.status_code}")
                     
                 except Exception as e:
                     logger.error(f"保存图片失败: {e}")
@@ -2018,7 +1774,8 @@ class StoryboardPage(SmoothScrollArea):
         else:
             QMessageBox.warning(self, "警告", "没有可导出的图片")
 
-# 主窗口
+
+# 主窗口 (精简)
 class MainWindow(FluentWindow):
     def __init__(self):
         super().__init__()
@@ -2031,14 +1788,12 @@ class MainWindow(FluentWindow):
         self.setWindowTitle("🎬 BOZO-MCN 分镜脚本与图片生成器 v2.0")
         self.setMinimumSize(1400, 900)
 
-        # 从配置文件读取窗口大小
         width = config_manager.get('ui.window_width', 1600)
         height = config_manager.get('ui.window_height', 1000)
         self.resize(width, height)
 
     def init_navigation(self):
         """初始化导航栏"""
-        # 主功能页面
         self.storyboard_page = StoryboardPage(self)
         self.storyboard_page.setObjectName("storyboard_page")
         self.addSubInterface(
@@ -2048,7 +1803,6 @@ class MainWindow(FluentWindow):
             NavigationItemPosition.TOP
         )
 
-        # 设置页面
         self.addSubInterface(
             self.create_settings_page(),
             FluentIcon.SETTING,
@@ -2057,7 +1811,7 @@ class MainWindow(FluentWindow):
         )
 
     def create_settings_page(self):
-        """创建设置页面"""
+        """创建设置页面 (精简图片设置)"""
         page = SmoothScrollArea()
         page.setObjectName("settings_page")
         widget = QWidget()
@@ -2080,7 +1834,7 @@ class MainWindow(FluentWindow):
         self.api_key_edit.setText(config_manager.get('api.api_key', ''))
         api_layout.addWidget(self.api_key_edit, 0, 1)
 
-        api_layout.addWidget(QLabel("API基础URL:"), 1, 0)
+        api_layout.addWidget(QLabel("文本 API URL:"), 1, 0)
         self.api_url_edit = LineEdit()
         self.api_url_edit.setFixedHeight(32)
         self.api_url_edit.setText(config_manager.get('api.base_url', 'https://api.siliconflow.cn/v1/'))
@@ -2089,8 +1843,17 @@ class MainWindow(FluentWindow):
         api_layout.addWidget(QLabel("文本模型:"), 2, 0)
         self.text_model_edit = LineEdit()
         self.text_model_edit.setFixedHeight(32)
-        self.text_model_edit.setText(config_manager.get('api.text_model', 'Qwen/Qwen3-235B-A22B-Thinking-2507'))
+        self.text_model_edit.setText(config_manager.get('api.text_model', 'Qwen/Qwen3-Coder-480B-A35B-Instruct'))
         api_layout.addWidget(self.text_model_edit, 2, 1)
+        
+        # BizyAIR App ID
+        api_layout.addWidget(QLabel("BizyAIR App ID:"), 3, 0)
+        self.bizyair_app_id_spin = QSpinBox()
+        self.bizyair_app_id_spin.setRange(1, 99999)
+        self.bizyair_app_id_spin.setValue(config_manager.get('bizyair_params.web_app_id', 39808))
+        self.bizyair_app_id_spin.setFixedHeight(32)
+        api_layout.addWidget(self.bizyair_app_id_spin, 3, 1)
+
 
         api_group.setLayout(api_layout)
         layout.addWidget(api_group)
@@ -2101,8 +1864,9 @@ class MainWindow(FluentWindow):
 
         ui_layout.addWidget(QLabel("默认图片数量:"), 0, 0)
         self.default_image_count_spin = QSpinBox()
-        self.default_image_count_spin.setRange(1, 20)
-        self.default_image_count_spin.setValue(config_manager.get('ui.default_image_count', 9))
+        self.default_image_count_spin.setRange(5, 20)
+        self.default_image_count_spin.setSingleStep(5)
+        self.default_image_count_spin.setValue(config_manager.get('ui.default_image_count', 10))
         ui_layout.addWidget(self.default_image_count_spin, 0, 1)
 
         theme_layout = QHBoxLayout()
@@ -2144,7 +1908,6 @@ class MainWindow(FluentWindow):
         """检查API密钥"""
         api_key = config_manager.get('api.api_key', '')
         if not api_key:
-            # 显示提示
             InfoBar.warning(
                 title="API密钥未配置",
                 content="请在设置中配置 API密钥以使用完整功能",
@@ -2168,6 +1931,7 @@ class MainWindow(FluentWindow):
         config_manager.set('api.api_key', self.api_key_edit.text().strip())
         config_manager.set('api.base_url', self.api_url_edit.text().strip())
         config_manager.set('api.text_model', self.text_model_edit.text().strip())
+        config_manager.set('bizyair_params.web_app_id', self.bizyair_app_id_spin.value())
         config_manager.set('ui.default_image_count', self.default_image_count_spin.value())
 
         if config_manager.save_config():
@@ -2197,36 +1961,29 @@ class MainWindow(FluentWindow):
         config_manager.set('ui.window_height', self.height())
         config_manager.save_config()
 
-        # 清理所有工作线程
         thread_manager.cancel_all()
 
         super().closeEvent(event)
 
 def main():
-    # 屏蔽 Qt 字体相关的警告日志
     os.environ["QT_LOGGING_RULES"] = "qt.qpa.fonts.warning=false"
-
-    # 设置高DPI支持
     QApplication.setAttribute(Qt.AA_EnableHighDpiScaling)
     QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps)
 
-    # 字体替换
     QFont.insertSubstitution("Segoe UI", ".AppleSystemUIFont")
     QFont.insertSubstitution("Microsoft YaHei", "PingFang SC")
 
     app = QApplication(sys.argv)
 
-    # 设置全局默认字体
     default_font = QFont()
     default_font.setPointSize(12)
     app.setFont(default_font)
 
-    # 设置应用信息
     app.setApplicationName("BOZO-MCN分镜脚本生成器")
     app.setApplicationVersion("2.0")
     app.setOrganizationName("BOZO-MCN")
 
-    # 添加一些全局样式优化
+    # 设置全局样式优化
     app.setStyleSheet("""
         QGroupBox {
             font-weight: bold;
@@ -2240,39 +1997,17 @@ def main():
             left: 10px;
             padding: 0 5px 0 5px;
         }
-        ComboBox {
+        ComboBox, LineEdit, SpinBox, DoubleSpinBox {
             padding: 5px;
             border: 1px solid #cccccc;
             border-radius: 4px;
             background: white;
         }
-        ComboBox:hover {
+        ComboBox:hover, LineEdit:hover, SpinBox:hover, DoubleSpinBox:hover {
             border-color: #888888;
         }
-        ComboBox:focus {
+        ComboBox:focus, LineEdit:focus, SpinBox:focus, DoubleSpinBox:focus {
             border-color: #0078d4;
-        }
-        LineEdit {
-            padding: 5px;
-            border: 1px solid #cccccc;
-            border-radius: 4px;
-            background: white;
-        }
-        LineEdit:hover {
-            border-color: #888888;
-        }
-        LineEdit:focus {
-            border-color: #0078d4;
-        }
-        SpinBox {
-            padding: 5px;
-            border: 1px solid #cccccc;
-            border-radius: 4px;
-        }
-        DoubleSpinBox {
-            padding: 5px;
-            border: 1px solid #cccccc;
-            border-radius: 4px;
         }
     """)
 
