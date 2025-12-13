@@ -1,0 +1,25 @@
+# BOZO-MCN 分镜脚本与图片生成器依赖包
+# PyQt5相关
+PyQt5>=5.15.0
+PyQt5-tools>=5.15.0
+# Fluent UI组件
+qfluentwidgets>=1.6.0
+
+# 图像处理
+Pillow>=9.0.0
+opencv-python>=4.5.0
+
+# API请求
+requests>=2.28.0
+openai>=1.0.0
+
+# 系统相关
+psutil>=5.9.0
+chardet>=5.0.0
+
+# 数据处理
+numpy>=1.21.0
+matplotlib>=3.5.0
+
+# 日志和配置
+pyyaml>=6.0
