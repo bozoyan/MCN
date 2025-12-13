@@ -22,7 +22,7 @@ from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                             QHBoxLayout, QGridLayout, QLabel, QLineEdit,
                             QPushButton, QFileDialog, QTextEdit, QSpinBox,
                             QProgressBar, QMessageBox, QSplitter, QGroupBox,
-                            QDialog, QToolButton, QSizePolicy)
+                            QDialog, QToolButton, QSizePolicy, QButtonGroup) # 引入 QButtonGroup
 from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer, QUrl, QSettings, QSize, pyqtSlot
 from PyQt5.QtGui import QFont, QIcon, QDesktopServices, QPixmap
 from qfluentwidgets import (FluentIcon, NavigationInterface, NavigationItemPosition,
@@ -40,9 +40,11 @@ MODEL_API_KEY = os.getenv('SiliconCloud_API_KEY')
 
 # 预设尺寸和比例数据
 PRESET_RESOLUTIONS = {
-    "1920x1080 (1080P)": (1920, 1080), 
-    "1707x960 (960P)": (1707, 960),
-    "1280x720 (720P)": (1280, 720),
+    "1080P": (1920, 1080), 
+    "960P": (1707, 960),
+    "768P": (1024, 768),
+    "720P": (1280, 720),
+    "512P": (768, 512),
 }
 
 ASPECT_RATIOS = {
@@ -51,6 +53,8 @@ ASPECT_RATIOS = {
     "21:9": 21/9,
     "1:1": 1/1,
     "2:3": 2/3,
+    "2:5": 2/5,
+    "3:5": 3/5,
 }
 
 
@@ -986,27 +990,27 @@ class StoryboardPage(SmoothScrollArea):
         control_title_layout.addStretch()
         control_layout.addLayout(control_title_layout)
 
-        # 功能模块布局
+        # 功能模块布局 (所有主要设置在一行)
         control_modules_layout = QHBoxLayout()
         control_modules_layout.setSpacing(10) # 模块间距
         control_modules_layout.setContentsMargins(0, 0, 0, 0) # 移除模块布局的边距
-
-        # --- 1. 图片尺寸 (左) ---
-        size_widget = QWidget()
-        size_widget.setObjectName("size_widget") # 用于样式隔离
-        size_layout = QVBoxLayout(size_widget)
-        size_layout.setContentsMargins(0, 0, 0, 0) # 移除边框，内容紧凑
         
-        # 尺寸输入 (W/H 同一行)
+        # --- 1. 宽度/高度/互换 (左) ---
+        size_widget = QWidget()
+        size_widget.setObjectName("size_widget")
+        size_layout = QVBoxLayout(size_widget)
+        size_layout.setContentsMargins(0, 0, 0, 0)
+        
+        # 尺寸输入 (W/H/互换 同一行)
         size_input_layout = QHBoxLayout()
         size_input_layout.setContentsMargins(0, 0, 0, 0)
         
-        size_input_layout.addWidget(QLabel("W:"))
+        size_input_layout.addWidget(QLabel("图片宽度 W:"))
         self.width_spin = QSpinBox()
         self.width_spin.setRange(256, 4096)
         self.width_spin.setValue(config_manager.get('bizyair_params.default_width', 1080))
         self.width_spin.setSingleStep(64)
-        self.width_spin.setFixedWidth(55)
+        self.width_spin.setFixedWidth(200)
         size_input_layout.addWidget(self.width_spin)
 
         # 互换按钮
@@ -1017,43 +1021,72 @@ class StoryboardPage(SmoothScrollArea):
         size_input_layout.addWidget(self.swap_size_btn)
 
         # 高度
-        size_input_layout.addWidget(QLabel("H:"))
+        size_input_layout.addWidget(QLabel("图片高度 H:"))
         self.height_spin = QSpinBox()
         self.height_spin.setRange(256, 4096)
         self.height_spin.setValue(config_manager.get('bizyair_params.default_height', 1920))
         self.height_spin.setSingleStep(64)
-        self.height_spin.setFixedWidth(55)
+        self.height_spin.setFixedWidth(200)
         size_input_layout.addWidget(self.height_spin)
         size_layout.addLayout(size_input_layout)
         
-        # 尺寸预设下拉菜单 (同一行)
-        preset_layout = QHBoxLayout()
-        preset_layout.setContentsMargins(0, 0, 0, 0)
-        
-        self.resolution_combo = ComboBox()
-        self.resolution_combo.addItem("分辨率预设", None)
-        for name, size in PRESET_RESOLUTIONS.items():
-            self.resolution_combo.addItem(name, size) 
-        self.resolution_combo.activated.connect(self.set_preset_resolution) # 修正信号连接
-        preset_layout.addWidget(self.resolution_combo)
+        # --- 分辨率预设 (单选按钮) ---
+        resolution_label = QLabel("") #分辨率预设
+        resolution_label.setStyleSheet("font-weight: bold;")
+        size_layout.addWidget(resolution_label)
 
-        self.aspect_ratio_combo = ComboBox()
-        self.aspect_ratio_combo.addItem("比例预设", None)
+        resolution_btn_layout = QHBoxLayout()
+        self.resolution_group = QButtonGroup(self)
+        self.resolution_group.setExclusive(True)
+
+        btn_id = 1
+        for name, size in PRESET_RESOLUTIONS.items():
+            btn = RadioButton(name)
+            resolution_btn_layout.addWidget(btn)
+            # 修正：将 id 设为整数
+            self.resolution_group.addButton(btn, id=btn_id) 
+            btn_id += 1 
+        
+        # 修正：信号连接改为接收整数 ID
+        self.resolution_group.buttonClicked[int].connect(self.set_preset_resolution)
+        size_layout.addLayout(resolution_btn_layout)
+        
+        # --- 比例预设 (单选按钮) ---
+        aspect_ratio_label = QLabel("") #比例预设
+        aspect_ratio_label.setStyleSheet("font-weight: bold; margin-top: 5px;")
+        size_layout.addWidget(aspect_ratio_label)
+
+        ratio_btn_layout = QHBoxLayout()
+        self.ratio_group = QButtonGroup(self)
+        self.ratio_group.setExclusive(True)
+
+        btn_id = 101 # 使用不同的起始ID以确保唯一性
+        
         for name, ratio in ASPECT_RATIOS.items():
-            self.aspect_ratio_combo.addItem(name, ratio)
-        self.aspect_ratio_combo.activated.connect(self.set_aspect_ratio) # 修正信号连接
-        preset_layout.addWidget(self.aspect_ratio_combo)
-        size_layout.addLayout(preset_layout)
+            btn = RadioButton(name)
+            ratio_btn_layout.addWidget(btn)
+            # 修正：将 id 设为整数
+            self.ratio_group.addButton(btn, id=btn_id) 
+            btn_id += 1
+            
+        self.ratio_group.buttonClicked[int].connect(self.set_aspect_ratio)
+        size_layout.addLayout(ratio_btn_layout)
         
         control_modules_layout.addWidget(size_widget)
-        control_modules_layout.setStretchFactor(size_widget, 2)
+        control_modules_layout.setStretchFactor(size_widget, 4) # 尺寸区域占更大比例
 
 
-        # --- 2. 图片数量 (中) ---
+        # --- 2. 图片数量 & 模板编辑 (右侧，上下排列) ---
+        right_column_widget = QWidget()
+        right_column_layout = QVBoxLayout(right_column_widget)
+        right_column_layout.setContentsMargins(0, 0, 0, 0)
+        right_column_layout.setSpacing(10)
+        
+        # 图片数量
         count_widget = QWidget()
         count_widget.setObjectName("count_widget")
         count_layout = QVBoxLayout(count_widget)
-        count_layout.setContentsMargins(0, 0, 0, 0) # 移除边框，内容紧凑
+        count_layout.setContentsMargins(0, 0, 0, 0)
         
         count_input_layout = QHBoxLayout()
         count_input_layout.setContentsMargins(0, 0, 0, 0)
@@ -1061,7 +1094,7 @@ class StoryboardPage(SmoothScrollArea):
         self.image_count_spin.setRange(5, 20)
         self.image_count_spin.setSingleStep(5)
         self.image_count_spin.setValue(config_manager.get('ui.default_image_count', 10))
-        self.image_count_spin.setFixedWidth(50)
+        self.image_count_spin.setFixedWidth(80)
         self.image_count_spin.valueChanged.connect(self.image_count_changed)
         count_input_layout.addWidget(self.image_count_spin)
 
@@ -1071,25 +1104,24 @@ class StoryboardPage(SmoothScrollArea):
         count_input_layout.addStretch()
         count_layout.addLayout(count_input_layout)
         
-        count_layout.addWidget(QLabel("图片总数")) # 占位符或其他说明
-        
-        control_modules_layout.addWidget(count_widget)
-        control_modules_layout.setStretchFactor(count_widget, 1)
+        count_layout.addWidget(QLabel("")) #图片总数
+        right_column_layout.addWidget(count_widget)
 
-        # --- 3. 模板管理 (右) ---
+        # 模板管理
         template_widget = QWidget()
         template_widget.setObjectName("template_widget")
         template_layout = QVBoxLayout(template_widget)
-        template_layout.setContentsMargins(0, 0, 0, 0) # 移除边框，内容紧凑
+        template_layout.setContentsMargins(0, 0, 0, 0)
 
         template_btn = PushButton(FluentIcon.EDIT, "管理提示词模板")
         template_btn.clicked.connect(self.show_template_manager)
         template_layout.addWidget(template_btn)
         
-        template_layout.addWidget(QLabel("模板编辑")) # 占位符或其他说明
+        template_layout.addWidget(QLabel("")) #模板编辑
+        right_column_layout.addWidget(template_widget)
         
-        control_modules_layout.addWidget(template_widget)
-        control_modules_layout.setStretchFactor(template_widget, 1)
+        control_modules_layout.addWidget(right_column_widget)
+        control_modules_layout.setStretchFactor(right_column_widget, 1)
 
 
         # 添加到主布局
@@ -1100,51 +1132,53 @@ class StoryboardPage(SmoothScrollArea):
 
         return left_widget
 
-    # --- 尺寸预设逻辑 (修复 ComboBox Bug) ---
-    @pyqtSlot(int) # 修正：接收 index
-    def set_preset_resolution(self, index):
+    # --- 尺寸预设逻辑 (使用 RadioButton 和 ID) ---
+    @pyqtSlot(int)
+    def set_preset_resolution(self, id):
         """根据选择的分辨率预设设置尺寸"""
-        if index == 0:
+        # 1. 根据 ID 找到按钮文本 (例如 "1080P")
+        checked_button = self.resolution_group.button(id)
+        if not checked_button:
             return
             
-        data = self.resolution_combo.itemData(index)
-        
-        if data and isinstance(data, tuple):
-            width, height = data
+        name = checked_button.text()
+
+        if name in PRESET_RESOLUTIONS:
+            width, height = PRESET_RESOLUTIONS[name]
             self.width_spin.setValue(width)
             self.height_spin.setValue(height)
             
-        # 必须在操作结束后重置为 index 0，防止 ComboBox 内部尝试将数据渲染为图标
-        QTimer.singleShot(250, lambda: self.resolution_combo.setCurrentIndex(0)) 
-        
-    @pyqtSlot(int) # 修正：接收 index
-    def set_aspect_ratio(self, index):
+        # 不需要延迟重置，因为 RadioButton 是互斥的，不会干扰渲染
+
+    @pyqtSlot(int)
+    def set_aspect_ratio(self, id):
         """根据选择的比例预设设置尺寸"""
-        if index == 0:
+        # 1. 根据 ID 找到按钮文本 (例如 "16:9")
+        checked_button = self.ratio_group.button(id)
+        if not checked_button:
             return
+
+        name = checked_button.text()
             
-        ratio = self.aspect_ratio_combo.itemData(index)
-        
-        if ratio and isinstance(ratio, (float, int)):
+        if name in ASPECT_RATIOS:
+            ratio = ASPECT_RATIOS[name]
             current_width = self.width_spin.value()
             current_height = self.height_spin.value()
             
-            # 选择一个较大的值作为基准 (避免极小值导致计算不准确)
+            # 使用较高的尺寸（至少 1080）作为基准，避免缩放至过小
             base_size = max(current_width, current_height, 1080)
             
-            # 假设基准是宽度，计算高度
             if ratio >= 1: # 横向或方形 (如 16:9, 4:3, 1:1, 21:9)
+                # 保持高度为基准，计算宽度
+                new_height = base_size 
+                new_width = int(new_height * ratio)
+            else: # 纵向 (如 2:3)
+                # 保持宽度为基准，计算高度
                 new_width = base_size
                 new_height = int(new_width / ratio)
-            else: # 纵向 (如 2:3)
-                new_height = base_size
-                new_width = int(new_height * ratio)
 
             self.width_spin.setValue(new_width)
             self.height_spin.setValue(new_height)
-
-        # 必须在操作结束后重置为 index 0，防止 ComboBox 内部尝试将数据渲染为图标
-        QTimer.singleShot(250, lambda: self.aspect_ratio_combo.setCurrentIndex(0)) 
     # --- 尺寸预设逻辑结束 ---
     
     def create_right_panel(self):
@@ -1231,9 +1265,6 @@ class StoryboardPage(SmoothScrollArea):
 
         right_layout.addWidget(preview_card)
         
-        # 导出操作区 (移除，功能已移至顶部)
-        # right_layout.addStretch()
-
         return right_widget
     
     # ... (其他方法保持不变)
@@ -1695,7 +1726,7 @@ class StoryboardPage(SmoothScrollArea):
 
         self.top_control_bar.set_generate_enabled(False) # 禁用一键生成按钮和导出按钮
         self.all_generation_step = 0
-        # self.clear_content() # 清空所有旧内容
+        # 清除辅助区域，保留故事内容
         self.title_output_edit.clear()
         self.summary_output_edit.clear()
         self.generated_prompts_edit.clear()
@@ -2090,6 +2121,10 @@ def main():
         }
         ComboBox:focus, LineEdit:focus, SpinBox:focus, DoubleSpinBox:focus {
             border-color: #0078d4;
+        }
+        /* 确保 RadioButton 布局紧凑 */
+        QRadioButton {
+            margin-right: 5px; 
         }
     """)
 
