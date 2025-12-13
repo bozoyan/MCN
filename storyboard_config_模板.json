@@ -1,13 +1,23 @@
 {
     "api": {
         "base_url": "https://api-inference.modelscope.cn/v1/",
-        "text_model": "Qwen/Qwen3-235B-A22B-Thinking-2507",
+        "text_model": "Qwen/Qwen3-Coder-480B-A35B-Instruct",
         "enable_thinking": true,
         "api_key": ""
     },
     "image_models": {
-        "default": "bozoyan/F_fei",
+        "default": "Tongyi-MAI/Z-Image-Turbo",
         "available": [
+            {
+                "name": "Z-Image",
+                "id": "Tongyi-MAI/Z-Image-Turbo",
+                "speed": "10s"
+            },
+            {
+                "name": "Qwen-Image",
+                "id": "Qwen/Qwen-Image",
+                "speed": "10s"
+            },
             {
                 "name": "Flux",
                 "id": "bozoyan/F_fei",
@@ -15,13 +25,101 @@
             },
             {
                 "name": "SDXL",
-                "id": "AI-ModelScope/stable-diffusion-xl-base-1.0",
+                "id": "bozoyan/mesmerAsianRelustion_pony",
                 "speed": "20s"
             },
             {
                 "name": "SD1.5",
-                "id": "AI-ModelScope/stable-diffusion-v1-5",
+                "id": "MusePublic/majicMIX_realistic_maijuxieshi_SD_1_5",
                 "speed": "10s"
+            }
+        ],
+        "custom": []
+    },
+    "image_sizes": {
+        "presets": {
+            "768": {
+                "name": "768规格",
+                "ratios": {
+                    "1:1": "768x768",
+                    "1:2": "542x1084",
+                    "2:3": "624x936",
+                    "2:5": "484x1210",
+                    "3:4": "664x886",
+                    "3:5": "588x980",
+                    "4:5": "672x840",
+                    "9:16": "566x1006"
+                }
+            },
+            "1024": {
+                "name": "1024规格",
+                "ratios": {
+                    "1:1": "1024x1024",
+                    "1:2": "724x1448",
+                    "2:3": "816x1224",
+                    "2:5": "646x1615",
+                    "3:4": "834x1112",
+                    "3:5": "768x1280",
+                    "4:5": "880x1100",
+                    "9:16": "756x1344"
+                }
+            },
+            "1240": {
+                "name": "1240规格",
+                "ratios": {
+                    "1:1": "1240x1240",
+                    "1:2": "876x1752",
+                    "2:3": "992x1488",
+                    "2:5": "784x1960",
+                    "4:3": "1344x1008",
+                    "3:5": "952x1586",
+                    "4:5": "1072x1340",
+                    "9:16": "914x1624"
+                }
+            },
+            "1280": {
+                "name": "1280规格",
+                "ratios": {
+                    "1:1": "1280x1280",
+                    "1:2": "904x1808",
+                    "2:3": "1020x1530",
+                    "2:5": "808x2020",
+                    "3:4": "1044x1392",
+                    "3:5": "984x1640",
+                    "4:5": "1104x1380",
+                    "9:16": "944x1678"
+                }
+            },
+            "1536": {
+                "name": "1536规格",
+                "ratios": {
+                    "1:1": "1536x1536",
+                    "1:2": "1086x2172",
+                    "2:3": "1224x1836",
+                    "2:5": "970x2424",
+                    "3:4": "1254x1672",
+                    "3:5": "1152x1920",
+                    "4:5": "1320x1650",
+                    "9:16": "1134x2016"
+                }
+            }
+        },
+        "default_size": "756x1344",
+        "common_sizes": [
+            {
+                "name": "竖屏9:16",
+                "size": "756x1344",
+                "category": "1024"
+            },
+            {
+                "name": "方形1:1",
+                "size": "1024x1024",
+                "category": "1024"
+            },
+            {
+                "name": "手机壁纸",
+                "size": "1080x1920",
+                "category": "custom"
             }
         ]
     },
@@ -30,7 +128,7 @@
             "steps": 30,
             "guidance": 3.5,
             "sampler": "Euler",
-            "size": "900x1600",
+            "size": "756x1344",
             "negative_prompt": "lowres, bad anatomy, bad hands, text, error, missing fingers, extra digit, fewer digits, cropped, worst quality, low quality, normal quality, jpeg artifacts, signature, watermark, username, blurry,(worst quality:2),(low quality:2),(normal quality:2),lowres,normal quality,((monochrome)),((grayscale)),skin spots,acnes,skin blemishes,age spot,(ugly:1.33),(duplicate:1.33),(morbid:1.21),(mutilated:1.21),(tranny:1.33),mutated hands,(poorly drawn hands:1.5),blurry,(bad anatomy:1.21),(bad proportions:1.33),extra limbs,(disfigured:1.33),(missing arms:1.33),(extra legs:1.33),(fused fingers:1.61),(too many fingers:1.61),(unclear eyes:1.33),lowers,bad hands,missing fingers,extra digit,bad hands,missing fingers,(((extra arms and legs))),DeepNegativeV1.x_V175T,EasyNegative,EasyNegativeV2,"
         }
     },
@@ -50,8 +148,8 @@
     },
     "ui": {
         "theme": "dark",
-        "window_width": 1905,
-        "window_height": 1154,
+        "window_width": 1440,
+        "window_height": 940,
         "default_image_count": 9
     },
     "directories": {

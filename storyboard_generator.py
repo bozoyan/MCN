@@ -80,7 +80,7 @@ class AdvancedConfigManager:
         return {
             "api": {
                 "base_url": "https://api-inference.modelscope.cn/v1/",
-                "text_model": "Qwen/Qwen3-235B-A22B-Thinking-2507",
+                "text_model": "Qwen/Qwen3-Coder-480B-A35B-Instruct",
                 "enable_thinking": True,
                 "api_key": MODEL_API_KEY or ""
             },
@@ -351,7 +351,7 @@ class TextGenerationWorker(QThread):
         super().__init__()
         self.content = content
         self.system_prompt = system_prompt
-        self.model_id = model_id or config_manager.get('api.text_model', 'Qwen/Qwen3-235B-A22B-Thinking-2507')
+        self.model_id = model_id or config_manager.get('api.text_model', 'Qwen/Qwen3-Coder-480B-A35B-Instruct')
         self.is_cancelled = False
 
     def cancel(self):
@@ -396,6 +396,7 @@ class TextGenerationWorker(QThread):
             final_answer = ""
             done_reasoning = False
             update_counter = 0
+            last_ui_update_time = time.time()
 
             # 处理流式响应
             for chunk in response:
@@ -417,18 +418,26 @@ class TextGenerationWorker(QThread):
 
                     if reasoning_chunk and reasoning_chunk != '':
                         reasoning_text += reasoning_chunk
-                        # 每隔一定数量更新一次，避免过于频繁
                         update_counter += 1
-                        if update_counter % 20 == 0:  # 每20个chunk更新一次
-                            self.reasoning_updated.emit(reasoning_text)
+
+                        # 大幅减少更新频率：每100个chunk或间隔0.5秒更新一次
+                        current_time = time.time()
+                        if update_counter % 100 == 0 or (current_time - last_ui_update_time) >= 0.5:
+                            # 只发送最新500字符，减少UI处理负担
+                            display_text = reasoning_text[-500:] if len(reasoning_text) > 500 else reasoning_text
+                            self.reasoning_updated.emit(display_text)
+                            last_ui_update_time = current_time
+
                     elif answer_chunk and answer_chunk != '':
                         if not done_reasoning:
                             done_reasoning = True
                             # 切换到最终回答前，最后一次更新思考内容
-                            self.reasoning_updated.emit(reasoning_text)
+                            display_text = reasoning_text[-500:] if len(reasoning_text) > 500 else reasoning_text
+                            self.reasoning_updated.emit(display_text)
                         final_answer += answer_chunk
-                        # 更新进度
-                        self.progress_updated.emit(f"生成中... 已生成 {len(final_answer)} 字符")
+                        # 减少进度更新频率
+                        if len(final_answer) % 100 == 0:  # 每100字符更新一次
+                            self.progress_updated.emit(f"生成中... 已生成 {len(final_answer)} 字符")
 
                 except Exception as e:
                     logger.error(f"处理API响应时出错: {e}")
@@ -1667,16 +1676,8 @@ class StoryboardPage(SmoothScrollArea):
 
     def update_title_thinking(self, text):
         """更新标题思考过程"""
-        # 限制显示长度，避免UI卡死
-        if len(text) > 1500:
-            text = text[-1500:]
-            if not text.startswith("..."):
-                text = "..." + text
-        # 使用setPlainText而不是append，减少UI更新
-        cursor = self.title_thinking_edit.textCursor()
+        # 直接设置文本，减少处理开销
         self.title_thinking_edit.setPlainText(text)
-        cursor.movePosition(cursor.End)
-        self.title_thinking_edit.setTextCursor(cursor)
 
     def update_title_progress(self, msg):
         """更新标题生成进度"""
@@ -1740,16 +1741,8 @@ class StoryboardPage(SmoothScrollArea):
 
     def update_summary_thinking(self, text):
         """更新描述思考过程"""
-        # 限制显示长度，避免UI卡死
-        if len(text) > 1500:
-            text = text[-1500:]
-            if not text.startswith("..."):
-                text = "..." + text
-        # 使用setPlainText而不是append，减少UI更新
-        cursor = self.summary_thinking_edit.textCursor()
+        # 直接设置文本，减少处理开销
         self.summary_thinking_edit.setPlainText(text)
-        cursor.movePosition(cursor.End)
-        self.summary_thinking_edit.setTextCursor(cursor)
 
     def update_summary_progress(self, msg):
         """更新描述生成进度"""
