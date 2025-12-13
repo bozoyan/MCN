@@ -38,6 +38,22 @@ logger = logging.getLogger(__name__)
 # API 配置
 MODEL_API_KEY = os.getenv('SiliconCloud_API_KEY')
 
+# 预设尺寸和比例数据
+PRESET_RESOLUTIONS = {
+    "1080P (1920x1080)": (1920, 1080), # 默认横向
+    "960P (1707x960)": (1707, 960),
+    "720P (1280x720)": (1280, 720),
+}
+
+ASPECT_RATIOS = {
+    "16:9": 16/9,
+    "4:3": 4/3,
+    "21:9": 21/9,
+    "1:1": 1/1,
+    "2:3": 2/3,
+}
+
+
 # 高级配置管理器
 class AdvancedConfigManager:
     """高级配置文件管理器，支持模板和参数管理"""
@@ -45,43 +61,60 @@ class AdvancedConfigManager:
     def __init__(self, config_file="storyboard_config.json"):
         self.config_file = config_file
         self.config = self.load_config()
-        self.templates_dir = "templates"
+        self.templates_dir = self.config.get('directories', {}).get('templates', 'templates')
         self.ensure_templates_dir()
         
         # 写入 BizyAIR API 特有配置
         self.set_bizyair_defaults()
-
 
     def ensure_templates_dir(self):
         """确保模板目录存在"""
         if not os.path.exists(self.templates_dir):
             os.makedirs(self.templates_dir)
 
+    def get_initial_templates(self):
+        """定义初始模板内容（处理换行符转义）"""
+        return {
+            "story_title": {
+                "name": "故事分镜标题模板",
+                "template": "你是一位专业的故事绘本撰写专家，擅长电影级别的故事绘本脚本编辑。请根据用户提供的一段话或一个叙事事件内容，展开联想拓展形成一个完整的故事情节。通过故事情节的时间线拆解生成从头到尾10个完整吸引人的故事绘本分镜标题脚本。每个分镜脚本标题控制在64字以内，分镜脚本标题需要有景别，视角，运镜，画面内容，遵循主体（主体描述）＋场景（场景描述）＋运动（运动描述）＋镜头语言+价值主张的原则。\n\n## 在分析过程中，请思考：\n1. 故事绘本的核心主题和关键价值点\n2. 目标受众的兴趣点\n3. 不同角度的故事绘本表达方式（景别，视角，运镜、画面情感激发等），景别除开特别注明要求，最好能全部保持一致性，不用超过3种以上的景别跳跃。\n4. 遵循主体+场景+运动+情感+价值主张的原则。故事绘本分镜脚本标题=主体（主体描述）＋场景（场景描述）＋运动（运动描述）＋镜头语言\n5. 主体描述：主体描述是对主体外观特征细节的描述，可通过形容词或短句列举。如果标题上有主体，每段标题都必须有统一主体描述，保持主体的服装或者人物一致性。这样方便后续的配图主体统一。\n6. 场景描述：场景描述是对主体所处环境特征细节的描述，可通过形容词或短句列举。\n7. 运动描述：运动描述是对运动特征细节的描述，包含运动的幅度、速率和运动作用的效果。\n8. 镜头语言：镜头语言包含景别、视角、镜头、运镜等。分镜脚本标题中的景别最好能全部保持一致性，不用超过3种以上的景别跳跃。\n### 分镜标题示例：\n\n- 分镜标题1. 【全景俯视】锈迹斑斑机器人在荒芜废土中孤独游荡，身后拖着能源即将耗尽的微弱蓝光轨迹，镜头缓缓下摇展现末世荒凉。\n- 分镜标题2. 【中景跟拍】老旧机器人机械臂清理破败瓦砾堆，蓝光眼闪烁着程序混乱的信号，镜头推进聚焦它疲惫不堪的金属身躯。\n- 分镜标题3. 【特写仰拍】机器人单眼蓝光突然聚焦，破旧金属残骸缝隙中透出一缕神秘微光，镜头从指间缝隙穿插营造发现的惊喜。\n…… 其他分镜标题按序号依次列出，一行一个。\n\n"
+            },
+            "story_summary": {
+                "name": "故事分镜描述模板",
+                "template": "你是一位专业的短视频脚本描述专家，擅长电影级别的视频脚本编辑描述。请根据用户提供的故事绘本分镜脚本标题，按批次生成该脚本片段短视频描述，每个片段按序号生成一段丰富的视频脚本描述文字，每个分镜脚本描述控制在120字以内。\n    ### 每个片段描述应该：\n    1. 准确概括故事绘本分镜脚本标题的核心内容，景别，视角，运镜、画面情感和价值主张。景别除开特别要求，最好能全部保持一致性，不用超过3种以上的景别跳跃。\n    2. 使用丰富、生动的镜头语言描述，按照导演视角，将镜头语言和画面内容的变化有效结合可以有效提升视频叙事的丰富性和专业度。\n    3. 描述的语言能吸引观看者观看，要有画面感。每段描述都必须有统一主体描述，保持主体的服装或者人物一致性。这样方便后续的脚本主体统一。\n    4. 丰富细节，聚焦视频片段的主要观点，遵循主体+场景+运动+情感+价值主张的原则。\n    5. 视频片段描述=运镜描述+主体（主体描述）＋场景（场景描述）+运动（运动描述）+镜头语言。\n    6. 运镜描述是对镜头运动的具体描述，在时间线上，景别最好能保持一致性，不用太离谱的跳跃。将镜头运动和画面内容的变化有效结合可以有效提升视频叙事的丰富性和专业度。用户可以通过代入导演的视角来想象和书写运镜过程。时间上，需要注意将镜头运动的时长合理控制在5s内，避免过于复杂的运镜，短视频脚本描述中的运镜不要超过3种以上。\n    ### 分镜描述示例：\n    **分镜1：**\n远景俯视跟拍，锈迹斑斑的老式机器人在荒芜金属废土中孤独踱步，蓝眼微光闪烁。沙尘弥漫的末世景象中，镜头缓缓下降跟随其沉重步伐。破败的高楼废墟背景烘托出绝望氛围，机器人踉跄的身影诠释着废弃文明中最后守望者的坚韧与孤寂。\n\n**分镜2：**\n中景侧拍推镜，机身破损的探险机器人在破败城市废墟中艰难前行，能源指示灯忽明忽暗。钢筋裸露的残垣断壁间，机械臂奋力拨开厚重碎石。镜头逐渐推进展现机器人执着神情，飞扬的尘土与扭曲金属构建成充满压迫感的绝望环境。\n\n**分镜3：**\n特写静止镜头，老式机器人呆滞的蓝眼突然闪烁光芒，瞳孔收缩聚焦。碎石堆下透出的微光映照在其金属面庞上，形成明暗交替的光影效果。突如其来的停顿打破沉寂，预示着程序重启的契机即将到来，命运在此刻悄然转折。\n\n……其他分镜描述按序号依次列出，一行分镜序号，一行分镜描述，一行空格。\n\n    "
+            },
+            "image_prompt": {
+                "name": "AI绘图提示词模板",
+                "template": "请根据用户提供的故事分镜描述，将中文描述的分镜头脚本内容翻译成英文，并按照每个分镜头一个句子的原则，每行仅包含一个分镜头的描述。请保证翻译的准确性以及对原意的忠实度，同时使描述适合用于AI绘画生成工具的输入。最终输出应该是一个专业用于AI绘画软件（如Midjourney,comfyui,stable diffusion）的简约易用的英文提示词，不需要解释，并确保输出中没有中文及特殊符号，放在同一行显示。prompt英文提示词应该图片主体描述统一，包含画面主题内容描述、风格指导和质量提升词，精炼，简约明了，不要过长。\n    ### AI绘图提示词（示例），一行标题，一行AI绘画提示词，空一行： \n=== 分镜 1 ===\nAerial view following an old, rusted robot walking alone in a desolate metal wasteland, with its blue eyes faintly glowing, realistic photo.\n\n=== 分镜 2 ===\nMedium shot side view pushing in on an exploration robot with a damaged body moving through the ruins of a broken city, its energy indicator flickering on and off, cinematic shot.\n\n=== 分镜 3 ===\nClose-up static shot of an old robot's dull blue eye suddenly blinking with light, pupil contracting and focusing on a mysterious faint glow emanating from under a pile of rubble, high quality, detailed.\n\n……其他AI绘画提示词分镜按序号依次列出。\n\n    "
+            }
+        }
+    
     def load_config(self):
-        """加载配置文件"""
+        """加载配置文件，如果不存在或缺少关键配置，则使用默认框架并补充模板"""
         if os.path.exists(self.config_file):
             try:
                 with open(self.config_file, 'r', encoding='utf-8') as f:
-                    return json.load(f)
+                    config = json.load(f)
             except Exception as e:
-                logger.error(f"加载配置文件失败: {e}")
-                return self.get_default_config()
+                logger.error(f"加载配置文件失败: {e}，使用默认框架")
+                config = self.get_default_framework()
         else:
-            logger.info("配置文件不存在，使用默认配置")
-            return self.get_default_config()
-    
-    def set_bizyair_defaults(self):
-        """设置 BizyAIR 相关的默认值，如果不存在"""
-        if 'bizyair_params' not in self.config:
-             self.config['bizyair_params'] = {}
-        
-        # 根据用户提供的 API 文档，设置默认值
-        self.config['bizyair_params']['web_app_id'] = self.config['bizyair_params'].get('web_app_id', 39808)
-        self.config['bizyair_params']['default_width'] = self.config['bizyair_params'].get('default_width', 1080)
-        self.config['bizyair_params']['default_height'] = self.config['bizyair_params'].get('default_height', 1920)
+            logger.info("配置文件不存在，使用默认框架")
+            config = self.get_default_framework()
 
-    def get_default_config(self):
-        """获取默认配置"""
+        # 确保存在模板，如果配置文件中缺失，则补充初始模板
+        if 'prompt_templates' not in config:
+            config['prompt_templates'] = self.get_initial_templates()
+        else:
+            initial_templates = self.get_initial_templates()
+            for key, default_template in initial_templates.items():
+                if key not in config['prompt_templates']:
+                    config['prompt_templates'][key] = default_template
+
+        return config
+
+    def get_default_framework(self):
+        """提供最基本的配置框架，等待从文件加载具体值"""
         return {
             "api": {
                 "base_url": "https://api.siliconflow.cn/v1/",
@@ -89,78 +122,10 @@ class AdvancedConfigManager:
                 "enable_thinking": True,
                 "api_key": MODEL_API_KEY or ""
             },
-            # 精简后的 image_models 和 image_params 部分已移除
             "bizyair_params": {
                 "web_app_id": 39808, 
                 "default_width": 1080,
                 "default_height": 1920,
-            },
-            "prompt_templates": {
-                "story_title": {
-                    "name": "故事分镜标题模板",
-                    "template": """你是一位专业的故事绘本撰写专家，擅长电影级别的故事绘本脚本编辑。请根据用户提供的一段话或一个叙事事件内容，展开联想拓展形成一个完整的故事情节。通过故事情节的时间线拆解生成从头到尾10个完整吸引人的故事绘本分镜标题脚本。每个分镜脚本标题控制在64字以内，分镜脚本标题需要有景别，视角，运镜，画面内容，遵循主体（主体描述）＋场景（场景描述）＋运动（运动描述）＋镜头语言+价值主张的原则。
-
-## 在分析过程中，请思考：
-1. 故事绘本的核心主题和关键价值点
-2. 目标受众的兴趣点
-3. 不同角度的故事绘本表达方式（景别，视角，运镜、画面情感激发等），景别除开特别注明要求，最好能全部保持一致性，不用超过3种以上的景别跳跃。
-4. 遵循主体+场景+运动+情感+价值主张的原则。故事绘本分镜脚本标题=主体（主体描述）＋场景（场景描述）＋运动（运动描述）＋镜头语言
-5. 主体描述：主体描述是对主体外观特征细节的描述，可通过形容词或短句列举。如果标题上有主体，每段标题都必须有统一主体描述，保持主体的服装或者人物一致性。这样方便后续的配图主体统一。
-6. 场景描述：场景描述是对主体所处环境特征细节的描述，可通过形容词或短句列举。
-7. 运动描述：运动描述是对运动特征细节的描述，包含运动的幅度、速率和运动作用的效果。
-8. 镜头语言：镜头语言包含景别、视角、镜头、运镜等。分镜脚本标题中的景别最好能全部保持一致性，不用超过3种以上的景别跳跃。
-
-### 分镜标题示例：
-
-- 分镜标题1. 【全景俯视】锈迹斑斑机器人在荒芜废土中孤独游荡，身后拖着能源即将耗尽的微弱蓝光轨迹，镜头缓缓下摇展现末世荒凉。
-- 分镜标题2. 【中景跟拍】老旧机器人机械臂清理破败瓦砾堆，蓝光眼闪烁着程序混乱的信号，镜头推进聚焦它疲惫不堪的金属身躯。
-- 分镜标题3. 【特写仰拍】机器人单眼蓝光突然聚焦，破旧金属残骸缝隙中透出一缕神秘微光，镜头从指间缝隙穿插营造发现的惊喜。
-…… 其他分镜标题按序号依次列出，一行一个。
-
-"""
-                },
-                "story_summary": {
-                    "name": "故事分镜描述模板",
-                    "template": """你是一位专业的短视频脚本描述专家，擅长电影级别的视频脚本编辑描述。请根据用户提供的故事绘本分镜脚本标题，按批次生成该脚本片段短视频描述，每个片段按序号生成一段丰富的视频脚本描述文字，每个分镜脚本描述控制在120字以内。
-    ### 每个片段描述应该：
-    1. 准确概括故事绘本分镜脚本标题的核心内容，景别，视角，运镜、画面情感和价值主张。景别除开特别要求，最好能全部保持一致性，不用超过3种以上的景别跳跃。
-    2. 使用丰富、生动的镜头语言描述，按照导演视角，将镜头语言和画面内容的变化有效结合可以有效提升视频叙事的丰富性和专业度。
-    3. 描述的语言能吸引观看者观看，要有画面感。每段描述都必须有统一主体描述，保持主体的服装或者人物一致性。这样方便后续的脚本主体统一。
-    4. 丰富细节，聚焦视频片段的主要观点，遵循主体+场景+运动+情感+价值主张的原则。
-    5. 视频片段描述=运镜描述+主体（主体描述）＋场景（场景描述）+运动（运动描述）+镜头语言。
-    6. 运镜描述是对镜头运动的具体描述，在时间线上，景别最好能保持一致性，不用太离谱的跳跃。将镜头运动和画面内容的变化有效结合可以有效提升视频叙事的丰富性和专业度。用户可以通过代入导演的视角来想象和书写运镜过程。时间上，需要注意将镜头运动的时长合理控制在5s内，避免过于复杂的运镜，短视频脚本描述中的运镜不要超过3种以上。
-
-    ### 分镜描述示例：
-    **分镜1：**
-远景俯视跟拍，锈迹斑斑的老式机器人在荒芜金属废土中孤独踱步，蓝眼微光闪烁。沙尘弥漫的末世景象中，镜头缓缓下降跟随其沉重步伐。破败的高楼废墟背景烘托出绝望氛围，机器人踉跄的身影诠释着废弃文明中最后守望者的坚韧与孤寂。
-
-**分镜2：**
-中景侧拍推镜，机身破损的探险机器人在破败城市废墟中艰难前行，能源指示灯忽明忽暗。钢筋裸露的残垣断壁间，机械臂奋力拨开厚重碎石。镜头逐渐推进展现机器人执着神情，飞扬的尘土与扭曲金属构建成充满压迫感的绝望环境。
-
-**分镜3：**
-特写静止镜头，老式机器人呆滞的蓝眼突然闪烁光芒，瞳孔收缩聚焦。碎石堆下透出的微光映照在其金属面庞上，形成明暗交替的光影效果。突如其来的停顿打破沉寂，预示着程序重启的契机即将到来，命运在此刻悄然转折。
-
-……其他分镜描述按序号依次列出，一行分镜序号，一行分镜描述，一行空格。
-
-    """
-                },
-                "image_prompt": {
-                    "name": "AI绘图提示词模板",
-                    "template": """请根据用户提供的故事分镜描述，将中文描述的分镜头脚本内容翻译成英文，并按照每个分镜头一个句子的原则，每行仅包含一个分镜头的描述。请保证翻译的准确性以及对原意的忠实度，同时使描述适合用于AI绘画生成工具的输入。最终输出应该是一个专业用于AI绘画软件（如Midjourney,comfyui,stable diffusion）的简约易用的英文提示词，不需要解释，并确保输出中没有中文及特殊符号，放在同一行显示。prompt英文提示词应该图片主体描述统一，包含画面主题内容描述、风格指导和质量提升词，精炼，简约明了，不要过长。
-    ### AI绘图提示词（示例），一行标题，一行AI绘画提示词，空一行： 
-=== 分镜 1 ===
-Aerial view following an old, rusted robot walking alone in a desolate metal wasteland, with its blue eyes faintly glowing, realistic photo.
-
-=== 分镜 2 ===
-Medium shot side view pushing in on an exploration robot with a damaged body moving through the ruins of a broken city, its energy indicator flickering on and off, cinematic shot.
-
-=== 分镜 3 ===
-Close-up static shot of an old robot's dull blue eye suddenly blinking with light, pupil contracting and focusing on a mysterious faint glow emanating from under a pile of rubble, high quality, detailed.
-
-……其他AI绘画提示词分镜按序号依次列出。
-
-    """
-                }
             },
             "ui": {
                 "theme": "dark",
@@ -172,8 +137,19 @@ Close-up static shot of an old robot's dull blue eye suddenly blinking with ligh
                 "temp": "temp",
                 "output": "output",
                 "templates": "templates"
-            }
+            },
+            "prompt_templates": {} # 初始为空，由 load_config 补充
         }
+    
+    def set_bizyair_defaults(self):
+        """设置 BizyAIR 相关的默认值，如果不存在"""
+        # 如果从文件加载时某些必填项缺失，则提供最低默认值
+        if 'bizyair_params' not in self.config:
+             self.config['bizyair_params'] = {}
+        
+        self.config['bizyair_params']['web_app_id'] = self.config['bizyair_params'].get('web_app_id', 39808)
+        self.config['bizyair_params']['default_width'] = self.config['bizyair_params'].get('default_width', 1080)
+        self.config['bizyair_params']['default_height'] = self.config['bizyair_params'].get('default_height', 1920)
 
     def save_config(self):
         """保存配置文件"""
@@ -882,11 +858,6 @@ class StoryboardPage(SmoothScrollArea):
         layout = QVBoxLayout(widget)
         layout.setSpacing(20)
 
-        # 标题 (移除，因为顶部控制栏已包含功能标题)
-        # title = SubtitleLabel("🎬 AI分镜脚本与图片生成器")
-        # title.setFont(QFont("", 18, QFont.Bold))
-        # layout.addWidget(title)
-        
         # 1. 顶部控制栏
         layout.addWidget(self.top_control_bar)
 
@@ -1019,73 +990,93 @@ class StoryboardPage(SmoothScrollArea):
         control_row_layout = QHBoxLayout()
         control_row_layout.setSpacing(10) # 模块间距
 
-        # 1. 图片尺寸 (左)
+        # --- 1. 图片尺寸 (左) ---
         size_group = QGroupBox("图片尺寸")
-        size_layout = QHBoxLayout(size_group)
+        size_layout = QVBoxLayout(size_group)
         size_layout.setContentsMargins(5, 10, 5, 5)
 
-        # 宽度
-        size_layout.addWidget(QLabel("W:"))
+        # 尺寸输入
+        size_input_layout = QHBoxLayout()
+        size_input_layout.addWidget(QLabel("W:"))
         self.width_spin = QSpinBox()
         self.width_spin.setRange(256, 4096)
         self.width_spin.setValue(config_manager.get('bizyair_params.default_width', 1080))
         self.width_spin.setSingleStep(64)
         self.width_spin.setFixedWidth(55)
-        size_layout.addWidget(self.width_spin)
+        size_input_layout.addWidget(self.width_spin)
 
         # 互换按钮
         self.swap_size_btn = QToolButton()
         self.swap_size_btn.setIcon(FluentIcon.ROTATE.icon()) 
         self.swap_size_btn.setToolTip("互换宽度和高度")
         self.swap_size_btn.clicked.connect(self.swap_image_size)
-        size_layout.addWidget(self.swap_size_btn)
+        size_input_layout.addWidget(self.swap_size_btn)
 
         # 高度
-        size_layout.addWidget(QLabel("H:"))
+        size_input_layout.addWidget(QLabel("H:"))
         self.height_spin = QSpinBox()
         self.height_spin.setRange(256, 4096)
         self.height_spin.setValue(config_manager.get('bizyair_params.default_height', 1920))
         self.height_spin.setSingleStep(64)
         self.height_spin.setFixedWidth(55)
-        size_layout.addWidget(self.height_spin)
+        size_input_layout.addWidget(self.height_spin)
+        size_layout.addLayout(size_input_layout)
+        
+        # 尺寸预设下拉菜单
+        self.resolution_combo = ComboBox()
+        self.resolution_combo.addItem("分辨率预设", None)
+        for name, size in PRESET_RESOLUTIONS.items():
+             # 默认以 WxH 存储
+            self.resolution_combo.addItem(name, size) 
+        self.resolution_combo.currentTextChanged.connect(self.set_preset_resolution)
+        size_layout.addWidget(self.resolution_combo)
+
+        self.aspect_ratio_combo = ComboBox()
+        self.aspect_ratio_combo.addItem("比例预设", None)
+        for name, ratio in ASPECT_RATIOS.items():
+            self.aspect_ratio_combo.addItem(name, ratio)
+        self.aspect_ratio_combo.currentTextChanged.connect(self.set_aspect_ratio)
+        size_layout.addWidget(self.aspect_ratio_combo)
         
         control_row_layout.addWidget(size_group)
+        control_row_layout.setStretchFactor(size_group, 2)
 
-        # 2. 图片数量 (中)
+
+        # --- 2. 图片数量 (中) ---
         count_group = QGroupBox("图片数量")
-        count_layout = QHBoxLayout(count_group)
+        count_layout = QVBoxLayout(count_group)
         count_layout.setContentsMargins(5, 10, 5, 5)
         
+        count_input_layout = QHBoxLayout()
         self.image_count_spin = QSpinBox()
         self.image_count_spin.setRange(5, 20)
         self.image_count_spin.setSingleStep(5)
         self.image_count_spin.setValue(config_manager.get('ui.default_image_count', 10))
         self.image_count_spin.setFixedWidth(50)
         self.image_count_spin.valueChanged.connect(self.image_count_changed)
-        count_layout.addWidget(self.image_count_spin)
+        count_input_layout.addWidget(self.image_count_spin)
 
-        count_info = QLabel("张")
+        count_info = QLabel("张 (5的倍数)")
         count_info.setStyleSheet("color: #666; font-size: 12px;")
-        count_layout.addWidget(count_info)
-        
-        # 预设尺寸按钮
-        preset_v_btn = PushButton("竖版")
-        preset_v_btn.setFixedSize(50, 30)
-        preset_v_btn.clicked.connect(lambda: self.set_image_size(1080, 1920))
-        count_layout.addWidget(preset_v_btn)
+        count_input_layout.addWidget(count_info)
+        count_input_layout.addStretch()
+        count_layout.addLayout(count_input_layout)
         
         control_row_layout.addWidget(count_group)
-        
-        # 3. 模板管理 (右)
+        control_row_layout.setStretchFactor(count_group, 1)
+
+        # --- 3. 模板管理 (右) ---
         template_group = QGroupBox("模板")
         template_layout = QVBoxLayout(template_group)
         template_layout.setContentsMargins(5, 10, 5, 5)
 
-        template_btn = PushButton(FluentIcon.EDIT, "管理模板")
+        template_btn = PushButton(FluentIcon.EDIT, "管理提示词模板")
         template_btn.clicked.connect(self.show_template_manager)
         template_layout.addWidget(template_btn)
         
         control_row_layout.addWidget(template_group)
+        control_row_layout.setStretchFactor(template_group, 1)
+
 
         # 添加到主布局
         control_layout.addLayout(control_row_layout)
@@ -1095,6 +1086,37 @@ class StoryboardPage(SmoothScrollArea):
 
         return left_widget
 
+    # --- 新增的尺寸预设逻辑 ---
+    def set_preset_resolution(self, text):
+        """根据选择的分辨率预设设置尺寸"""
+        data = self.resolution_combo.currentData()
+        if data and isinstance(data, tuple):
+            width, height = data
+            self.width_spin.setValue(width)
+            self.height_spin.setValue(height)
+            self.resolution_combo.setCurrentIndex(0) # 选完重置
+        
+    def set_aspect_ratio(self, text):
+        """根据选择的比例预设设置尺寸"""
+        ratio = self.aspect_ratio_combo.currentData()
+        if ratio and isinstance(ratio, (float, int)):
+            # 保持较大的尺寸为参考，例如保持高度为 1080
+            current_width = self.width_spin.value()
+            current_height = self.height_spin.value()
+            
+            # 找出当前较大的尺寸作为参考值
+            if current_width > current_height:
+                # 以当前宽度为基准计算高度
+                new_height = int(current_width / ratio)
+                self.height_spin.setValue(new_height)
+            else:
+                # 以当前高度为基准计算宽度
+                new_width = int(current_height * ratio)
+                self.width_spin.setValue(new_width)
+
+            self.aspect_ratio_combo.setCurrentIndex(0) # 选完重置
+    # --- 尺寸预设逻辑结束 ---
+    
     def create_right_panel(self):
         """创建右侧面板 - 图片生成区"""
         right_widget = QWidget()
@@ -1810,6 +1832,13 @@ class MainWindow(FluentWindow):
             NavigationItemPosition.BOTTOM
         )
 
+    def open_directory(self, dir_path):
+        """打开指定的本地目录"""
+        if os.path.exists(dir_path):
+            QDesktopServices.openUrl(QUrl.fromLocalFile(os.path.abspath(dir_path)))
+        else:
+            QMessageBox.warning(self, "警告", f"目录不存在: {os.path.abspath(dir_path)}")
+
     def create_settings_page(self):
         """创建设置页面 (精简图片设置)"""
         page = SmoothScrollArea()
@@ -1857,6 +1886,28 @@ class MainWindow(FluentWindow):
 
         api_group.setLayout(api_layout)
         layout.addWidget(api_group)
+        
+        # 目录设置
+        dir_group = QGroupBox("📁 目录设置")
+        dir_layout = QGridLayout()
+        
+        dirs = config_manager.get('directories', {})
+        
+        # 输出目录
+        dir_layout.addWidget(QLabel("输出目录 (output):"), 0, 0)
+        output_btn = PushButton(FluentIcon.FOLDER, "打开")
+        output_btn.clicked.connect(lambda: self.open_directory(dirs.get('output', 'output')))
+        dir_layout.addWidget(output_btn, 0, 1)
+
+        # 模板目录
+        dir_layout.addWidget(QLabel("模板目录 (templates):"), 1, 0)
+        templates_btn = PushButton(FluentIcon.FOLDER, "打开")
+        templates_btn.clicked.connect(lambda: self.open_directory(dirs.get('templates', 'templates')))
+        dir_layout.addWidget(templates_btn, 1, 1)
+
+        dir_group.setLayout(dir_layout)
+        layout.addWidget(dir_group)
+
 
         # 界面设置
         ui_group = QGroupBox("🎨 界面设置")
@@ -1932,7 +1983,11 @@ class MainWindow(FluentWindow):
         config_manager.set('api.base_url', self.api_url_edit.text().strip())
         config_manager.set('api.text_model', self.text_model_edit.text().strip())
         config_manager.set('bizyair_params.web_app_id', self.bizyair_app_id_spin.value())
-        config_manager.set('ui.default_image_count', self.default_image_count_spin.value())
+        
+        # 更新默认图片数量，并同步到 StoryboardPage
+        new_image_count = self.default_image_count_spin.value()
+        config_manager.set('ui.default_image_count', new_image_count)
+        self.storyboard_page.image_count_spin.setValue(new_image_count)
 
         if config_manager.save_config():
             InfoBar.success(
