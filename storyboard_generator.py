@@ -40,9 +40,9 @@ MODEL_API_KEY = os.getenv('SiliconCloud_API_KEY')
 
 # 预设尺寸和比例数据
 PRESET_RESOLUTIONS = {
-    "1080P (1920x1080)": (1920, 1080), # 默认横向
-    "960P (1707x960)": (1707, 960),
-    "720P (1280x720)": (1280, 720),
+    "1920x1080 (1080P)": (1920, 1080), 
+    "1707x960 (960P)": (1707, 960),
+    "1280x720 (720P)": (1280, 720),
 }
 
 ASPECT_RATIOS = {
@@ -85,7 +85,7 @@ class AdvancedConfigManager:
             },
             "image_prompt": {
                 "name": "AI绘图提示词模板",
-                "template": "请根据用户提供的故事分镜描述，将中文描述的分镜头脚本内容翻译成英文，并确保输出中没有中文分镜的解释说明及特殊符号。prompt英文提示词应该图片主体描述统一，包含画面主题内容描述、风格指导和质量提升词，精炼，简约明了，不要过长。\n    ### AI绘图提示词（示例）： \n\nAerial view following an old, rusted robot walking alone in a desolate metal wasteland, with its blue eyes faintly glowing, realistic photo.\n\nMedium shot side view pushing in on an exploration robot with a damaged body moving through the ruins of a broken city, its energy indicator flickering on and off, cinematic shot.\n\nClose-up static shot of an old robot's dull blue eye suddenly blinking with light, pupil contracting and focusing on a mysterious faint glow emanating from under a pile of rubble, high quality, detailed.\n\n……其他未列出AI 绘画提示词按分镜头脚本内容序号依次列出，一行AI绘画提示词，空一行列出下一个。\n\n    "
+                "template": "请根据用户提供的故事分镜描述，将中文描述的分镜头脚本内容翻译成英文，并确保输出中没有中文分镜的解释说明及特殊符号。prompt英文提示词应该图片主体描述统一，包含画面主题内容描述、风格指导和质量提升词。\n    ### AI绘图提示词（示例）： \n\nAerial view following an old, rusted robot walking alone in a desolate metal wasteland, with its blue eyes faintly glowing, realistic photo.\n\nMedium shot side view pushing in on an exploration robot with a damaged body moving through the ruins of a broken city, its energy indicator flickering on and off, cinematic shot.\n\nClose-up static shot of an old robot's dull blue eye suddenly blinking with light, pupil contracting and focusing on a mysterious faint glow emanating from under a pile of rubble, high quality, detailed.\n\n……其他未列出AI 绘画提示词按分镜头脚本内容序号依次列出，一行AI绘画提示词，空一行列出下一个。\n\n    "
             }
         }
     
@@ -129,8 +129,8 @@ class AdvancedConfigManager:
             },
             "ui": {
                 "theme": "dark",
-                "window_width": 1440,
-                "window_height": 940,
+                "window_width": 1678,
+                "window_height": 1049,
                 "default_image_count": 10
             },
             "directories": {
@@ -986,18 +986,21 @@ class StoryboardPage(SmoothScrollArea):
         control_title_layout.addStretch()
         control_layout.addLayout(control_title_layout)
 
-        # 三列功能模块布局
-        control_row_layout = QHBoxLayout()
-        control_row_layout.setSpacing(10) # 模块间距
+        # 功能模块布局
+        control_modules_layout = QHBoxLayout()
+        control_modules_layout.setSpacing(10) # 模块间距
+        control_modules_layout.setContentsMargins(0, 0, 0, 0) # 移除模块布局的边距
 
         # --- 1. 图片尺寸 (左) ---
-        size_group = QGroupBox("图片尺寸")
-        size_layout = QVBoxLayout(size_group)
-        size_layout.setContentsMargins(5, 10, 5, 5)
-
-        # 尺寸输入
+        size_widget = QWidget()
+        size_layout = QVBoxLayout(size_widget)
+        size_layout.setContentsMargins(0, 0, 0, 0) # 移除边框，内容紧凑
+        
+        # 尺寸输入 (W/H 同一行)
         size_input_layout = QHBoxLayout()
-        size_input_layout.addWidget(QLabel("W:"))
+        size_input_layout.setContentsMargins(0, 0, 0, 0)
+        
+        size_input_layout.addWidget(QLabel("图片宽度:"))
         self.width_spin = QSpinBox()
         self.width_spin.setRange(256, 4096)
         self.width_spin.setValue(config_manager.get('bizyair_params.default_width', 1080))
@@ -1013,7 +1016,7 @@ class StoryboardPage(SmoothScrollArea):
         size_input_layout.addWidget(self.swap_size_btn)
 
         # 高度
-        size_input_layout.addWidget(QLabel("H:"))
+        size_input_layout.addWidget(QLabel("图片高度:"))
         self.height_spin = QSpinBox()
         self.height_spin.setRange(256, 4096)
         self.height_spin.setValue(config_manager.get('bizyair_params.default_height', 1920))
@@ -1022,32 +1025,36 @@ class StoryboardPage(SmoothScrollArea):
         size_input_layout.addWidget(self.height_spin)
         size_layout.addLayout(size_input_layout)
         
-        # 尺寸预设下拉菜单
+        # 尺寸预设下拉菜单 (同一行)
+        preset_layout = QHBoxLayout()
+        preset_layout.setContentsMargins(0, 0, 0, 0)
+        
         self.resolution_combo = ComboBox()
         self.resolution_combo.addItem("分辨率预设", None)
         for name, size in PRESET_RESOLUTIONS.items():
-             # 默认以 WxH 存储
             self.resolution_combo.addItem(name, size) 
         self.resolution_combo.currentTextChanged.connect(self.set_preset_resolution)
-        size_layout.addWidget(self.resolution_combo)
+        preset_layout.addWidget(self.resolution_combo)
 
         self.aspect_ratio_combo = ComboBox()
         self.aspect_ratio_combo.addItem("比例预设", None)
         for name, ratio in ASPECT_RATIOS.items():
             self.aspect_ratio_combo.addItem(name, ratio)
         self.aspect_ratio_combo.currentTextChanged.connect(self.set_aspect_ratio)
-        size_layout.addWidget(self.aspect_ratio_combo)
+        preset_layout.addWidget(self.aspect_ratio_combo)
+        size_layout.addLayout(preset_layout)
         
-        control_row_layout.addWidget(size_group)
-        control_row_layout.setStretchFactor(size_group, 2)
+        control_modules_layout.addWidget(size_widget)
+        control_modules_layout.setStretchFactor(size_widget, 2)
 
 
         # --- 2. 图片数量 (中) ---
-        count_group = QGroupBox("图片数量")
-        count_layout = QVBoxLayout(count_group)
-        count_layout.setContentsMargins(5, 10, 5, 5)
+        count_widget = QWidget()
+        count_layout = QVBoxLayout(count_widget)
+        count_layout.setContentsMargins(0, 0, 0, 0) # 移除边框，内容紧凑
         
         count_input_layout = QHBoxLayout()
+        count_input_layout.setContentsMargins(0, 0, 0, 0)
         self.image_count_spin = QSpinBox()
         self.image_count_spin.setRange(5, 20)
         self.image_count_spin.setSingleStep(5)
@@ -1062,59 +1069,76 @@ class StoryboardPage(SmoothScrollArea):
         count_input_layout.addStretch()
         count_layout.addLayout(count_input_layout)
         
-        control_row_layout.addWidget(count_group)
-        control_row_layout.setStretchFactor(count_group, 1)
+        count_layout.addWidget(QLabel("图片总数")) # 占位符或其他说明
+        
+        control_modules_layout.addWidget(count_widget)
+        control_modules_layout.setStretchFactor(count_widget, 1)
 
         # --- 3. 模板管理 (右) ---
-        template_group = QGroupBox("模板")
-        template_layout = QVBoxLayout(template_group)
-        template_layout.setContentsMargins(5, 10, 5, 5)
+        template_widget = QWidget()
+        template_layout = QVBoxLayout(template_widget)
+        template_layout.setContentsMargins(0, 0, 0, 0) # 移除边框，内容紧凑
 
         template_btn = PushButton(FluentIcon.EDIT, "管理提示词模板")
         template_btn.clicked.connect(self.show_template_manager)
         template_layout.addWidget(template_btn)
         
-        control_row_layout.addWidget(template_group)
-        control_row_layout.setStretchFactor(template_group, 1)
+        template_layout.addWidget(QLabel("模板编辑")) # 占位符或其他说明
+        
+        control_modules_layout.addWidget(template_widget)
+        control_modules_layout.setStretchFactor(template_widget, 1)
 
 
         # 添加到主布局
-        control_layout.addLayout(control_row_layout)
+        control_layout.addLayout(control_modules_layout)
 
         left_layout.addWidget(control_card)
         left_layout.addStretch()
 
         return left_widget
 
-    # --- 新增的尺寸预设逻辑 ---
+    # --- 尺寸预设逻辑 (修正 ComboBox Bug) ---
+    @pyqtSlot(str)
     def set_preset_resolution(self, text):
         """根据选择的分辨率预设设置尺寸"""
         data = self.resolution_combo.currentData()
-        if data and isinstance(data, tuple):
+        current_index = self.resolution_combo.currentIndex()
+        
+        if data and isinstance(data, tuple) and current_index != 0:
             width, height = data
             self.width_spin.setValue(width)
             self.height_spin.setValue(height)
-            self.resolution_combo.setCurrentIndex(0) # 选完重置
+            
+        # 必须在操作结束后重置，否则下次点击时，QAction会尝试将数据渲染为图标
+        self.resolution_combo.setCurrentIndex(0) 
         
+    @pyqtSlot(str)
     def set_aspect_ratio(self, text):
         """根据选择的比例预设设置尺寸"""
         ratio = self.aspect_ratio_combo.currentData()
-        if ratio and isinstance(ratio, (float, int)):
-            # 保持较大的尺寸为参考，例如保持高度为 1080
+        current_index = self.aspect_ratio_combo.currentIndex()
+        
+        if ratio and isinstance(ratio, (float, int)) and current_index != 0:
+            # 保持较大的尺寸为参考，例如保持较大的尺寸不低于 1080
             current_width = self.width_spin.value()
             current_height = self.height_spin.value()
             
-            # 找出当前较大的尺寸作为参考值
-            if current_width > current_height:
-                # 以当前宽度为基准计算高度
-                new_height = int(current_width / ratio)
-                self.height_spin.setValue(new_height)
-            else:
-                # 以当前高度为基准计算宽度
-                new_width = int(current_height * ratio)
-                self.width_spin.setValue(new_width)
+            # 选择一个较大的值作为基准 (避免极小值导致计算不准确)
+            base_size = max(current_width, current_height, 1080)
+            
+            # 假设基准是宽度，计算高度
+            if ratio >= 1: # 横向或方形 (如 16:9, 4:3, 1:1)
+                new_width = base_size
+                new_height = int(new_width / ratio)
+            else: # 纵向 (如 2:3)
+                new_height = base_size
+                new_width = int(new_height * ratio)
 
-            self.aspect_ratio_combo.setCurrentIndex(0) # 选完重置
+            self.width_spin.setValue(new_width)
+            self.height_spin.setValue(new_height)
+
+        # 必须在操作结束后重置，否则下次点击时，QAction会尝试将数据渲染为图标
+        self.aspect_ratio_combo.setCurrentIndex(0) 
     # --- 尺寸预设逻辑结束 ---
     
     def create_right_panel(self):
@@ -1207,15 +1231,6 @@ class StoryboardPage(SmoothScrollArea):
         return right_widget
     
     # ... (其他方法保持不变)
-    # --- 保持其他方法不变 ---
-    # ... (init_image_widgets, clear_content, load_example, show_template_manager)
-    # ... (set_image_size, swap_image_size)
-    # ... (generate_titles, update_title_content, on_titles_finished)
-    # ... (generate_summaries, on_summaries_finished)
-    # ... (generate_prompts, on_all_prompts_finished, update_prompts_display)
-    # ... (generate_images_only, start_image_generation, on_all_images_finished)
-    # ... (generate_all, step_generate_titles, step_generate_summaries, step_generate_prompts, step_generate_images)
-    # ... (export_markdown, export_all_images)
 
     def image_count_changed(self, value):
         """图片数量改变时，重新初始化图片预览小部件"""
@@ -1445,109 +1460,98 @@ class StoryboardPage(SmoothScrollArea):
             if hasattr(self, 'all_generation_step') and self.all_generation_step == 2:
                 self.top_control_bar.set_generate_enabled(True)
 
+    # --- 修复：单次 API 调用生成所有绘图提示词 ---
     def generate_prompts(self):
-        """生成绘图提示词"""
+        """生成绘图提示词 (单次 API 调用)"""
         summary_text = self.summary_output_edit.toPlainText().strip()
         if not summary_text:
             QMessageBox.warning(self, "警告", "请先生成分镜描述")
             return
 
-        summaries = [s.strip() for s in summary_text.split('\n') if s.strip()]
-        if not summaries:
-            QMessageBox.warning(self, "警告", "分镜描述内容为空")
-            return
-        
-        # 仅处理需要生成图片数量的描述
-        self.current_summaries = summaries[:self.image_count_spin.value()]
-
         template = config_manager.get_template('image_prompt')
         system_prompt = template.get('template', '')
+        
+        # 将所有分镜描述作为一次性输入内容
+        input_content = "请根据以下分镜描述内容生成 AI 绘图提示词，每个提示词一行，中间空一行，无需序号和中文解释：\n\n" + summary_text
 
         self.generate_prompt_btn.setEnabled(False)
-        self.prompt_progress.setValue(0)
         self.prompt_progress.setRange(0, 0)
         self.current_prompts.clear()
         self.generated_prompts_edit.clear()
 
-        self.completed_prompts = 0
-        self.total_prompts = len(self.current_summaries)
-        self.prompt_system_prompt = system_prompt
+        worker = TextGenerationWorker(input_content, system_prompt)
+        worker.content_updated.connect(self.update_prompts_content, Qt.UniqueConnection)
+        worker.progress_updated.connect(self.update_prompts_progress, Qt.UniqueConnection)
+        worker.finished.connect(self.on_all_prompts_finished, Qt.UniqueConnection)
 
-        QTimer.singleShot(100, self.start_next_prompt_generation)
-
-    def start_next_prompt_generation(self):
-        """开始下一个提示词生成"""
-        if self.completed_prompts >= self.total_prompts:
-            self.on_all_prompts_finished()
-            return
-
-        summary = self.current_summaries[self.completed_prompts]
-        if not summary:
-            self.completed_prompts += 1
-            QTimer.singleShot(500, self.start_next_prompt_generation)
-            return
-
-        worker = TextGenerationWorker(
-            summary,
-            self.prompt_system_prompt
-        )
-
-        worker.content_updated.connect(self.update_current_prompt_content)
-        worker.progress_updated.connect(self.update_prompt_progress)
-        worker.finished.connect(self.on_single_prompt_finished)
-
-        self.current_worker = worker
         worker.start()
         worker.finished.connect(lambda: worker.deleteLater())
+        self.current_worker = worker
 
-    def update_current_prompt_content(self, text):
-        """更新当前提示词内容（仅用于调试或查看）"""
-        pass
+    def update_prompts_content(self, text):
+        """实时更新提示词内容"""
+        # 实时更新内容到编辑框
+        self.generated_prompts_edit.setPlainText(text)
+        cursor = self.generated_prompts_edit.textCursor()
+        cursor.movePosition(cursor.End)
+        self.generated_prompts_edit.setTextCursor(cursor)
 
-    def update_prompt_progress(self, msg):
+    def update_prompts_progress(self, msg):
         """更新提示词生成进度"""
-        if "生成中" in msg:
-            progress = int((self.completed_prompts / self.total_prompts) * 100)
-            self.prompt_progress.setValue(progress)
-            self.image_status_label.setText(f"生成第 {self.completed_prompts + 1}/{self.total_prompts} 个提示词...")
+        if "初始化" in msg:
+            self.prompt_progress.setRange(0, 0)
+            self.image_status_label.setText(msg)
+        elif "生成中" in msg:
+            self.prompt_progress.setRange(0, 100)
+            self.prompt_progress.setValue(50)
+            self.image_status_label.setText(msg)
 
-    def on_single_prompt_finished(self, success, result):
-        """单个提示词生成完成"""
-        final_prompt = ""
-        if success and result:
-            # 移除提示词前缀功能，直接使用结果
-            final_prompt = result.strip()
-        
-        # 确保列表足够长
-        while len(self.current_prompts) <= self.completed_prompts:
-            self.current_prompts.append('')
-        
-        self.current_prompts[self.completed_prompts] = final_prompt
-        self.completed_prompts += 1
 
-        # 更新显示
-        self.update_prompts_display()
-
-        if self.completed_prompts >= self.total_prompts:
-            self.on_all_prompts_finished()
-        else:
-            QTimer.singleShot(1000, self.start_next_prompt_generation) # 1秒间隔
-
-    def on_all_prompts_finished(self):
+    def on_all_prompts_finished(self, success, result):
         """所有提示词生成完成"""
-        self.prompt_progress.setRange(0, 100)
-        self.prompt_progress.setValue(100)
-        self.image_status_label.setText("提示词生成完成！")
         self.generate_prompt_btn.setEnabled(True)
+        self.prompt_progress.setRange(0, 100)
+        self.prompt_progress.setValue(100 if success else 0)
 
-        if hasattr(self, 'all_generation_step') and self.all_generation_step == 3:
-            QMessageBox.information(self, "成功", "绘图提示词生成完成！")
-            QTimer.singleShot(500, self.step_generate_images)
-        elif not hasattr(self, 'all_generation_step') or self.all_generation_step == 0:
-            QMessageBox.information(self, "成功", "绘图提示词生成完成！")
+        if success:
+            # 清理和解析生成的提示词
+            # 移除所有空行、可能出现的序号和解释
+            raw_prompts = [line.strip() for line in result.split('\n') if line.strip()]
+            
+            # 重新格式化并解析为 self.current_prompts 列表
+            final_display_text = ""
+            self.current_prompts.clear()
+            
+            target_count = self.image_count_spin.value()
+            
+            for i, prompt in enumerate(raw_prompts):
+                if i < target_count:
+                    # 仅保留纯英文提示词，并格式化输出
+                    # 假设模型返回的是多行英文提示词，每行对应一个分镜
+                    self.current_prompts.append(prompt)
+                    final_display_text += f"=== 分镜 {i+1} ===\n{prompt}\n\n"
+            
+            # 如果数量不足，用空字符串填充
+            while len(self.current_prompts) < target_count:
+                self.current_prompts.append('')
+
+            self.generated_prompts_edit.setPlainText(final_display_text.strip())
+            self.image_status_label.setText("提示词生成完成！")
+            
+            if hasattr(self, 'all_generation_step') and self.all_generation_step == 3:
+                QMessageBox.information(self, "成功", "绘图提示词生成完成！")
+                QTimer.singleShot(500, self.step_generate_images)
+            elif not hasattr(self, 'all_generation_step') or self.all_generation_step == 0:
+                QMessageBox.information(self, "成功", "绘图提示词生成完成！")
+        else:
+            self.image_status_label.setText("提示词生成失败")
+            QMessageBox.critical(self, "错误", f"生成失败：{result}")
+            if hasattr(self, 'all_generation_step') and self.all_generation_step == 3:
+                self.top_control_bar.set_generate_enabled(True)
+
 
     def update_prompts_display(self):
-        """更新提示词显示框"""
+        """更新提示词显示框 (用于手动编辑后解析，此处已由 on_all_prompts_finished 覆盖)"""
         prompts_text = ""
         for i, prompt in enumerate(self.current_prompts):
             if prompt:
@@ -2051,6 +2055,12 @@ def main():
             subcontrol-origin: margin;
             left: 10px;
             padding: 0 5px 0 5px;
+        }
+        /* 移除生成控制区内部模块的QGroupBox样式 */
+        #count_widget, #template_widget, #size_widget {
+            border: none;
+            padding: 0;
+            margin: 0;
         }
         ComboBox, LineEdit, SpinBox, DoubleSpinBox {
             padding: 5px;
