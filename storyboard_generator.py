@@ -43,16 +43,19 @@ MODEL_API_KEY = os.getenv('SiliconCloud_API_KEY')
 PRESET_RESOLUTIONS = {
     "1080P": (1920, 1080), 
     "960P": (1707, 960),
+    "768P": (1024, 768),
     "720P": (1280, 720),
+    "512P": (768, 512),
 }
 
 ASPECT_RATIOS = {
     "16:9": 16/9,
     "4:3": 4/3,
+    "21:9": 21/9,
     "1:1": 1/1,
     "2:3": 2/3,
-    "9:16 (竖)": 9/16,
-    "3:4 (竖)": 3/4,
+    "2:5": 2/5,
+    "3:5": 3/5,
 }
 
 
@@ -673,7 +676,7 @@ class ImagePreviewWidget(CardWidget):
         # 图片显示
         self.image_label = QLabel()
         # 调整最小/最大尺寸，让卡片大小适中且统一
-        self.image_label.setFixedSize(250, 250) 
+        self.image_label.setFixedSize(250, 140) 
         self.image_label.setAlignment(Qt.AlignCenter)
         self.image_label.setStyleSheet("border: 2px dashed #ccc; border-radius: 8px; background: #f9f9f9;")
         self.image_label.setText("等待生成...")
@@ -877,6 +880,7 @@ class ImageControlDialog(QDialog):
         self.width_spin.setRange(256, 4096)
         self.width_spin.setSingleStep(64)
         self.width_spin.setFixedWidth(100)
+        self.width_spin.setFixedHeight(32)
         size_layout.addWidget(self.width_spin, 0, 1)
 
         # 互换按钮
@@ -893,6 +897,7 @@ class ImageControlDialog(QDialog):
         self.height_spin.setRange(256, 4096)
         self.height_spin.setSingleStep(64)
         self.height_spin.setFixedWidth(100)
+        self.height_spin.setFixedHeight(32)
         size_layout.addWidget(self.height_spin, 1, 1)
 
         layout.addWidget(size_group)
@@ -939,9 +944,10 @@ class ImageControlDialog(QDialog):
         count_layout = QHBoxLayout(count_group)
         
         self.image_count_spin = QSpinBox()
-        self.image_count_spin.setRange(5, 20)
+        self.image_count_spin.setRange(5, 40)
         self.image_count_spin.setSingleStep(5)
-        self.image_count_spin.setFixedWidth(80)
+        self.image_count_spin.setFixedWidth(200)
+        self.image_count_spin.setFixedHeight(32)
         count_layout.addWidget(self.image_count_spin)
         count_layout.addWidget(QLabel("张 (5的倍数)"))
         count_layout.addStretch()
@@ -1145,7 +1151,7 @@ class StoryboardPage(SmoothScrollArea):
         main_splitter.addWidget(right_panel)
 
         # 设置分割比例 (左 50% : 右 50%)
-        main_splitter.setSizes([800, 800])
+        main_splitter.setSizes([600, 910])
 
         self.setWidget(widget)
         self.setWidgetResizable(True)
@@ -1171,7 +1177,7 @@ class StoryboardPage(SmoothScrollArea):
         quick_actions_layout.addStretch()
         content_page_layout.addLayout(quick_actions_layout)
 
-        tab_widget.addTab(content_page_widget, "1. 故事内容")
+        tab_widget.addTab(content_page_widget, "故事内容")
 
         # 1. 分镜标题页 (按钮/进度条移入 BaseTextPage)
         title_btn_layout = QHBoxLayout()
@@ -1179,7 +1185,7 @@ class StoryboardPage(SmoothScrollArea):
         title_btn_layout.addWidget(self.title_progress)
         title_btn_layout.addWidget(self.generate_title_btn)
         title_page = BaseTextPage("🎭 分镜标题生成", self.title_output_edit, title_btn_layout)
-        tab_widget.addTab(title_page, "2. 分镜标题")
+        tab_widget.addTab(title_page, "分镜标题")
 
         # 2. 分镜描述页 (按钮/进度条移入 BaseTextPage)
         summary_btn_layout = QHBoxLayout()
@@ -1187,7 +1193,7 @@ class StoryboardPage(SmoothScrollArea):
         summary_btn_layout.addWidget(self.summary_progress)
         summary_btn_layout.addWidget(self.generate_summary_btn)
         summary_page = BaseTextPage("📝 分镜描述生成", self.summary_output_edit, summary_btn_layout)
-        tab_widget.addTab(summary_page, "3. 分镜描述")
+        tab_widget.addTab(summary_page, "分镜描述")
 
         # 3. 绘图提示词页 (按钮/进度条移入 BaseTextPage)
         prompt_btn_layout = QHBoxLayout()
@@ -1195,7 +1201,7 @@ class StoryboardPage(SmoothScrollArea):
         prompt_btn_layout.addWidget(self.prompt_progress)
         prompt_btn_layout.addWidget(self.generate_prompt_btn)
         prompt_page = BaseTextPage("🎨 绘图提示词", self.generated_prompts_edit, prompt_btn_layout)
-        tab_widget.addTab(prompt_page, "4. 绘图提示词")
+        tab_widget.addTab(prompt_page, "绘图提示词")
 
         return tab_widget
 
@@ -1248,6 +1254,9 @@ class StoryboardPage(SmoothScrollArea):
 
         self.image_scroll_area.setWidget(self.image_scroll_widget)
         self.image_scroll_area.setWidgetResizable(True)
+
+        self.image_scroll_area.setFixedHeight(620) #高度
+
         preview_layout.addWidget(self.image_scroll_area)
 
         right_layout.addWidget(preview_card)
@@ -1965,8 +1974,9 @@ class MainWindow(FluentWindow):
 
         ui_layout.addWidget(QLabel("默认图片数量:"), 0, 0)
         self.default_image_count_spin = QSpinBox()
-        self.default_image_count_spin.setRange(5, 20)
+        self.default_image_count_spin.setRange(5, 40)
         self.default_image_count_spin.setSingleStep(5)
+        self.default_image_count_spin.setFixedHeight(32)
         self.default_image_count_spin.setValue(config_manager.get('ui.default_image_count', 10))
         ui_layout.addWidget(self.default_image_count_spin, 0, 1)
 
@@ -2118,8 +2128,9 @@ def main():
         }
         QTabBar::tab {
              /* 增加 Tab 标题字体大小和填充 */
-             font-size: 13px;
+             font-size: 16px;
              padding: 8px 15px;
+             width:120px;
         }
         QToolButton#swap_size_btn {
              /* 调整互换按钮的尺寸和样式 */
