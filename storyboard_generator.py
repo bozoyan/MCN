@@ -134,7 +134,7 @@ class AdvancedConfigManager:
                 "theme": "dark",
                 "window_width": 1678,
                 "window_height": 1049,
-                "default_image_count": 10
+                "default_image_count": 10 # 默认图片数量设置为 10
             },
             "directories": {
                 "temp": "temp",
@@ -672,12 +672,12 @@ class ImagePreviewWidget(CardWidget):
 
         # 图片显示
         self.image_label = QLabel()
-        self.image_label.setMinimumSize(200, 200)
-        self.image_label.setMaximumSize(300, 300)
+        # 调整最小/最大尺寸，让卡片大小适中且统一
+        self.image_label.setFixedSize(250, 250) 
         self.image_label.setAlignment(Qt.AlignCenter)
         self.image_label.setStyleSheet("border: 2px dashed #ccc; border-radius: 8px; background: #f9f9f9;")
         self.image_label.setText("等待生成...")
-        layout.addWidget(self.image_label)
+        layout.addWidget(self.image_label, alignment=Qt.AlignCenter) # 居中
 
         # 状态标签
         self.status_label = QLabel("未生成")
@@ -699,6 +699,10 @@ class ImagePreviewWidget(CardWidget):
         button_layout.addWidget(self.view_btn)
 
         layout.addLayout(button_layout)
+        
+        # 确保卡片内容紧凑
+        layout.setSpacing(5)
+        layout.setContentsMargins(10, 10, 10, 10)
 
     def set_image(self, image, url):
         """设置图片"""
@@ -880,6 +884,7 @@ class ImageControlDialog(QDialog):
         self.swap_size_btn.setIcon(FluentIcon.ROTATE.icon())
         self.swap_size_btn.setToolTip("互换宽度和高度")
         self.swap_size_btn.clicked.connect(self.swap_image_size)
+        self.swap_size_btn.setObjectName("swap_size_btn") # 设置对象名以便 CSS 样式定位
         size_layout.addWidget(self.swap_size_btn, 0, 2)
 
         # 高度
@@ -1029,7 +1034,7 @@ class ImageControlDialog(QDialog):
         self.accept()
 
 
-# 内容页面的基类 (新增)
+# 内容页面的基类 (调整布局，使其内容居中且自适应)
 class BaseTextPage(QScrollArea):
     """用于左侧 TabWidget 的内容页面基类"""
     def __init__(self, title, input_widget, button_layout=None, parent=None):
@@ -1040,7 +1045,7 @@ class BaseTextPage(QScrollArea):
         layout.setContentsMargins(20, 20, 20, 20)
         
         title_label = SubtitleLabel(title)
-        title_label.setFont(QFont("", 14, QFont.Bold))
+        # title_label.setFont(QFont("", 14, QFont.Bold)) # 移除固定字体大小
         layout.addWidget(title_label)
         
         layout.addWidget(input_widget)
@@ -1168,24 +1173,27 @@ class StoryboardPage(SmoothScrollArea):
 
         tab_widget.addTab(content_page_widget, "1. 故事内容")
 
-        # 1. 分镜标题页
+        # 1. 分镜标题页 (按钮/进度条移入 BaseTextPage)
         title_btn_layout = QHBoxLayout()
-        title_btn_layout.addWidget(self.generate_title_btn)
+        self.title_progress.setFixedHeight(10)
         title_btn_layout.addWidget(self.title_progress)
+        title_btn_layout.addWidget(self.generate_title_btn)
         title_page = BaseTextPage("🎭 分镜标题生成", self.title_output_edit, title_btn_layout)
         tab_widget.addTab(title_page, "2. 分镜标题")
 
-        # 2. 分镜描述页
+        # 2. 分镜描述页 (按钮/进度条移入 BaseTextPage)
         summary_btn_layout = QHBoxLayout()
-        summary_btn_layout.addWidget(self.generate_summary_btn)
+        self.summary_progress.setFixedHeight(10)
         summary_btn_layout.addWidget(self.summary_progress)
+        summary_btn_layout.addWidget(self.generate_summary_btn)
         summary_page = BaseTextPage("📝 分镜描述生成", self.summary_output_edit, summary_btn_layout)
         tab_widget.addTab(summary_page, "3. 分镜描述")
 
-        # 3. 绘图提示词页
+        # 3. 绘图提示词页 (按钮/进度条移入 BaseTextPage)
         prompt_btn_layout = QHBoxLayout()
-        prompt_btn_layout.addWidget(self.generate_prompt_btn)
+        self.prompt_progress.setFixedHeight(10)
         prompt_btn_layout.addWidget(self.prompt_progress)
+        prompt_btn_layout.addWidget(self.generate_prompt_btn)
         prompt_page = BaseTextPage("🎨 绘图提示词", self.generated_prompts_edit, prompt_btn_layout)
         tab_widget.addTab(prompt_page, "4. 绘图提示词")
 
@@ -1225,7 +1233,7 @@ class StoryboardPage(SmoothScrollArea):
         # 图片预览区域 (占据剩余空间)
         preview_card = ElevatedCardWidget()
         preview_layout = QVBoxLayout(preview_card)
-        preview_layout.setContentsMargins(20, 20, 20, 20)
+        preview_layout.setContentsMargins(10, 10, 10, 10) # 减少边距
 
         preview_title = SubtitleLabel("🖼️ 图片预览")
         preview_title.setFont(QFont("", 14, QFont.Bold))
@@ -1236,6 +1244,7 @@ class StoryboardPage(SmoothScrollArea):
         self.image_scroll_widget = QWidget()
         self.image_grid_layout = QGridLayout(self.image_scroll_widget)
         self.image_grid_layout.setSpacing(15)
+        self.image_grid_layout.setAlignment(Qt.AlignTop | Qt.AlignLeft) # 确保内容左上对齐
 
         self.image_scroll_area.setWidget(self.image_scroll_widget)
         self.image_scroll_area.setWidgetResizable(True)
@@ -1254,10 +1263,6 @@ class StoryboardPage(SmoothScrollArea):
         dialog = ImageControlDialog(self)
         if dialog.exec_() == QDialog.Accepted:
             # 应用配置，并确保图片预览区大小更新
-            
-            # 由于配置已在 dialog.apply_config_and_accept 中保存，
-            # 我们只需要确保 StoryboardPage 中的 spinbox 引用能同步更新即可。
-            # 这里依赖配置管理器重新读取，并更新图片列表
             self.init_image_widgets() # 重新初始化图片预览区以反映新的图片数量
             
         # 注意：此处没有 self.width_spin/self.height_spin 等，因为它们在 Dialog 内部。
@@ -1285,18 +1290,27 @@ class StoryboardPage(SmoothScrollArea):
 
     def init_image_widgets(self):
         """初始化图片预览小部件"""
-        # 清空现有小部件
+        
+        # 1. 安全地清空并销毁现有小部件
+        # 必须使用 deleteLater() 来避免 Double Free 错误
         for i in reversed(range(self.image_grid_layout.count())):
-            child = self.image_grid_layout.itemAt(i).widget()
-            if child is not None:
-                child.setParent(None)
+            item = self.image_grid_layout.itemAt(i)
+            widget = item.widget()
+            if widget is not None:
+                # 关键修正：使用 deleteLater() 销毁小部件
+                widget.deleteLater() 
+            
+            # 移除 Item 本身 (对于 QGridLayout 可能不需要手动移除 item，但保留更安全)
+            self.image_grid_layout.removeItem(item)
 
+        # 确保清空 Python 列表
         self.image_widgets.clear()
-        self.image_urls.clear() # 清空URL列表
-        # 从配置中获取最新的图片数量
+        self.image_urls.clear() 
+        
+        # 2. 从配置中获取最新的图片数量
         image_count = config_manager.get('ui.default_image_count', 10) 
         
-        # 创建新的小部件网格
+        # 3. 创建新的小部件网格
         cols = 3
         for i in range(image_count):
             widget = ImagePreviewWidget(i)
@@ -1306,12 +1320,13 @@ class StoryboardPage(SmoothScrollArea):
             col = i % cols
             self.image_grid_layout.addWidget(widget, row, col)
             
-        # 添加一个空白占位符，确保网格布局正确拉伸
+        # 4. 添加一个空白占位符
         if self.image_grid_layout.count() > 0:
             spacer = QWidget()
             spacer.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-            # 确保添加到下一行
-            self.image_grid_layout.addWidget(spacer, (image_count + cols - 1) // cols, 0)
+            # 确保添加到下一行，占据所有列
+            # 检查是否有原先的 Spacer Widget，如果有则不添加新的，但此处逻辑是完全清空后重建。
+            self.image_grid_layout.addWidget(spacer, (image_count + cols - 1) // cols, 0, 1, cols)
 
 
     def clear_content(self):
@@ -2094,12 +2109,17 @@ def main():
             margin: 0;
         }
         QTabWidget::pane {
-             /* 增加 Tab Pane 边距 */
+             /* 增加 Tab Pane 边距，优化分隔线 */
              border: 1px solid #cccccc;
              border-top: none;
         }
         QTabWidget::tab-bar {
             left: 5px; 
+        }
+        QTabBar::tab {
+             /* 增加 Tab 标题字体大小和填充 */
+             font-size: 13px;
+             padding: 8px 15px;
         }
         QToolButton#swap_size_btn {
              /* 调整互换按钮的尺寸和样式 */
@@ -2126,6 +2146,13 @@ def main():
         /* 确保 RadioButton 布局紧凑 */
         QRadioButton {
             margin-right: 10px; 
+        }
+        /* 统一 QTextEdit/QScrollArea 内部的 QTextEdit 样式 */
+        QTextEdit {
+            border: 1px solid #cccccc;
+            border-radius: 4px;
+            padding: 10px;
+            min-height: 250px; /* 确保最小高度 */
         }
     """)
 
