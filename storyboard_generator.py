@@ -29,7 +29,7 @@ from qfluentwidgets import (FluentIcon, NavigationInterface, NavigationItemPosit
                           FluentWindow, SubtitleLabel, BodyLabel, PrimaryPushButton,
                           PushButton, LineEdit, ComboBox, RadioButton,
                           ProgressBar, InfoBar, InfoBarPosition, SmoothScrollArea, 
-                          CardWidget, ElevatedCardWidget, setTheme, Theme) # 确保导入了 setTheme 和 Theme
+                          CardWidget, ElevatedCardWidget, setTheme, Theme)
 
 # 配置日志
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -449,7 +449,7 @@ class ImageGenerationWorker(QThread):
 
 # 模板管理对话框 (保留不变)
 class TemplateManagerDialog(QDialog):
-    # ... (代码不变)
+    """提示词模板管理对话框"""
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("提示词模板管理")
@@ -993,6 +993,7 @@ class StoryboardPage(SmoothScrollArea):
 
         # --- 1. 图片尺寸 (左) ---
         size_widget = QWidget()
+        size_widget.setObjectName("size_widget") # 用于样式隔离
         size_layout = QVBoxLayout(size_widget)
         size_layout.setContentsMargins(0, 0, 0, 0) # 移除边框，内容紧凑
         
@@ -1000,7 +1001,7 @@ class StoryboardPage(SmoothScrollArea):
         size_input_layout = QHBoxLayout()
         size_input_layout.setContentsMargins(0, 0, 0, 0)
         
-        size_input_layout.addWidget(QLabel("图片宽度:"))
+        size_input_layout.addWidget(QLabel("W:"))
         self.width_spin = QSpinBox()
         self.width_spin.setRange(256, 4096)
         self.width_spin.setValue(config_manager.get('bizyair_params.default_width', 1080))
@@ -1016,7 +1017,7 @@ class StoryboardPage(SmoothScrollArea):
         size_input_layout.addWidget(self.swap_size_btn)
 
         # 高度
-        size_input_layout.addWidget(QLabel("图片高度:"))
+        size_input_layout.addWidget(QLabel("H:"))
         self.height_spin = QSpinBox()
         self.height_spin.setRange(256, 4096)
         self.height_spin.setValue(config_manager.get('bizyair_params.default_height', 1920))
@@ -1033,14 +1034,14 @@ class StoryboardPage(SmoothScrollArea):
         self.resolution_combo.addItem("分辨率预设", None)
         for name, size in PRESET_RESOLUTIONS.items():
             self.resolution_combo.addItem(name, size) 
-        self.resolution_combo.currentTextChanged.connect(self.set_preset_resolution)
+        self.resolution_combo.activated.connect(self.set_preset_resolution) # 修正信号连接
         preset_layout.addWidget(self.resolution_combo)
 
         self.aspect_ratio_combo = ComboBox()
         self.aspect_ratio_combo.addItem("比例预设", None)
         for name, ratio in ASPECT_RATIOS.items():
             self.aspect_ratio_combo.addItem(name, ratio)
-        self.aspect_ratio_combo.currentTextChanged.connect(self.set_aspect_ratio)
+        self.aspect_ratio_combo.activated.connect(self.set_aspect_ratio) # 修正信号连接
         preset_layout.addWidget(self.aspect_ratio_combo)
         size_layout.addLayout(preset_layout)
         
@@ -1050,6 +1051,7 @@ class StoryboardPage(SmoothScrollArea):
 
         # --- 2. 图片数量 (中) ---
         count_widget = QWidget()
+        count_widget.setObjectName("count_widget")
         count_layout = QVBoxLayout(count_widget)
         count_layout.setContentsMargins(0, 0, 0, 0) # 移除边框，内容紧凑
         
@@ -1076,6 +1078,7 @@ class StoryboardPage(SmoothScrollArea):
 
         # --- 3. 模板管理 (右) ---
         template_widget = QWidget()
+        template_widget.setObjectName("template_widget")
         template_layout = QVBoxLayout(template_widget)
         template_layout.setContentsMargins(0, 0, 0, 0) # 移除边框，内容紧凑
 
@@ -1097,29 +1100,32 @@ class StoryboardPage(SmoothScrollArea):
 
         return left_widget
 
-    # --- 尺寸预设逻辑 (修正 ComboBox Bug) ---
-    @pyqtSlot(str)
-    def set_preset_resolution(self, text):
+    # --- 尺寸预设逻辑 (修复 ComboBox Bug) ---
+    @pyqtSlot(int) # 修正：接收 index
+    def set_preset_resolution(self, index):
         """根据选择的分辨率预设设置尺寸"""
-        data = self.resolution_combo.currentData()
-        current_index = self.resolution_combo.currentIndex()
+        if index == 0:
+            return
+            
+        data = self.resolution_combo.itemData(index)
         
-        if data and isinstance(data, tuple) and current_index != 0:
+        if data and isinstance(data, tuple):
             width, height = data
             self.width_spin.setValue(width)
             self.height_spin.setValue(height)
             
-        # 必须在操作结束后重置，否则下次点击时，QAction会尝试将数据渲染为图标
-        self.resolution_combo.setCurrentIndex(0) 
+        # 必须在操作结束后重置为 index 0，防止 ComboBox 内部尝试将数据渲染为图标
+        QTimer.singleShot(100, lambda: self.resolution_combo.setCurrentIndex(0)) 
         
-    @pyqtSlot(str)
-    def set_aspect_ratio(self, text):
+    @pyqtSlot(int) # 修正：接收 index
+    def set_aspect_ratio(self, index):
         """根据选择的比例预设设置尺寸"""
-        ratio = self.aspect_ratio_combo.currentData()
-        current_index = self.aspect_ratio_combo.currentIndex()
+        if index == 0:
+            return
+            
+        ratio = self.aspect_ratio_combo.itemData(index)
         
-        if ratio and isinstance(ratio, (float, int)) and current_index != 0:
-            # 保持较大的尺寸为参考，例如保持较大的尺寸不低于 1080
+        if ratio and isinstance(ratio, (float, int)):
             current_width = self.width_spin.value()
             current_height = self.height_spin.value()
             
@@ -1127,7 +1133,7 @@ class StoryboardPage(SmoothScrollArea):
             base_size = max(current_width, current_height, 1080)
             
             # 假设基准是宽度，计算高度
-            if ratio >= 1: # 横向或方形 (如 16:9, 4:3, 1:1)
+            if ratio >= 1: # 横向或方形 (如 16:9, 4:3, 1:1, 21:9)
                 new_width = base_size
                 new_height = int(new_width / ratio)
             else: # 纵向 (如 2:3)
@@ -1137,8 +1143,8 @@ class StoryboardPage(SmoothScrollArea):
             self.width_spin.setValue(new_width)
             self.height_spin.setValue(new_height)
 
-        # 必须在操作结束后重置，否则下次点击时，QAction会尝试将数据渲染为图标
-        self.aspect_ratio_combo.setCurrentIndex(0) 
+        # 必须在操作结束后重置为 index 0，防止 ComboBox 内部尝试将数据渲染为图标
+        QTimer.singleShot(100, lambda: self.aspect_ratio_combo.setCurrentIndex(0)) 
     # --- 尺寸预设逻辑结束 ---
     
     def create_right_panel(self):
@@ -1524,10 +1530,15 @@ class StoryboardPage(SmoothScrollArea):
             
             target_count = self.image_count_spin.value()
             
-            for i, prompt in enumerate(raw_prompts):
+            # 过滤掉标题、序号和非英文内容，只保留实际的英文提示词
+            clean_prompts = []
+            for line in raw_prompts:
+                 # 简单的过滤规则：排除包含中文、等号或分镜字样的行，且长度不为零
+                 if not re.search(r'[\u4e00-\u9fa5]|=|\*', line) and len(line) > 5:
+                     clean_prompts.append(line)
+            
+            for i, prompt in enumerate(clean_prompts):
                 if i < target_count:
-                    # 仅保留纯英文提示词，并格式化输出
-                    # 假设模型返回的是多行英文提示词，每行对应一个分镜
                     self.current_prompts.append(prompt)
                     final_display_text += f"=== 分镜 {i+1} ===\n{prompt}\n\n"
             
