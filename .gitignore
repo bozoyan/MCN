@@ -4,6 +4,7 @@ __pycache__/
 *$py.class
 font
 temp
+output
 
 storyboard_config.json
 buttons.json
