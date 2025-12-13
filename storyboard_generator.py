@@ -84,106 +84,10 @@ class AdvancedConfigManager:
                 "enable_thinking": True,
                 "api_key": MODEL_API_KEY or ""
             },
-            "image_models": {
-                "default": "Tongyi-MAI/Z-Image-Turbo",
-                "available": [
-                    {"name": "Z-Image", "id": "Tongyi-MAI/Z-Image-Turbo", "speed": "10s"},
-                    {"name": "Qwen-Image", "id": "Qwen/Qwen-Image", "speed": "10s"},
-                    {"name": "Flux", "id": "bozoyan/F_fei", "speed": "60s"},
-                    {"name": "SDXL", "id": "bozoyan/mesmerAsianRelustion_pony", "speed": "20s"},
-                    {"name": "SD1.5", "id": "MusePublic/majicMIX_realistic_maijuxieshi_SD_1_5", "speed": "10s"}
-                ],
-                "custom": []
-            },
-            "image_sizes": {
-                "presets": {
-                    "768": {
-                        "name": "768规格",
-                        "ratios": {
-                            "1:1": "768x768",
-                            "1:2": "542x1084",
-                            "2:3": "624x936",
-                            "2:5": "484x1210",
-                            "3:4": "664x886",
-                            "3:5": "588x980",
-                            "4:5": "672x840",
-                            "9:16": "566x1006"
-                        }
-                    },
-                    "1024": {
-                        "name": "1024规格",
-                        "ratios": {
-                            "1:1": "1024x1024",
-                            "1:2": "724x1448",
-                            "2:3": "816x1224",
-                            "2:5": "646x1615",
-                            "3:4": "834x1112",
-                            "3:5": "768x1280",
-                            "4:5": "880x1100",
-                            "9:16": "756x1344"
-                        }
-                    },
-                    "1240": {
-                        "name": "1240规格",
-                        "ratios": {
-                            "1:1": "1240x1240",
-                            "1:2": "876x1752",
-                            "2:3": "992x1488",
-                            "2:5": "784x1960",
-                            "4:3": "1344x1008",
-                            "3:5": "952x1586",
-                            "4:5": "1072x1340",
-                            "9:16": "914x1624"
-                        }
-                    },
-                    "1280": {
-                        "name": "1280规格",
-                        "ratios": {
-                            "1:1": "1280x1280",
-                            "1:2": "904x1808",
-                            "2:3": "1020x1530",
-                            "2:5": "808x2020",
-                            "3:4": "1044x1392",
-                            "3:5": "984x1640",
-                            "4:5": "1104x1380",
-                            "9:16": "944x1678"
-                        }
-                    },
-                    "1536": {
-                        "name": "1536规格",
-                        "ratios": {
-                            "1:1": "1536x1536",
-                            "1:2": "1086x2172",
-                            "2:3": "1224x1836",
-                            "2:5": "970x2424",
-                            "3:4": "1254x1672",
-                            "3:5": "1152x1920",
-                            "4:5": "1320x1650",
-                            "9:16": "1134x2016"
-                        }
-                    }
-                },
-                "default_size": "756x1344",
-                "common_sizes": [
-                    {"name": "竖屏9:16", "size": "756x1344", "category": "1024"},
-                    {"name": "方形1:1", "size": "1024x1024", "category": "1024"},
-                    {"name": "手机壁纸", "size": "1080x1920", "category": "custom"}
-                ]
-            },
-            "image_params": {
-                "default": {
-                    "steps": 9,
-                    "guidance": 1,
-                    "sampler": "Euler",
-                    "size": "756x1344",
-                    "negative_prompt": "lowres, bad anatomy, bad hands, text, error, missing fingers, extra digit, fewer digits, cropped, worst quality, low quality, normal quality, jpeg artifacts, signature, watermark, username, blurry,(worst quality:2),(low quality:2),(normal quality:2),lowres,normal quality,((monochrome)),((grayscale)),skin spots,acnes,skin blemishes,age spot,(ugly:1.33),(duplicate:1.33),(morbid:1.21),(mutilated:1.21),(tranny:1.33),mutated hands,(poorly drawn hands:1.5),blurry,(bad anatomy:1.21),(bad proportions:1.33),extra limbs,(disfigured:1.33),(missing arms:1.33),(extra legs:1.33),(fused fingers:1.61),(too many fingers:1.61),(unclear eyes:1.33),lowers,bad hands,missing fingers,extra digit,bad hands,missing fingers,(((extra arms and legs))),DeepNegativeV1.x_V175T,EasyNegative,EasyNegativeV2,"
-                },
-                "last_used": {}
-            },
             "prompt_templates": {
                 "story_title": {
                     "name": "故事分镜标题模板",
-                    "template": """你是一位专业的故事绘本撰写专家，擅长电影级别的故事绘本脚本编辑。请根据用户提供的一段话或一个叙事事件内容，展开联想拓展形成一个完整的故事情节。通过故事情节的时间线拆解生成从头到尾9个完整吸引人的故事绘本分镜标题脚本。每个分镜脚本标题控制在64字以内，分镜脚本标题需要有景别，视角，运镜，画面内容，遵循主体（主体描述）＋场景（场景描述）＋运动（运动描述）＋镜头语言+价值主张的原则。
+                    "template": """你是一位专业的故事绘本撰写专家，擅长电影级别的故事绘本脚本编辑。请根据用户提供的一段话或一个叙事事件内容，展开联想拓展形成一个完整的故事情节。通过故事情节的时间线拆解生成从头到尾10个完整吸引人的故事绘本分镜标题脚本。每个分镜脚本标题控制在64字以内，分镜脚本标题需要有景别，视角，运镜，画面内容，遵循主体（主体描述）＋场景（场景描述）＋运动（运动描述）＋镜头语言+价值主张的原则。
     分镜脚本标题应该具有吸引力，精炼，能够引起观看者的兴趣，同时准确反映该分镜的核心内容。
     
     ## 在分析过程中，请思考：
@@ -196,12 +100,12 @@ class AdvancedConfigManager:
     7. 运动描述：运动描述是对运动特征细节的描述，包含运动的幅度、速率和运动作用的效果。
     8. 镜头语言：镜头语言包含景别、视角、镜头、运镜等。分镜脚本标题中的景别最好能全部保持一致性，不用超过3种以上的景别跳跃。
 ### 分镜标题示例：
-    ```
+
 - 分镜标题1. 【全景俯视】锈迹斑斑机器人在荒芜废土中孤独游荡，身后拖着能源即将耗尽的微弱蓝光轨迹，镜头缓缓下摇展现末世荒凉。
 - 分镜标题2. 【中景跟拍】老旧机器人机械臂清理破败瓦砾堆，蓝光眼闪烁着程序混乱的信号，镜头推进聚焦它疲惫不堪的金属身躯。
 - 分镜标题3. 【特写仰拍】机器人单眼蓝光突然聚焦，破旧金属残骸缝隙中透出一缕神秘微光，镜头从指间缝隙穿插营造发现的惊喜。
-…… 
-    ```
+…… 其他分镜标题按序号依次列出，一行一个。
+
 """
                 },
                 "story_summary": {
@@ -215,7 +119,6 @@ class AdvancedConfigManager:
     5. 视频片段描述=运镜描述+主体（主体描述）＋场景（场景描述）+运动（运动描述）+镜头语言。
     6. 运镜描述是对镜头运动的具体描述，在时间线上，景别最好能保持一致性，不用太离谱的跳跃。将镜头运动和画面内容的变化有效结合可以有效提升视频叙事的丰富性和专业度。用户可以通过代入导演的视角来想象和书写运镜过程。时间上，需要注意将镜头运动的时长合理控制在5s内，避免过于复杂的运镜，短视频脚本描述中的运镜不要超过3种以上。
     ### 分镜描述示例：
-    ```
     **分镜1：**
 远景俯视跟拍，锈迹斑斑的老式机器人在荒芜金属废土中孤独踱步，蓝眼微光闪烁。沙尘弥漫的末世景象中，镜头缓缓下降跟随其沉重步伐。破败的高楼废墟背景烘托出绝望氛围，机器人踉跄的身影诠释着废弃文明中最后守望者的坚韧与孤寂。
 
@@ -224,16 +127,16 @@ class AdvancedConfigManager:
 
 **分镜3：**
 特写静止镜头，老式机器人呆滞的蓝眼突然闪烁光芒，瞳孔收缩聚焦。碎石堆下透出的微光映照在其金属面庞上，形成明暗交替的光影效果。突如其来的停顿打破沉寂，预示着程序重启的契机即将到来，命运在此刻悄然转折。
-……
-    ```
+
+……其他分镜描述按序号依次列出，一行分镜序号，一行分镜描述，一行空格。
+
     """
                 },
                 "image_prompt": {
                     "name": "AI绘图提示词模板",
                     "template": """请根据用户提供的故事分镜描述，将中文描述的分镜头脚本内容翻译成英文，并按照每个分镜头一个句子的原则，每行仅包含一个分镜头的描述。请保证翻译的准确性以及对原意的忠实度，同时使描述适合用于AI绘画生成工具的输入。最终输出应该是一个专业用于AI绘画软件（如Midjourney,comfyui,stable diffusion）的简约易用的英文提示词，不需要解释，并确保输出中没有中文及特殊符号，放在同一行显示。prompt英文提示词应该图片主体描述统一，包含画面主题内容描述、风格指导和质量提升词，精炼，简约明了，不要过长。
-    ### AI绘图提示词（示例）： 
-    ```
-   === 分镜 1 ===
+    ### AI绘图提示词（示例），一行标题，一行AI绘画提示词，空一行： 
+=== 分镜 1 ===
 Face the camera, showing the upper body Aerial view following an old, rusted robot walking alone in a desolate metal wasteland, with its blue eyes faintly glowing.
 
 === 分镜 2 ===
@@ -241,8 +144,9 @@ Face the camera, showing the upper body Aerial view following an old, rusted rob
 
 === 分镜 3 ===
 Face the camera, showing the upper body Medium shot side view pushing in on an exploration robot with a damaged body moving through the ruins of a broken city, its energy indicator flickering on and off.
-……
-    ```
+
+……其他AI绘画提示词分镜按序号依次列出。
+
     """
                 }
             },
@@ -250,7 +154,7 @@ Face the camera, showing the upper body Medium shot side view pushing in on an e
                 "theme": "dark",
                 "window_width": 1440,
                 "window_height": 940,
-                "default_image_count": 9
+                "default_image_count": 10
             },
             "directories": {
                 "temp": "temp",
@@ -508,142 +412,89 @@ class ImageGenerationWorker(QThread):
     image_generated = pyqtSignal(int, object, str)  # index, image, url
     finished = pyqtSignal(bool, list, list)
 
-    def __init__(self, prompts, model_id, params, image_count=9):
+    def __init__(self, prompts, width, height, image_count=10):
         super().__init__()
         self.prompts = prompts
-        self.model_id = model_id
-        self.params = params
-        self.image_count = min(image_count, len(prompts))
+        self.width = width
+        self.height = height
+        # BizyAIR API 一次最多 5 张，这里我们将所有提示词一次性传给它
+        self.image_count = min(image_count, len(prompts)) 
         self.is_cancelled = False
-        self.images = [None] * self.image_count
         self.image_urls = [''] * self.image_count
-
-    def cancel(self):
-        """取消任务"""
-        self.is_cancelled = True
+        self.web_app_id = config_manager.get('bizyair_params.web_app_id', 39808)
 
     def run(self):
-        """运行图片生成"""
         try:
             api_key = config_manager.get('api.api_key', MODEL_API_KEY)
             if not api_key:
                 self.finished.emit(False, [], [])
                 return
 
-            # 使用BizyAIR API
-            base_url = config_manager.get('api.bizyair_image', 'https://api.bizyair.com/v1/')
+            base_url = 'https://api.bizyair.cn/w/v1/webapp/task/openapi/create'
             common_headers = {
                 "Authorization": f"Bearer {api_key}",
                 "Content-Type": "application/json",
             }
-
-            # 准备保存目录
-            model_name = self.model_id.split('/')[-1] if '/' in self.model_id else self.model_id
-            save_dir = os.path.join(os.getcwd(), "output", model_name)
-            os.makedirs(save_dir, exist_ok=True)
-
-            timestamp = datetime.now().strftime('%m%d%H%M%S')
-
-            # 并发生成图片（最多3个线程）
-            from concurrent.futures import ThreadPoolExecutor, as_completed
-            max_workers = min(3, self.image_count)
-
-            def generate_batch_images(start_index, batch_prompts):
-                """批量生成图片（一次最多5张）"""
-                try:
-                    # 获取图片尺寸
-                    width = self.params.get('width', 1080)
-                    height = self.params.get('height', 1920)
-
-                    # 构建请求数据
-                    input_values = {
-                        "35:EmptyLatentImage.width": width,
-                        "35:EmptyLatentImage.height": height
-                    }
-
-                    # 添加提示词（按顺序对应）
-                    for i, prompt in enumerate(batch_prompts):
-                        if prompt.strip():  # 只添加非空的提示词
-                            input_values[f"42:easy promptList.prompt_{i+1}"] = prompt
-
-                    # BizyAIR API - 使用webapp接口
-                    response = requests.post(
-                        "https://api.bizyair.cn/w/v1/webapp/task/openapi/create",
-                        headers=common_headers,
-                        json={
-                            "web_app_id": 39808,
-                            "suppress_preview_output": False,
-                            "input_values": input_values
-                        },
-                        timeout=120  # 增加超时时间
-                    )
-
-                    response.raise_for_status()
-                    result = response.json()
-
-                    logger.info(f"BizyAIR API 响应: {result}")
-
-                    if result.get("status") == "Success" and result.get("outputs"):
-                        results = []
-                        outputs = result["outputs"]
-
-                        # 确保输出数量和提示词数量一致
-                        for i in range(len(batch_prompts)):
-                            if i < len(outputs) and outputs[i].get("object_url"):
-                                img_url = outputs[i]["object_url"]
-                                results.append((start_index + i, None, img_url))  # 暂时不下载图片
-                            else:
-                                logger.error(f"生成第 {start_index+i+1} 张图片失败: 输出缺失")
-                                results.append((start_index + i, None, None))
-
-                        return results
-                    else:
-                        logger.error(f"图片生成失败: {result}")
-                        return [(start_index+i, None, None) for i in range(len(batch_prompts))]
-
-                except Exception as e:
-                    logger.error(f"批量生成图片失败: {e}")
-                    return [(start_index+i, None, None) for i in range(len(batch_prompts))]
-
-            # 使用批量生成（每次最多5张）
+            
+            # 确保提示词数量是 5 的倍数，不足则用空字符串填充到下一个 5 的倍数
             batch_size = 5
+            total_prompts_to_send = (self.image_count + batch_size - 1) // batch_size * batch_size
 
-            # 确保图片数量是5的倍数
-            total_batches = (self.image_count + batch_size - 1) // batch_size
+            # 填充提示词
+            batch_prompts = self.prompts[:self.image_count]
+            while len(batch_prompts) < total_prompts_to_send:
+                # 填充空字符串，确保 API 接收 5 的倍数数量
+                batch_prompts.append("") 
+            
+            # 构建 input_values
+            input_values = {
+                "35:EmptyLatentImage.width": self.width,
+                "35:EmptyLatentImage.height": self.height
+            }
+            for i, prompt in enumerate(batch_prompts):
+                input_values[f"42:easy promptList.prompt_{i+1}"] = prompt
+            
+            # 提交任务
+            self.progress_updated.emit(5, "正在提交 BizyAIR 图片生成任务...")
+            response = requests.post(
+                base_url,
+                headers=common_headers,
+                json={
+                    "web_app_id": self.web_app_id,
+                    "suppress_preview_output": False,
+                    "input_values": input_values
+                },
+                timeout=180
+            )
 
-            for batch_idx in range(total_batches):
-                if self.is_cancelled:
-                    break
+            response.raise_for_status()
+            result = response.json()
 
-                # 计算当前批次的提示词
-                start_idx = batch_idx * batch_size
-                end_idx = min(start_idx + batch_size, self.image_count)
-                batch_prompts = self.prompts[start_idx:end_idx]
+            if result.get("status") == "Success" and result.get("outputs"):
+                outputs = result["outputs"]
+                
+                # 仅处理实际需要的图片数量
+                for i in range(self.image_count):
+                    if i < len(outputs) and outputs[i].get("object_url"):
+                        img_url = outputs[i]["object_url"]
+                        self.image_urls[i] = img_url
+                        self.image_generated.emit(i, None, img_url)
+                        
+                        # 更新进度 (10% + 已完成百分比 * 90%)
+                        progress = 10 + int(((i + 1) / self.image_count) * 90)
+                        self.progress_updated.emit(progress, f"已生成 {i+1}/{self.image_count} 张图片 URL")
+                    else:
+                        logger.error(f"生成第 {i+1} 张图片失败: 输出缺失")
 
-                # 如果提示词不足5个，用空字符串填充
-                while len(batch_prompts) < batch_size:
-                    batch_prompts.append("")
-
-                # 生成当前批次的图片
-                results = generate_batch_images(start_idx, batch_prompts)
-
-                # 处理结果
-                for index, img, url in results:
-                    if url and index < self.image_count:  # 确保索引在范围内
-                        self.image_urls[index] = url
-                        self.image_generated.emit(index, None, url)  # 暂时不传递图片对象
-
-                # 更新进度
-                completed = sum(1 for url in self.image_urls if url)
-                progress = int((completed / self.image_count) * 90) + 10
-                self.progress_updated.emit(progress, f"已完成 {completed}/{self.image_count} 张图片")
-
-            self.progress_updated.emit(100, "图片生成完成!")
-            self.finished.emit(not self.is_cancelled, self.images, self.image_urls)
-
+                self.progress_updated.emit(100, "图片生成完成!")
+                self.finished.emit(not self.is_cancelled, [], self.image_urls)
+            else:
+                error_msg = result.get("message", "未知错误")
+                logger.error(f"图片生成失败: {result}")
+                self.finished.emit(False, [], [])
         except Exception as e:
             logger.error(f"图片生成失败: {e}")
-            self.finished.emit(False, self.images, self.image_urls)
+            self.finished.emit(False, [], [])
 
 # 模板管理对话框
 class TemplateManagerDialog(QDialog):
@@ -849,292 +700,6 @@ class TemplateManagerDialog(QDialog):
             except Exception as e:
                 QMessageBox.critical(self, "错误", f"导出模板时出错：{str(e)}")
 
-# 图片参数设置对话框
-class ImageParamsDialog(QDialog):
-    """图片参数设置对话框"""
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setWindowTitle("图片生成参数设置")
-        self.setMinimumSize(800, 700)
-        self.init_ui()
-        self.load_current_params()
-
-    def init_ui(self):
-        layout = QVBoxLayout(self)
-        layout.setSpacing(20)
-
-        # 创建选项卡
-        self.tab_widget = QTabWidget()
-
-        # 模型选项卡
-        self.model_tab = self.create_model_tab()
-        self.tab_widget.addTab(self.model_tab, "🤖 模型设置")
-
-        # 尺寸选项卡
-        self.size_tab = self.create_size_tab()
-        self.tab_widget.addTab(self.size_tab, "📐 尺寸设置")
-
-        # 参数选项卡
-        self.params_tab = self.create_params_tab()
-        self.tab_widget.addTab(self.params_tab, "⚙️ 生成参数")
-
-        # 预设选项卡
-        self.presets_tab = self.create_presets_tab()
-        self.tab_widget.addTab(self.presets_tab, "🎨 参数预设")
-
-        layout.addWidget(self.tab_widget)
-
-        # 按钮
-        button_layout = QHBoxLayout()
-
-        reset_btn = PushButton(FluentIcon.SYNC, "重置为默认")
-        reset_btn.clicked.connect(self.reset_to_default)
-        button_layout.addWidget(reset_btn)
-
-        save_btn = PrimaryPushButton(FluentIcon.SAVE, "保存为默认")
-        save_btn.clicked.connect(self.save_as_default)
-        button_layout.addWidget(save_btn)
-
-        button_layout.addStretch()
-
-        ok_btn = PrimaryPushButton("确定")
-        ok_btn.clicked.connect(self.accept)
-        button_layout.addWidget(ok_btn)
-
-        cancel_btn = PushButton("取消")
-        cancel_btn.clicked.connect(self.reject)
-        button_layout.addWidget(cancel_btn)
-
-        layout.addLayout(button_layout)
-
-    def create_model_tab(self):
-        """创建模型设置选项卡"""
-        widget = QWidget()
-        layout = QVBoxLayout(widget)
-        layout.setSpacing(15)
-
-        # 预设模型选择
-        preset_group = QGroupBox("预设模型")
-        preset_layout = QVBoxLayout()
-
-        model_select_layout = QHBoxLayout()
-        model_select_layout.addWidget(QLabel("选择预设模型:"))
-
-        self.model_combo = ComboBox()
-        self.model_combo.setFixedHeight(32)
-        self.model_combo.setMinimumWidth(250)
-        self.load_models()
-        model_select_layout.addWidget(self.model_combo)
-
-        preset_layout.addLayout(model_select_layout)
-        preset_group.setLayout(preset_layout)
-        layout.addWidget(preset_group)
-
-        # 自定义模型
-        custom_group = QGroupBox("自定义模型")
-        custom_layout = QVBoxLayout()
-
-        self.use_custom_model_radio = RadioButton("使用自定义模型ID")
-        self.use_preset_model_radio = RadioButton("使用预设模型")
-        self.use_preset_model_radio.setChecked(True)
-
-        custom_layout.addWidget(self.use_preset_model_radio)
-        custom_layout.addWidget(self.use_custom_model_radio)
-
-        # 自定义模型输入
-        model_input_layout = QHBoxLayout()
-        model_input_layout.addWidget(QLabel("模型ID:"))
-
-        self.custom_model_edit = LineEdit()
-        self.custom_model_edit.setPlaceholderText("输入自定义模型ID，例如: username/model-name")
-        self.custom_model_edit.setFixedHeight(32)
-        model_input_layout.addWidget(self.custom_model_edit)
-
-        custom_layout.addLayout(model_input_layout)
-
-        # 最近使用的自定义模型
-        recent_layout = QVBoxLayout()
-        recent_layout.addWidget(QLabel("最近使用的自定义模型:"))
-
-        self.recent_models_list = QListWidget()
-        self.recent_models_list.setMaximumHeight(100)
-        self.load_recent_custom_models()
-        recent_layout.addWidget(self.recent_models_list)
-
-        custom_layout.addLayout(recent_layout)
-
-        custom_group.setLayout(custom_layout)
-        layout.addWidget(custom_group)
-
-        # 连接信号
-        self.use_custom_model_radio.toggled.connect(self.on_model_mode_changed)
-
-        layout.addStretch()
-        return widget
-
-    def create_size_tab(self):
-        """创建尺寸设置选项卡"""
-        widget = QWidget()
-        layout = QVBoxLayout(widget)
-        layout.setSpacing(15)
-
-        # 快速选择
-        quick_group = QGroupBox("常用尺寸")
-        quick_layout = QVBoxLayout()
-
-        self.quick_size_combo = ComboBox()
-        self.quick_size_combo.setFixedHeight(32)
-        self.quick_size_combo.setMinimumWidth(200)
-        common_sizes = config_manager.get('image_sizes.common_sizes', [])
-        for size_info in common_sizes:
-            display_text = f"{size_info['name']} ({size_info['size']})"
-            self.quick_size_combo.addItem(display_text, size_info['size'])
-        quick_layout.addWidget(self.quick_size_combo)
-        quick_group.setLayout(quick_layout)
-        layout.addWidget(quick_group)
-
-        # 规格选择
-        spec_group = QGroupBox("按规格选择")
-        spec_layout = QVBoxLayout()
-
-        spec_select_layout = QHBoxLayout()
-        spec_select_layout.addWidget(QLabel("选择规格:"))
-
-        self.spec_combo = ComboBox()
-        self.spec_combo.setFixedHeight(32)
-        self.spec_combo.setMinimumWidth(150)
-        self.spec_combo.addItems(["768规格", "1024规格", "1240规格", "1280规格", "1536规格"])
-        self.spec_combo.currentTextChanged.connect(self.on_spec_changed)
-        spec_select_layout.addWidget(self.spec_combo)
-
-        spec_layout.addLayout(spec_select_layout)
-        spec_group.setLayout(spec_layout)
-        layout.addWidget(spec_group)
-
-        # 比例选择
-        ratio_group = QGroupBox("选择比例")
-        ratio_layout = QVBoxLayout()
-
-        self.ratio_buttons_group = QButtonGroup()
-        self.ratio_buttons_layout = QGridLayout()
-        self.ratio_buttons_layout.setSpacing(10)
-
-        self.load_ratio_buttons("1024")  # 默认加载1024规格
-        ratio_layout.addLayout(self.ratio_buttons_layout)
-        ratio_group.setLayout(ratio_layout)
-        layout.addWidget(ratio_group)
-
-        # 自定义尺寸
-        custom_group = QGroupBox("自定义尺寸")
-        custom_layout = QGridLayout()
-
-        custom_layout.addWidget(QLabel("宽度:"), 0, 0)
-        self.custom_width_spin = QSpinBox()
-        self.custom_width_spin.setRange(64, 4096)
-        self.custom_width_spin.setValue(756)
-        custom_layout.addWidget(self.custom_width_spin, 0, 1)
-
-        custom_layout.addWidget(QLabel("高度:"), 0, 2)
-        self.custom_height_spin = QSpinBox()
-        self.custom_height_spin.setRange(64, 4096)
-        self.custom_height_spin.setValue(1344)
-        custom_layout.addWidget(self.custom_height_spin, 0, 3)
-
-        self.use_custom_size_radio = RadioButton("使用自定义尺寸")
-        self.use_preset_size_radio = RadioButton("使用预设尺寸")
-        self.use_preset_size_radio.setChecked(True)
-
-        custom_layout.addWidget(self.use_preset_size_radio, 1, 0, 1, 2)
-        custom_layout.addWidget(self.use_custom_size_radio, 1, 2, 1, 2)
-
-        custom_group.setLayout(custom_layout)
-        layout.addWidget(custom_group)
-
-        # 连接信号
-        self.use_custom_size_radio.toggled.connect(self.on_size_mode_changed)
-        self.quick_size_combo.currentTextChanged.connect(self.on_quick_size_changed)
-
-        layout.addStretch()
-        return widget
-
-    def create_params_tab(self):
-        """创建生成参数选项卡"""
-        widget = QWidget()
-        layout = QVBoxLayout(widget)
-        layout.setSpacing(15)
-
-        # BizyAIR 图片参数
-        params_group = QGroupBox("图片尺寸设置 (BizyAIR)")
-        params_layout = QGridLayout()
-
-        # 宽度设置
-        params_layout.addWidget(QLabel("图片宽度:"), 0, 0)
-        self.width_spin = QSpinBox()
-        self.width_spin.setRange(256, 4096)
-        self.width_spin.setValue(1080)
-        self.width_spin.setSingleStep(64)
-        params_layout.addWidget(self.width_spin, 0, 1)
-
-        # 高度设置
-        params_layout.addWidget(QLabel("图片高度:"), 1, 0)
-        self.height_spin = QSpinBox()
-        self.height_spin.setRange(256, 4096)
-        self.height_spin.setValue(1920)
-        self.height_spin.setSingleStep(64)
-        params_layout.addWidget(self.height_spin, 1, 1)
-
-        # 预设尺寸按钮
-        preset_layout = QVBoxLayout()
-        preset_layout.addWidget(QLabel("常用尺寸:"))
-
-        preset_buttons_layout = QHBoxLayout()
-
-        # 添加常用尺寸按钮
-        common_sizes = [
-            ("竖屏 9:16", 720, 1280),
-            ("手机壁纸", 1080, 1920),
-            ("横屏 16:9", 1280, 720),
-            ("方形 1:1", 1024, 1024)
-        ]
-
-        for name, w, h in common_sizes:
-            btn = PushButton(f"{name}\n{w}x{h}")
-            btn.clicked.connect(lambda checked, width=w, height=h: self.set_image_size(width, height))
-            preset_buttons_layout.addWidget(btn)
-
-        preset_layout.addLayout(preset_buttons_layout)
-        params_layout.addLayout(preset_layout, 2, 0, 1, 2)
-
-        params_group.setLayout(params_layout)
-        layout.addWidget(params_group)
-
-        # 说明信息
-        info_group = QGroupBox("说明")
-        info_layout = QVBoxLayout()
-
-        info_text = QLabel(
-            "• BizyAIR 支持批量生成，一次生成5张图片\n"
-            "• 图片数量必须是5的倍数\n"
-            "• 宽度和高度范围：256-4096像素\n"
-            "• 建议使用竖屏尺寸以获得更好的效果"
-        )
-        info_text.setWordWrap(True)
-        info_text.setStyleSheet("color: #666; padding: 10px;")
-        info_layout.addWidget(info_text)
-
-        info_group.setLayout(info_layout)
-        layout.addWidget(info_group)
-
-        layout.addStretch()
-        return widget
-
-    def set_image_size(self, width, height):
-        """设置图片尺寸"""
-        self.width_spin.setValue(width)
-        self.height_spin.setValue(height)
-
-    
 
 # 图片预览小部件
 class ImagePreviewWidget(CardWidget):
@@ -1435,7 +1000,7 @@ class StoryboardPage(SmoothScrollArea):
         prefix_layout = QHBoxLayout()
         self.prompt_prefix_edit = LineEdit()
         self.prompt_prefix_edit.setPlaceholderText("统一的风格关键词")
-        self.prompt_prefix_edit.setText("Face the camera, showing the upper body")
+        self.prompt_prefix_edit.setText("Face the camera, showing the upper body,")
         self.prompt_prefix_edit.setFixedHeight(32)
         prefix_layout.addWidget(self.prompt_prefix_edit)
         prefix_group.setLayout(prefix_layout)
@@ -1664,12 +1229,6 @@ class StoryboardPage(SmoothScrollArea):
         self.width_spin.setValue(width)
         self.height_spin.setValue(height)
 
-    def show_image_params(self):
-        """显示图片参数设置对话框"""
-        dialog = ImageParamsDialog(self)
-        if dialog.exec_() == QDialog.Accepted:
-            params = dialog.get_params()
-            # 参数已自动保存到配置中
 
     def generate_titles(self):
         """生成分镜标题"""
@@ -2049,7 +1608,16 @@ class StoryboardPage(SmoothScrollArea):
         while len(self.current_prompts) < self.image_count_spin.value():
             self.current_prompts.append(self.current_prompts[-1] if self.current_prompts else "")
 
-        self.start_image_generation()
+        # 获取当前尺寸设置    
+        width = self.width_spin.value()
+        height = self.height_spin.value()
+
+        # 更新 BizyAIR 默认配置
+        config_manager.set('bizyair_params.default_width', width)
+        config_manager.set('bizyair_params.default_height', height)
+        config_manager.save_config()
+
+        self.start_image_generation(width, height) # 传递尺寸参数
 
     def _is_chinese_text(self, text):
         """检查文本是否包含中文"""
@@ -2082,13 +1650,71 @@ class StoryboardPage(SmoothScrollArea):
         for i in reversed(range(self.image_grid_layout.count())):
             self.image_grid_layout.itemAt(i).widget().setParent(None)
 
-        # 启动图片生成
+        # 启动图片生成 (批量一次性发送)
         self.generate_images_btn.setEnabled(False)
         self.image_progress.setValue(0)
         self.image_status_label.setText("准备生成图片...")
+        
+        # 获取图片数量（必须是 5 的倍数）
+        image_count = self.image_count_spin.value()
+
+        # 创建图片生成worker (一次性发送所有提示词)
+        self.image_worker = ImageGenerationWorker(
+            self.current_prompts,
+            width,
+            height,
+            image_count
+        )
+        # 连接信号
+        # 注意：这里的 on_single_image_generated 实际上是接收批量生成的 URL
+        self.image_worker.progress_updated.connect(self.on_batch_image_progress)
+        self.image_worker.image_generated.connect(self.on_batch_image_url_received)
+        self.image_worker.finished.connect(self.on_all_images_finished)
+
+        # 启动worker
+        self.image_worker.start()
 
         # 开始第一个图片生成
         QTimer.singleShot(500, self.generate_next_image)
+
+    def on_batch_image_progress(self, progress, msg):
+        """批量图片生成进度"""
+        self.image_progress.setValue(progress)
+        self.image_status_label.setText(msg)
+
+    def on_batch_image_url_received(self, index, image, url):
+        """接收单个图片 URL 并更新显示"""
+        if index < len(self.image_widgets):
+            self.image_widgets[index].set_image(image, url)
+
+    def on_all_images_finished(self, success, images, urls):
+        """所有图片生成完成"""
+        self.generate_images_btn.setEnabled(True)
+        self.image_progress.setValue(100 if success else 0)
+
+        if success:
+            self.image_status_label.setText("图片生成完成！")
+            # 统计成功的数量
+            success_count = sum(1 for url in urls if url)
+            QMessageBox.information(self, "成功", f"成功生成 {success_count}/{len(urls)} 张图片！")
+        else:
+            self.image_status_label.setText("图片生成失败")
+            QMessageBox.critical(self, "错误", "图片生成失败")
+
+        if hasattr(self, 'all_generation_step') and self.all_generation_step == 4:
+            self.generate_all_btn.setEnabled(True)
+            self.all_generation_step = 0 # 重置
+
+    # def on_all_images_finished(self):
+    #     """所有图片生成完成"""
+    #     print("\n[DEBUG] 所有图片生成完成")
+    #     self.image_status_label.setText("图片生成完成！")
+    #     self.image_progress.setValue(100)
+    #     self.generate_images_btn.setEnabled(True)
+
+    #     # 统计成功生成的图片数量
+    #     success_count = sum(1 for img in self.current_images if img is not None)
+    #     QMessageBox.information(self, "成功", f"成功生成 {success_count}/{self.total_images} 张图片！")
 
     def generate_next_image(self):
         """生成下一张图片"""
@@ -2166,17 +1792,6 @@ class StoryboardPage(SmoothScrollArea):
             # 继续下一张
             self.current_image_index += 1
             QTimer.singleShot(1000, self.generate_next_image)
-
-    def on_all_images_finished(self):
-        """所有图片生成完成"""
-        print("\n[DEBUG] 所有图片生成完成")
-        self.image_status_label.setText("图片生成完成！")
-        self.image_progress.setValue(100)
-        self.generate_images_btn.setEnabled(True)
-
-        # 统计成功生成的图片数量
-        success_count = sum(1 for img in self.current_images if img is not None)
-        QMessageBox.information(self, "成功", f"成功生成 {success_count}/{self.total_images} 张图片！")
 
     def update_single_image_display(self, index, image):
         """更新单张图片显示"""
