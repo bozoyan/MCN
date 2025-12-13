@@ -344,8 +344,8 @@ thread_manager = ThreadManager()
 class TextGenerationWorker(QThread):
     """文本生成工作线程"""
     progress_updated = pyqtSignal(str)
-    reasoning_updated = pyqtSignal(str)
-    finished = pyqtSignal(bool, str, str)
+    content_updated = pyqtSignal(str)  # 实时更新生成的内容
+    finished = pyqtSignal(bool, str)
 
     def __init__(self, content, system_prompt, model_id=None):
         super().__init__()
@@ -353,6 +353,7 @@ class TextGenerationWorker(QThread):
         self.system_prompt = system_prompt
         self.model_id = model_id or config_manager.get('api.text_model', 'Qwen/Qwen3-Coder-480B-A35B-Instruct')
         self.is_cancelled = False
+        self.start_time = None
 
     def cancel(self):
         """取消任务"""
@@ -361,12 +362,18 @@ class TextGenerationWorker(QThread):
     def run(self):
         """运行文本生成"""
         try:
+            # 记录开始时间
+            self.start_time = time.time()
+            print(f"[{time.strftime('%H:%M:%S')}] 开始生成内容...")
+            print(f"[{time.strftime('%H:%M:%S')}] 模型: {self.model_id}")
+            print(f"[{time.strftime('%H:%M:%S')}] 输入长度: {len(self.content)} 字符")
+
             # 发送初始状态
             self.progress_updated.emit("正在初始化AI模型...")
 
             api_key = config_manager.get('api.api_key', MODEL_API_KEY)
             if not api_key:
-                self.finished.emit(False, "", "API密钥未配置")
+                self.finished.emit(False, "API密钥未配置")
                 return
 
             client = OpenAI(
@@ -392,11 +399,8 @@ class TextGenerationWorker(QThread):
                 stream=True
             )
 
-            reasoning_text = ""
-            final_answer = ""
-            done_reasoning = False
-            update_counter = 0
-            last_ui_update_time = time.time()
+            content_text = ""
+            char_count = 0
 
             # 处理流式响应
             for chunk in response:
@@ -413,47 +417,43 @@ class TextGenerationWorker(QThread):
                         continue
 
                     delta = choice.delta
-                    reasoning_chunk = getattr(delta, 'reasoning_content', None)
-                    answer_chunk = getattr(delta, 'content', None)
+                    content_chunk = getattr(delta, 'content', None)
 
-                    if reasoning_chunk and reasoning_chunk != '':
-                        reasoning_text += reasoning_chunk
-                        update_counter += 1
+                    if content_chunk and content_chunk != '':
+                        content_text += content_chunk
+                        char_count += len(content_chunk)
 
-                        # 大幅减少更新频率：每100个chunk或间隔0.5秒更新一次
-                        current_time = time.time()
-                        if update_counter % 100 == 0 or (current_time - last_ui_update_time) >= 0.5:
-                            # 只发送最新500字符，减少UI处理负担
-                            display_text = reasoning_text[-500:] if len(reasoning_text) > 500 else reasoning_text
-                            self.reasoning_updated.emit(display_text)
-                            last_ui_update_time = current_time
+                        # 实时更新内容显示
+                        self.content_updated.emit(content_text)
 
-                    elif answer_chunk and answer_chunk != '':
-                        if not done_reasoning:
-                            done_reasoning = True
-                            # 切换到最终回答前，最后一次更新思考内容
-                            display_text = reasoning_text[-500:] if len(reasoning_text) > 500 else reasoning_text
-                            self.reasoning_updated.emit(display_text)
-                        final_answer += answer_chunk
-                        # 减少进度更新频率
-                        if len(final_answer) % 100 == 0:  # 每100字符更新一次
-                            self.progress_updated.emit(f"生成中... 已生成 {len(final_answer)} 字符")
+                        # 每500字符更新一次进度
+                        if char_count % 500 == 0:
+                            elapsed = time.time() - self.start_time
+                            speed = char_count / elapsed if elapsed > 0 else 0
+                            self.progress_updated.emit(f"生成中... 已生成 {len(content_text)} 字符 (速度: {speed:.1f} 字符/秒)")
 
                 except Exception as e:
                     logger.error(f"处理API响应时出错: {e}")
                     continue
 
+            # 计算总用时
+            elapsed_time = time.time() - self.start_time
+            print(f"[{time.strftime('%H:%M:%S')}] 生成完成！")
+            print(f"[{time.strftime('%H:%M:%S')}] 输出长度: {len(content_text)} 字符")
+            print(f"[{time.strftime('%H:%M:%S')}] 总用时: {elapsed_time:.2f} 秒")
+            print(f"[{time.strftime('%H:%M:%S')}] 平均速度: {len(content_text)/elapsed_time:.1f} 字符/秒")
+            print("-" * 50)
+
             # 确保最终结果被发送
             if not self.is_cancelled:
-                if reasoning_text and not done_reasoning:
-                    self.reasoning_updated.emit(reasoning_text)
-                self.finished.emit(True, reasoning_text, final_answer)
+                self.finished.emit(True, content_text)
             else:
-                self.finished.emit(False, "", "任务已取消")
+                self.finished.emit(False, "任务已取消")
 
         except Exception as e:
             logger.error(f"文本生成失败: {e}")
-            self.finished.emit(False, "", f"生成失败: {str(e)}")
+            print(f"[{time.strftime('%H:%M:%S')}] 生成失败: {str(e)}")
+            self.finished.emit(False, f"生成失败: {str(e)}")
 
 # 图片生成工作线程（使用新的异步接口）
 class ImageGenerationWorker(QThread):
@@ -1369,11 +1369,6 @@ class StoryboardPage(SmoothScrollArea):
         title_btn_layout.addWidget(self.title_progress)
         title_layout.addLayout(title_btn_layout)
 
-        self.title_thinking_edit = QTextEdit()
-        self.title_thinking_edit.setPlaceholderText("AI思考过程...")
-        self.title_thinking_edit.setMaximumHeight(100)
-        title_layout.addWidget(self.title_thinking_edit)
-
         self.title_output_edit = QTextEdit()
         self.title_output_edit.setPlaceholderText("生成的分镜标题将显示在这里...")
         self.title_output_edit.setMinimumHeight(120)
@@ -1402,11 +1397,6 @@ class StoryboardPage(SmoothScrollArea):
         self.summary_progress.setFixedHeight(8)
         summary_btn_layout.addWidget(self.summary_progress)
         summary_layout.addLayout(summary_btn_layout)
-
-        self.summary_thinking_edit = QTextEdit()
-        self.summary_thinking_edit.setPlaceholderText("AI思考过程...")
-        self.summary_thinking_edit.setMaximumHeight(100)
-        summary_layout.addWidget(self.summary_thinking_edit)
 
         self.summary_output_edit = QTextEdit()
         self.summary_output_edit.setPlaceholderText("生成的分镜描述将显示在这里...")
@@ -1499,11 +1489,6 @@ class StoryboardPage(SmoothScrollArea):
         self.prompt_progress.setFixedHeight(8)
         prompt_btn_layout.addWidget(self.prompt_progress)
         generate_layout.addLayout(prompt_btn_layout)
-
-        self.prompt_thinking_edit = QTextEdit()
-        self.prompt_thinking_edit.setPlaceholderText("AI思考过程...")
-        self.prompt_thinking_edit.setMaximumHeight(80)
-        generate_layout.addWidget(self.prompt_thinking_edit)
 
         # 生成的绘图提示词显示区
         prompts_label = QLabel("绘图提示词 (可编辑):")
@@ -1615,11 +1600,8 @@ class StoryboardPage(SmoothScrollArea):
     def clear_content(self):
         """清空内容"""
         self.content_edit.clear()
-        self.title_thinking_edit.clear()
         self.title_output_edit.clear()
-        self.summary_thinking_edit.clear()
         self.summary_output_edit.clear()
-        self.prompt_thinking_edit.clear()
         self.generated_prompts_edit.clear()  # 清空提示词显示框
         self.current_titles.clear()
         self.current_summaries.clear()
@@ -1659,41 +1641,63 @@ class StoryboardPage(SmoothScrollArea):
         template = config_manager.get_template('story_title')
         system_prompt = template.get('template', '')
 
+        print(f"[DEBUG] generate_titles called with content: {content[:50]}...")
         self.generate_title_btn.setEnabled(False)
         self.title_progress.setValue(0)
-        self.title_thinking_edit.clear()
 
         worker = TextGenerationWorker(content, system_prompt)
         # 使用 unique_connection 避免重复连接
-        worker.reasoning_updated.connect(self.update_title_thinking, Qt.UniqueConnection)
+        print(f"[DEBUG] Connecting signals...")
+        worker.content_updated.connect(self.update_title_content, Qt.UniqueConnection)
         worker.progress_updated.connect(self.update_title_progress, Qt.UniqueConnection)
         worker.finished.connect(self.on_titles_finished, Qt.UniqueConnection)
+        print(f"[DEBUG] Signals connected")
 
         # 添加到线程管理器
         thread_manager.add_worker(worker)
 
+        print(f"[DEBUG] Starting worker thread...")
         worker.start()
 
-    def update_title_thinking(self, text):
-        """更新标题思考过程"""
-        # 直接设置文本，减少处理开销
-        self.title_thinking_edit.setPlainText(text)
+    def update_title_content(self, text):
+        """实时更新标题内容"""
+        print(f"[DEBUG] update_title_content called: {len(text)} chars")
+        # 直接在输出框显示生成的内容
+        self.title_output_edit.setPlainText(text)
+        # 滚动到底部
+        cursor = self.title_output_edit.textCursor()
+        cursor.movePosition(cursor.End)
+        self.title_output_edit.setTextCursor(cursor)
 
     def update_title_progress(self, msg):
         """更新标题生成进度"""
-        if "生成中" in msg:
-            self.title_progress.setValue(50)
-        else:
+        print(f"[DEBUG] update_title_progress called: {msg}")
+        if "初始化" in msg:
             self.title_progress.setRange(0, 0)  # 显示忙碌状态
+        elif "生成中" in msg:
+            self.title_progress.setRange(0, 100)
+            # 解析速度信息
+            if "速度" in msg:
+                import re
+                speed_match = re.search(r'速度: ([\d.]+) 字符/秒', msg)
+                if speed_match:
+                    speed = float(speed_match.group(1))
+                    self.title_progress.setValue(min(90, int(speed * 2)))  # 根据速度设置进度
+                else:
+                    self.title_progress.setValue(50)
+            else:
+                self.title_progress.setValue(50)
 
-    def on_titles_finished(self, success, reasoning, result):
+    def on_titles_finished(self, success, result):
         """分镜标题生成完成"""
+        print(f"[DEBUG] on_titles_finished called: success={success}, result_length={len(result) if result else 0}")
         self.generate_title_btn.setEnabled(True)
         self.title_progress.setRange(0, 100)  # 恢复正常进度条
         self.title_progress.setValue(100 if success else 0)
 
         if success:
-            self.title_output_edit.setText(result)
+            # 内容已经通过content_updated实时显示，这里确保最终结果正确
+            self.title_output_edit.setPlainText(result)
             # 解析标题列表
             titles = [t.strip() for t in result.split('\n') if t.strip()]
             if len(titles) >= self.image_count_spin.value():
@@ -1726,11 +1730,10 @@ class StoryboardPage(SmoothScrollArea):
 
         self.generate_summary_btn.setEnabled(False)
         self.summary_progress.setValue(0)
-        self.summary_thinking_edit.clear()
 
         worker = TextGenerationWorker(titles_text, system_prompt)
         # 使用 unique_connection 避免重复连接
-        worker.reasoning_updated.connect(self.update_summary_thinking, Qt.UniqueConnection)
+        worker.content_updated.connect(self.update_summary_content, Qt.UniqueConnection)
         worker.progress_updated.connect(self.update_summary_progress, Qt.UniqueConnection)
         worker.finished.connect(self.on_summaries_finished, Qt.UniqueConnection)
 
@@ -1739,10 +1742,14 @@ class StoryboardPage(SmoothScrollArea):
 
         worker.start()
 
-    def update_summary_thinking(self, text):
-        """更新描述思考过程"""
-        # 直接设置文本，减少处理开销
-        self.summary_thinking_edit.setPlainText(text)
+    def update_summary_content(self, text):
+        """实时更新描述内容"""
+        # 直接在输出框显示生成的内容
+        self.summary_output_edit.setPlainText(text)
+        # 滚动到底部
+        cursor = self.summary_output_edit.textCursor()
+        cursor.movePosition(cursor.End)
+        self.summary_output_edit.setTextCursor(cursor)
 
     def update_summary_progress(self, msg):
         """更新描述生成进度"""
@@ -1751,14 +1758,15 @@ class StoryboardPage(SmoothScrollArea):
         else:
             self.summary_progress.setRange(0, 0)  # 显示忙碌状态
 
-    def on_summaries_finished(self, success, reasoning, result):
+    def on_summaries_finished(self, success, result):
         """分镜描述生成完成"""
         self.generate_summary_btn.setEnabled(True)
         self.summary_progress.setRange(0, 100)  # 恢复正常进度条
         self.summary_progress.setValue(100 if success else 0)
 
         if success:
-            self.summary_output_edit.setText(result)
+            # 内容已经通过content_updated实时显示，这里确保最终结果正确
+            self.summary_output_edit.setPlainText(result)
             # 解析描述列表
             summaries = [s.strip() for s in result.split('\n') if s.strip()]
             if len(summaries) >= self.image_count_spin.value():
@@ -1792,7 +1800,6 @@ class StoryboardPage(SmoothScrollArea):
         self.prompt_progress.setValue(0)
         self.prompt_progress.setRange(0, 0)  # 显示忙碌状态
         self.current_prompts.clear()
-        self.prompt_thinking_edit.clear()
 
         # 为每个分镜描述生成提示词
         self.prompt_worker_threads = []
@@ -1803,12 +1810,12 @@ class StoryboardPage(SmoothScrollArea):
             if self.current_summaries[i]:
                 worker = TextGenerationWorker(self.current_summaries[i], system_prompt)
                 # 使用 unique_connection 并指定连接类型
-                worker.reasoning_updated.connect(
-                    lambda text, idx=i: self.update_prompt_thinking(idx, text),
+                worker.content_updated.connect(
+                    lambda text, idx=i: self.update_prompt_content(idx, text),
                     Qt.UniqueConnection
                 )
                 worker.finished.connect(
-                    lambda success, reasoning, result, idx=i: self.on_prompt_finished(idx, success, reasoning, result),
+                    lambda success, result, idx=i: self.on_prompt_finished(idx, success, result),
                     Qt.UniqueConnection
                 )
                 self.prompt_worker_threads.append(worker)
@@ -1816,21 +1823,13 @@ class StoryboardPage(SmoothScrollArea):
                 thread_manager.add_worker(worker)
                 worker.start()
 
-    def update_prompt_thinking(self, index, text):
-        """更新提示词思考过程"""
-        if index == 0:  # 只显示第一个的思考过程
-            # 限制显示长度，避免UI卡死
-            if len(text) > 1500:
-                text = text[-1500:]
-                if not text.startswith("..."):
-                    text = "..." + text
-            # 使用setPlainText而不是append，减少UI更新
-            cursor = self.prompt_thinking_edit.textCursor()
-            self.prompt_thinking_edit.setPlainText(text)
-            cursor.movePosition(cursor.End)
-            self.prompt_thinking_edit.setTextCursor(cursor)
+    def update_prompt_content(self, index, text):
+        """实时更新提示词内容"""
+        if index == 0:  # 只在第一个提示词生成时显示实时内容
+            # 可以选择是否显示实时生成过程
+            pass  # 暂时不显示，等待所有完成后一起显示
 
-    def on_prompt_finished(self, index, success, reasoning, result):
+    def on_prompt_finished(self, index, success, result):
         """单个提示词生成完成"""
         if success:
             # 添加前缀
