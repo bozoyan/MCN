@@ -85,11 +85,13 @@ class AdvancedConfigManager:
                 "api_key": MODEL_API_KEY or ""
             },
             "image_models": {
-                "default": "bozoyan/F_fei",
+                "default": "Tongyi-MAI/Z-Image-Turbo",
                 "available": [
+                    {"name": "Z-Image", "id": "Tongyi-MAI/Z-Image-Turbo", "speed": "10s"},
+                    {"name": "Qwen-Image", "id": "Qwen/Qwen-Image", "speed": "10s"},
                     {"name": "Flux", "id": "bozoyan/F_fei", "speed": "60s"},
-                    {"name": "SDXL", "id": "AI-ModelScope/stable-diffusion-xl-base-1.0", "speed": "20s"},
-                    {"name": "SD1.5", "id": "AI-ModelScope/stable-diffusion-v1-5", "speed": "10s"}
+                    {"name": "SDXL", "id": "bozoyan/mesmerAsianRelustion_pony", "speed": "20s"},
+                    {"name": "SD1.5", "id": "MusePublic/majicMIX_realistic_maijuxieshi_SD_1_5", "speed": "10s"}
                 ],
                 "custom": []
             },
@@ -224,8 +226,8 @@ Close-up, high angle, slow pan. From above, a rusty, single-blue-eyed abandoned 
             },
             "ui": {
                 "theme": "dark",
-                "window_width": 1600,
-                "window_height": 1000,
+                "window_width": 1440,
+                "window_height": 940,
                 "default_image_count": 9
             },
             "directories": {
@@ -444,7 +446,7 @@ class TextGenerationWorker(QThread):
             logger.error(f"文本生成失败: {e}")
             self.finished.emit(False, "", f"生成失败: {str(e)}")
 
-# 图片生成工作线程
+# 图片生成工作线程（使用新的异步接口）
 class ImageGenerationWorker(QThread):
     """图片生成工作线程"""
     progress_updated = pyqtSignal(int, str)
@@ -473,7 +475,11 @@ class ImageGenerationWorker(QThread):
                 self.finished.emit(False, [], [])
                 return
 
-            url = 'https://api-inference.modelscope.cn/v1/images/generations'
+            base_url = 'https://api-inference.modelscope.cn/v1'
+            common_headers = {
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+            }
 
             # 准备保存目录
             model_name = self.model_id.split('/')[-1] if '/' in self.model_id else self.model_id
@@ -482,60 +488,101 @@ class ImageGenerationWorker(QThread):
 
             timestamp = datetime.now().strftime('%m%d%H%M%S')
 
-            for i in range(self.image_count):
-                if self.is_cancelled:
-                    break
+            # 并发生成图片（最多3个线程）
+            from concurrent.futures import ThreadPoolExecutor, as_completed
+            max_workers = min(3, self.image_count)
 
-                self.progress_updated.emit(int((i / self.image_count) * 80), f"正在生成第 {i+1} 张图片...")
+            def generate_single_image(index, prompt):
+                """生成单张图片"""
+                try:
+                    # 提交异步任务
+                    response = requests.post(
+                        f"{base_url}/images/generations",
+                        headers={**common_headers, "X-ModelScope-Async-Mode": "true"},
+                        data=json.dumps({
+                            "model": self.model_id,
+                            "prompt": prompt,
+                            "n": 1,
+                            "negative_prompt": self.params.get('negative_prompt', ''),
+                            "steps": int(self.params.get('steps', 30)),
+                            "guidance": float(self.params.get('guidance', 3.5)),
+                            "sampler": self.params.get('sampler', 'Euler'),
+                            "size": self.params.get('size', '756x1344')
+                        }, ensure_ascii=False).encode('utf-8'),
+                        timeout=30
+                    )
 
-                payload = {
-                    'model': self.model_id,
-                    'prompt': self.prompts[i],
-                    'n': 1,
-                    'negative_prompt': self.params.get('negative_prompt', ''),
-                    'steps': int(self.params.get('steps', 30)),
-                    'guidance': float(self.params.get('guidance', 3.5)),
-                    'sampler': self.params.get('sampler', 'Euler'),
-                    'size': self.params.get('size', '900x1600')
-                }
+                    response.raise_for_status()
+                    task_id = response.json()["task_id"]
 
-                headers = {
-                    'Authorization': f'Bearer {api_key}',
-                    'Content-Type': 'application/json'
-                }
+                    # 轮询任务状态
+                    max_wait_time = 300  # 最大等待5分钟
+                    wait_time = 0
 
-                response = requests.post(
-                    url,
-                    data=json.dumps(payload, ensure_ascii=False).encode('utf-8'),
-                    headers=headers,
-                    timeout=120
-                )
+                    while wait_time < max_wait_time and not self.is_cancelled:
+                        result = requests.get(
+                            f"{base_url}/tasks/{task_id}",
+                            headers={**common_headers, "X-ModelScope-Task-Type": "image_generation"},
+                            timeout=10
+                        )
+                        result.raise_for_status()
+                        data = result.json()
 
-                self.progress_updated.emit(int((i / self.image_count) * 80) + 10, f"下载第 {i+1} 张图片...")
+                        if data["task_status"] == "SUCCEED":
+                            # 下载图片
+                            img_response = requests.get(data["output_images"][0], timeout=30)
+                            if img_response.status_code == 200:
+                                img = Image.open(BytesIO(img_response.content))
 
-                if response.status_code == 200:
-                    response_data = response.json()
-                    if 'images' in response_data and len(response_data['images']) > 0:
-                        image_url = response_data['images'][0]['url']
-                        self.image_urls[i] = image_url
+                                # 保存图片
+                                img_path = os.path.join(save_dir, f"{timestamp}_{index+1}.png")
+                                img.save(img_path)
+                                logger.info(f"图片已保存: {img_path}")
 
-                        img_response = requests.get(image_url, timeout=60)
-                        if img_response.status_code == 200:
-                            img = Image.open(BytesIO(img_response.content))
-                            self.images[i] = img
-
-                            # 保存图片到本地
-                            img_path = os.path.join(save_dir, f"{timestamp}_{i+1}.png")
-                            img.save(img_path)
-                            logger.info(f"图片已保存: {img_path}")
-
-                            self.image_generated.emit(i, img, image_url)
+                                return index, img, data["output_images"][0]
+                            break
+                        elif data["task_status"] == "FAILED":
+                            logger.error(f"图片生成失败: {data.get('message', '未知错误')}")
+                            return index, None, None
+                        elif data["task_status"] in ["PENDING", "RUNNING"]:
+                            time.sleep(5)
+                            wait_time += 5
                         else:
-                            logger.error(f"下载图片失败: {img_response.status_code}")
-                    else:
-                        logger.error(f"生成图片失败: 响应中没有图片数据")
-                else:
-                    logger.error(f"生成图片失败: {response.status_code} - {response.text}")
+                            logger.error(f"未知任务状态: {data['task_status']}")
+                            return index, None, None
+
+                    if wait_time >= max_wait_time:
+                        logger.error(f"图片生成超时")
+                        return index, None, None
+
+                except Exception as e:
+                    logger.error(f"生成第 {index+1} 张图片失败: {e}")
+                    return index, None, None
+
+            # 使用线程池并发生成
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                futures = []
+
+                for i in range(self.image_count):
+                    if not self.is_cancelled:
+                        future = executor.submit(generate_single_image, i, self.prompts[i])
+                        futures.append(future)
+
+                # 处理结果
+                for future in as_completed(futures):
+                    if self.is_cancelled:
+                        break
+
+                    index, img, url = future.result()
+                    if img and url:
+                        self.images[index] = img
+                        self.image_urls[index] = url
+                        self.image_generated.emit(index, img, url)
+
+                    # 更新进度
+                    completed = sum(1 for img in self.images if img is not None)
+                    progress = int((completed / self.image_count) * 90) + 10
+                    self.progress_updated.emit(progress, f"已完成 {completed}/{self.image_count} 张图片")
 
             self.progress_updated.emit(100, "图片生成完成!")
             self.finished.emit(not self.is_cancelled, self.images, self.image_urls)
