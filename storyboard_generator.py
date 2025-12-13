@@ -1115,7 +1115,7 @@ class StoryboardPage(SmoothScrollArea):
             self.height_spin.setValue(height)
             
         # 必须在操作结束后重置为 index 0，防止 ComboBox 内部尝试将数据渲染为图标
-        QTimer.singleShot(100, lambda: self.resolution_combo.setCurrentIndex(0)) 
+        QTimer.singleShot(250, lambda: self.resolution_combo.setCurrentIndex(0)) 
         
     @pyqtSlot(int) # 修正：接收 index
     def set_aspect_ratio(self, index):
@@ -1144,7 +1144,7 @@ class StoryboardPage(SmoothScrollArea):
             self.height_spin.setValue(new_height)
 
         # 必须在操作结束后重置为 index 0，防止 ComboBox 内部尝试将数据渲染为图标
-        QTimer.singleShot(100, lambda: self.aspect_ratio_combo.setCurrentIndex(0)) 
+        QTimer.singleShot(250, lambda: self.aspect_ratio_combo.setCurrentIndex(0)) 
     # --- 尺寸预设逻辑结束 ---
     
     def create_right_panel(self):
@@ -1283,12 +1283,12 @@ class StoryboardPage(SmoothScrollArea):
         self.current_titles.clear()
         self.current_summaries.clear()
         self.current_prompts.clear()
-        self.all_generation_step = 0
+        # self.all_generation_step = 0
         self.image_progress.setValue(0)
         self.image_status_label.setText("准备就绪")
         
         self.init_image_widgets()
-        self.top_control_bar.set_generate_enabled(True)
+        # self.top_control_bar.set_generate_enabled(True)
 
 
     def load_example(self):
@@ -1695,7 +1695,13 @@ class StoryboardPage(SmoothScrollArea):
 
         self.top_control_bar.set_generate_enabled(False) # 禁用一键生成按钮和导出按钮
         self.all_generation_step = 0
-        self.clear_content() # 清空所有旧内容
+        # self.clear_content() # 清空所有旧内容
+        self.title_output_edit.clear()
+        self.summary_output_edit.clear()
+        self.generated_prompts_edit.clear()
+        self.image_progress.setValue(0)
+        self.image_status_label.setText("准备就绪")
+        self.init_image_widgets()
 
         # 1. 生成标题
         QTimer.singleShot(100, self.step_generate_titles)
