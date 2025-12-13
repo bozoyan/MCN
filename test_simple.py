@@ -7,7 +7,7 @@ from PyQt5.QtCore import Qt, QThread, pyqtSignal
 from openai import OpenAI
 
 # API配置
-API_KEY = "34d485db-f0a1-464f-adae-213c70ea8dec"
+API_KEY = ""
 
 class SimpleTestWorker(QThread):
     """简化的测试工作线程"""
