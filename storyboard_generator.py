@@ -28,7 +28,7 @@ from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                             QDialog, QDialogButtonBox, QFormLayout, QTabWidget,
                             QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView,
                             QListWidget, QListWidgetItem, QSlider, QToolButton,
-                            QSpinBox, QDoubleSpinBox, QSizePolicy)
+                            QSpinBox, QDoubleSpinBox, QSizePolicy, QButtonGroup)
 from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer, QUrl, QSettings, QSize, pyqtSlot
 from PyQt5.QtGui import QFont, QIcon, QDesktopServices, QPixmap, QImage, QPainter, QTextCursor
 from qfluentwidgets import (FluentIcon, NavigationInterface, NavigationItemPosition,
@@ -90,6 +90,82 @@ class AdvancedConfigManager:
                     {"name": "Flux", "id": "bozoyan/F_fei", "speed": "60s"},
                     {"name": "SDXL", "id": "AI-ModelScope/stable-diffusion-xl-base-1.0", "speed": "20s"},
                     {"name": "SD1.5", "id": "AI-ModelScope/stable-diffusion-v1-5", "speed": "10s"}
+                ],
+                "custom": []
+            },
+            "image_sizes": {
+                "presets": {
+                    "768": {
+                        "name": "768规格",
+                        "ratios": {
+                            "1:1": "768x768",
+                            "1:2": "542x1084",
+                            "2:3": "624x936",
+                            "2:5": "484x1210",
+                            "3:4": "664x886",
+                            "3:5": "588x980",
+                            "4:5": "672x840",
+                            "9:16": "566x1006"
+                        }
+                    },
+                    "1024": {
+                        "name": "1024规格",
+                        "ratios": {
+                            "1:1": "1024x1024",
+                            "1:2": "724x1448",
+                            "2:3": "816x1224",
+                            "2:5": "646x1615",
+                            "3:4": "834x1112",
+                            "3:5": "768x1280",
+                            "4:5": "880x1100",
+                            "9:16": "756x1344"
+                        }
+                    },
+                    "1240": {
+                        "name": "1240规格",
+                        "ratios": {
+                            "1:1": "1240x1240",
+                            "1:2": "876x1752",
+                            "2:3": "992x1488",
+                            "2:5": "784x1960",
+                            "4:3": "1344x1008",
+                            "3:5": "952x1586",
+                            "4:5": "1072x1340",
+                            "9:16": "914x1624"
+                        }
+                    },
+                    "1280": {
+                        "name": "1280规格",
+                        "ratios": {
+                            "1:1": "1280x1280",
+                            "1:2": "904x1808",
+                            "2:3": "1020x1530",
+                            "2:5": "808x2020",
+                            "3:4": "1044x1392",
+                            "3:5": "984x1640",
+                            "4:5": "1104x1380",
+                            "9:16": "944x1678"
+                        }
+                    },
+                    "1536": {
+                        "name": "1536规格",
+                        "ratios": {
+                            "1:1": "1536x1536",
+                            "1:2": "1086x2172",
+                            "2:3": "1224x1836",
+                            "2:5": "970x2424",
+                            "3:4": "1254x1672",
+                            "3:5": "1152x1920",
+                            "4:5": "1320x1650",
+                            "9:16": "1134x2016"
+                        }
+                    }
+                },
+                "default_size": "756x1344",
+                "common_sizes": [
+                    {"name": "竖屏9:16", "size": "756x1344", "category": "1024"},
+                    {"name": "方形1:1", "size": "1024x1024", "category": "1024"},
+                    {"name": "手机壁纸", "size": "1080x1920", "category": "custom"}
                 ]
             },
             "image_params": {
@@ -97,9 +173,10 @@ class AdvancedConfigManager:
                     "steps": 30,
                     "guidance": 3.5,
                     "sampler": "Euler",
-                    "size": "900x1600",
+                    "size": "756x1344",
                     "negative_prompt": "lowres, bad anatomy, bad hands, text, error, missing fingers, extra digit, fewer digits, cropped, worst quality, low quality, normal quality, jpeg artifacts, signature, watermark, username, blurry,(worst quality:2),(low quality:2),(normal quality:2),lowres,normal quality,((monochrome)),((grayscale)),skin spots,acnes,skin blemishes,age spot,(ugly:1.33),(duplicate:1.33),(morbid:1.21),(mutilated:1.21),(tranny:1.33),mutated hands,(poorly drawn hands:1.5),blurry,(bad anatomy:1.21),(bad proportions:1.33),extra limbs,(disfigured:1.33),(missing arms:1.33),(extra legs:1.33),(fused fingers:1.61),(too many fingers:1.61),(unclear eyes:1.33),lowers,bad hands,missing fingers,extra digit,bad hands,missing fingers,(((extra arms and legs))),DeepNegativeV1.x_V175T,EasyNegative,EasyNegativeV2,"
-                }
+                },
+                "last_used": {}
             },
             "prompt_templates": {
                 "story_title": {
@@ -210,6 +287,57 @@ Close-up, high angle, slow pan. From above, a rusty, single-blue-eyed abandoned 
 # 全局配置管理器
 config_manager = AdvancedConfigManager()
 
+# 线程管理器
+class ThreadManager:
+    """线程管理器，负责管理所有活跃的工作线程"""
+
+    def __init__(self):
+        self.active_workers = []
+        self.lock = threading.Lock()
+
+    def add_worker(self, worker):
+        """添加新的工作线程"""
+        with self.lock:
+            # 清理已完成的线程
+            self.cleanup()
+            # 添加新线程
+            self.active_workers.append(worker)
+            logger.info(f"添加新线程，当前活跃线程数: {len(self.active_workers)}")
+
+    def cleanup(self):
+        """清理已完成的线程"""
+        with self.lock:
+            # 过滤出仍在运行的线程
+            before_count = len(self.active_workers)
+            self.active_workers = [w for w in self.active_workers if w.isRunning()]
+            after_count = len(self.active_workers)
+
+            if before_count != after_count:
+                logger.info(f"清理了 {before_count - after_count} 个已完成的线程")
+
+    def cancel_all(self):
+        """取消所有活跃线程"""
+        with self.lock:
+            for worker in self.active_workers:
+                if hasattr(worker, 'cancel'):
+                    worker.cancel()
+                if hasattr(worker, 'quit'):
+                    worker.quit()
+                if hasattr(worker, 'wait'):
+                    worker.wait(1000)  # 等待最多1秒
+
+            self.active_workers.clear()
+            logger.info("已取消所有活跃线程")
+
+    def get_active_count(self):
+        """获取活跃线程数量"""
+        with self.lock:
+            self.cleanup()
+            return len(self.active_workers)
+
+# 全局线程管理器
+thread_manager = ThreadManager()
+
 # 文本生成工作线程
 class TextGenerationWorker(QThread):
     """文本生成工作线程"""
@@ -243,12 +371,8 @@ class TextGenerationWorker(QThread):
                 api_key=api_key,
             )
 
-            extra_body = {
-                "enable_thinking": config_manager.get('api.enable_thinking', True)
-            }
-
             self.progress_updated.emit("正在生成内容...")
-            
+
             response = client.chat.completions.create(
                 model=self.model_id,
                 messages=[
@@ -261,8 +385,7 @@ class TextGenerationWorker(QThread):
                         'content': self.content
                     }
                 ],
-                stream=True,
-                extra_body=extra_body
+                stream=True
             )
 
             reasoning_text = ""
@@ -273,17 +396,35 @@ class TextGenerationWorker(QThread):
                 if self.is_cancelled:
                     break
 
-                reasoning_chunk = chunk.choices[0].delta.reasoning_content
-                answer_chunk = chunk.choices[0].delta.content
+                try:
+                    # 安全访问API响应
+                    if not chunk.choices or len(chunk.choices) == 0:
+                        logger.warning("收到空的choices数组")
+                        continue
 
-                if reasoning_chunk:
-                    reasoning_text += reasoning_chunk
-                    self.reasoning_updated.emit(reasoning_text)
-                elif answer_chunk:
-                    if not done_reasoning:
-                        done_reasoning = True
-                    final_answer += answer_chunk
-                    self.progress_updated.emit(f"生成中... 已生成 {len(final_answer)} 字符")
+                    choice = chunk.choices[0]
+                    if not hasattr(choice, 'delta') or not choice.delta:
+                        continue
+
+                    delta = choice.delta
+                    reasoning_chunk = getattr(delta, 'reasoning_content', None)
+                    answer_chunk = getattr(delta, 'content', None)
+
+                    if reasoning_chunk and reasoning_chunk != '':
+                        reasoning_text += reasoning_chunk
+                        self.reasoning_updated.emit(reasoning_text)
+                    elif answer_chunk and answer_chunk != '':
+                        if not done_reasoning:
+                            done_reasoning = True
+                        final_answer += answer_chunk
+                        self.progress_updated.emit(f"生成中... 已生成 {len(final_answer)} 字符")
+
+                except (IndexError, AttributeError, KeyError) as e:
+                    logger.error(f"处理API响应时出错: {e}")
+                    continue
+                except Exception as e:
+                    logger.error(f"处理chunk时出现未知错误: {e}")
+                    continue
 
             if not self.is_cancelled:
                 self.finished.emit(True, reasoning_text, final_answer)
@@ -412,6 +553,7 @@ class TemplateManagerDialog(QDialog):
         template_layout = QVBoxLayout()
 
         self.template_combo = ComboBox()
+        self.template_combo.setFixedHeight(32)
         self.load_templates()
         template_layout.addWidget(QLabel("模板类型:"))
         template_layout.addWidget(self.template_combo)
@@ -424,6 +566,7 @@ class TemplateManagerDialog(QDialog):
 
         self.template_name_edit = LineEdit()
         self.template_name_edit.setPlaceholderText("模板名称")
+        self.template_name_edit.setFixedHeight(32)
         edit_layout.addWidget(QLabel("模板名称:"))
         edit_layout.addWidget(self.template_name_edit)
 
@@ -522,70 +665,34 @@ class ImageParamsDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("图片生成参数设置")
-        self.setMinimumSize(600, 500)
+        self.setMinimumSize(800, 700)
         self.init_ui()
         self.load_current_params()
 
     def init_ui(self):
         layout = QVBoxLayout(self)
+        layout.setSpacing(20)
 
-        # 模型选择
-        model_group = QGroupBox("模型选择")
-        model_layout = QGridLayout()
+        # 创建选项卡
+        self.tab_widget = QTabWidget()
 
-        model_layout.addWidget(QLabel("生成模型:"), 0, 0)
-        self.model_combo = ComboBox()
-        self.load_models()
-        model_layout.addWidget(self.model_combo, 0, 1)
+        # 模型选项卡
+        self.model_tab = self.create_model_tab()
+        self.tab_widget.addTab(self.model_tab, "🤖 模型设置")
 
-        model_layout.addWidget(QLabel("图片尺寸:"), 1, 0)
-        self.size_combo = ComboBox()
-        self.size_combo.addItems(["512x512", "768x768", "900x1600", "1024x1024", "1024x1792"])
-        model_layout.addWidget(self.size_combo, 1, 1)
+        # 尺寸选项卡
+        self.size_tab = self.create_size_tab()
+        self.tab_widget.addTab(self.size_tab, "📐 尺寸设置")
 
-        model_group.setLayout(model_layout)
-        layout.addWidget(model_group)
+        # 参数选项卡
+        self.params_tab = self.create_params_tab()
+        self.tab_widget.addTab(self.params_tab, "⚙️ 生成参数")
 
-        # 生成参数
-        params_group = QGroupBox("生成参数")
-        params_layout = QGridLayout()
-
-        params_layout.addWidget(QLabel("采样步数:"), 0, 0)
-        self.steps_spin = QSpinBox()
-        self.steps_spin.setRange(1, 100)
-        self.steps_spin.setValue(30)
-        params_layout.addWidget(self.steps_spin, 0, 1)
-
-        params_layout.addWidget(QLabel("引导强度:"), 1, 0)
-        self.guidance_spin = QDoubleSpinBox()
-        self.guidance_spin.setRange(1.0, 20.0)
-        self.guidance_spin.setValue(3.5)
-        self.guidance_spin.setSingleStep(0.5)
-        params_layout.addWidget(self.guidance_spin, 1, 1)
-
-        params_layout.addWidget(QLabel("采样器:"), 2, 0)
-        self.sampler_combo = ComboBox()
-        self.sampler_combo.addItems(["Euler", "Euler a", "Heun", "DPM2", "DPM++ 2M Karras", "DDIM"])
-        params_layout.addWidget(self.sampler_combo, 2, 1)
-
-        params_group.setLayout(params_layout)
-        layout.addWidget(params_group)
-
-        # 负面提示词
-        negative_group = QGroupBox("负面提示词")
-        negative_layout = QVBoxLayout()
-
-        self.negative_prompt_edit = QTextEdit()
-        self.negative_prompt_edit.setMaximumHeight(100)
-        self.negative_prompt_edit.setPlaceholderText("输入负面提示词...")
-        negative_layout.addWidget(self.negative_prompt_edit)
-
-        negative_group.setLayout(negative_layout)
-        layout.addWidget(negative_group)
+        layout.addWidget(self.tab_widget)
 
         # 按钮
         button_layout = QHBoxLayout()
-        
+
         reset_btn = PushButton(FluentIcon.SYNC, "重置为默认")
         reset_btn.clicked.connect(self.reset_to_default)
         button_layout.addWidget(reset_btn)
@@ -606,6 +713,212 @@ class ImageParamsDialog(QDialog):
 
         layout.addLayout(button_layout)
 
+    def create_model_tab(self):
+        """创建模型设置选项卡"""
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+        layout.setSpacing(15)
+
+        # 预设模型选择
+        preset_group = QGroupBox("预设模型")
+        preset_layout = QVBoxLayout()
+
+        model_select_layout = QHBoxLayout()
+        model_select_layout.addWidget(QLabel("选择预设模型:"))
+
+        self.model_combo = ComboBox()
+        self.model_combo.setFixedHeight(32)
+        self.model_combo.setMinimumWidth(250)
+        self.load_models()
+        model_select_layout.addWidget(self.model_combo)
+
+        preset_layout.addLayout(model_select_layout)
+        preset_group.setLayout(preset_layout)
+        layout.addWidget(preset_group)
+
+        # 自定义模型
+        custom_group = QGroupBox("自定义模型")
+        custom_layout = QVBoxLayout()
+
+        self.use_custom_model_radio = RadioButton("使用自定义模型ID")
+        self.use_preset_model_radio = RadioButton("使用预设模型")
+        self.use_preset_model_radio.setChecked(True)
+
+        custom_layout.addWidget(self.use_preset_model_radio)
+        custom_layout.addWidget(self.use_custom_model_radio)
+
+        # 自定义模型输入
+        model_input_layout = QHBoxLayout()
+        model_input_layout.addWidget(QLabel("模型ID:"))
+
+        self.custom_model_edit = LineEdit()
+        self.custom_model_edit.setPlaceholderText("输入自定义模型ID，例如: username/model-name")
+        self.custom_model_edit.setFixedHeight(32)
+        model_input_layout.addWidget(self.custom_model_edit)
+
+        custom_layout.addLayout(model_input_layout)
+
+        # 最近使用的自定义模型
+        recent_layout = QVBoxLayout()
+        recent_layout.addWidget(QLabel("最近使用的自定义模型:"))
+
+        self.recent_models_list = QListWidget()
+        self.recent_models_list.setMaximumHeight(100)
+        self.load_recent_custom_models()
+        recent_layout.addWidget(self.recent_models_list)
+
+        custom_layout.addLayout(recent_layout)
+
+        custom_group.setLayout(custom_layout)
+        layout.addWidget(custom_group)
+
+        # 连接信号
+        self.use_custom_model_radio.toggled.connect(self.on_model_mode_changed)
+
+        layout.addStretch()
+        return widget
+
+    def create_size_tab(self):
+        """创建尺寸设置选项卡"""
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+        layout.setSpacing(15)
+
+        # 快速选择
+        quick_group = QGroupBox("常用尺寸")
+        quick_layout = QVBoxLayout()
+
+        self.quick_size_combo = ComboBox()
+        self.quick_size_combo.setFixedHeight(32)
+        self.quick_size_combo.setMinimumWidth(200)
+        common_sizes = config_manager.get('image_sizes.common_sizes', [])
+        for size_info in common_sizes:
+            display_text = f"{size_info['name']} ({size_info['size']})"
+            self.quick_size_combo.addItem(display_text, size_info['size'])
+        quick_layout.addWidget(self.quick_size_combo)
+        quick_group.setLayout(quick_layout)
+        layout.addWidget(quick_group)
+
+        # 规格选择
+        spec_group = QGroupBox("按规格选择")
+        spec_layout = QVBoxLayout()
+
+        spec_select_layout = QHBoxLayout()
+        spec_select_layout.addWidget(QLabel("选择规格:"))
+
+        self.spec_combo = ComboBox()
+        self.spec_combo.setFixedHeight(32)
+        self.spec_combo.setMinimumWidth(150)
+        self.spec_combo.addItems(["768规格", "1024规格", "1240规格", "1280规格", "1536规格"])
+        self.spec_combo.currentTextChanged.connect(self.on_spec_changed)
+        spec_select_layout.addWidget(self.spec_combo)
+
+        spec_layout.addLayout(spec_select_layout)
+        spec_group.setLayout(spec_layout)
+        layout.addWidget(spec_group)
+
+        # 比例选择
+        ratio_group = QGroupBox("选择比例")
+        ratio_layout = QVBoxLayout()
+
+        self.ratio_buttons_group = QButtonGroup()
+        self.ratio_buttons_layout = QGridLayout()
+        self.ratio_buttons_layout.setSpacing(10)
+
+        self.load_ratio_buttons("1024")  # 默认加载1024规格
+        ratio_layout.addLayout(self.ratio_buttons_layout)
+        ratio_group.setLayout(ratio_layout)
+        layout.addWidget(ratio_group)
+
+        # 自定义尺寸
+        custom_group = QGroupBox("自定义尺寸")
+        custom_layout = QGridLayout()
+
+        custom_layout.addWidget(QLabel("宽度:"), 0, 0)
+        self.custom_width_spin = QSpinBox()
+        self.custom_width_spin.setRange(64, 4096)
+        self.custom_width_spin.setValue(756)
+        custom_layout.addWidget(self.custom_width_spin, 0, 1)
+
+        custom_layout.addWidget(QLabel("高度:"), 0, 2)
+        self.custom_height_spin = QSpinBox()
+        self.custom_height_spin.setRange(64, 4096)
+        self.custom_height_spin.setValue(1344)
+        custom_layout.addWidget(self.custom_height_spin, 0, 3)
+
+        self.use_custom_size_radio = RadioButton("使用自定义尺寸")
+        self.use_preset_size_radio = RadioButton("使用预设尺寸")
+        self.use_preset_size_radio.setChecked(True)
+
+        custom_layout.addWidget(self.use_preset_size_radio, 1, 0, 1, 2)
+        custom_layout.addWidget(self.use_custom_size_radio, 1, 2, 1, 2)
+
+        custom_group.setLayout(custom_layout)
+        layout.addWidget(custom_group)
+
+        # 连接信号
+        self.use_custom_size_radio.toggled.connect(self.on_size_mode_changed)
+        self.quick_size_combo.currentTextChanged.connect(self.on_quick_size_changed)
+
+        layout.addStretch()
+        return widget
+
+    def create_params_tab(self):
+        """创建生成参数选项卡"""
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+        layout.setSpacing(15)
+
+        # 基础参数
+        basic_group = QGroupBox("基础参数")
+        basic_layout = QGridLayout()
+
+        basic_layout.addWidget(QLabel("采样步数:"), 0, 0)
+        self.steps_spin = QSpinBox()
+        self.steps_spin.setRange(1, 100)
+        self.steps_spin.setValue(30)
+        basic_layout.addWidget(self.steps_spin, 0, 1)
+
+        basic_layout.addWidget(QLabel("引导强度:"), 1, 0)
+        self.guidance_spin = QDoubleSpinBox()
+        self.guidance_spin.setRange(1.0, 20.0)
+        self.guidance_spin.setValue(3.5)
+        self.guidance_spin.setSingleStep(0.5)
+        basic_layout.addWidget(self.guidance_spin, 1, 1)
+
+        basic_layout.addWidget(QLabel("采样器:"), 2, 0)
+        self.sampler_combo = ComboBox()
+        self.sampler_combo.setFixedHeight(32)
+        self.sampler_combo.setMinimumWidth(150)
+        self.sampler_combo.addItems(["Euler", "Euler a", "Heun", "DPM2", "DPM++ 2M Karras", "DDIM"])
+        basic_layout.addWidget(self.sampler_combo, 2, 1)
+
+        basic_layout.addWidget(QLabel("随机种子:"), 3, 0)
+        self.seed_spin = QSpinBox()
+        self.seed_spin.setRange(-1, 2147483647)  # 修复32位整数范围限制
+        self.seed_spin.setValue(-1)
+        self.seed_spin.setSpecialValueText("随机")
+        basic_layout.addWidget(self.seed_spin, 3, 1)
+
+        basic_group.setLayout(basic_layout)
+        layout.addWidget(basic_group)
+
+        # 提示词
+        prompt_group = QGroupBox("提示词设置")
+        prompt_layout = QVBoxLayout()
+
+        prompt_layout.addWidget(QLabel("负面提示词:"))
+        self.negative_prompt_edit = QTextEdit()
+        self.negative_prompt_edit.setMaximumHeight(100)
+        self.negative_prompt_edit.setPlaceholderText("输入负面提示词...")
+        prompt_layout.addWidget(self.negative_prompt_edit)
+
+        prompt_group.setLayout(prompt_layout)
+        layout.addWidget(prompt_group)
+
+        layout.addStretch()
+        return widget
+
     def load_models(self):
         """加载可用模型"""
         models = config_manager.get('image_models.available', [])
@@ -619,26 +932,105 @@ class ImageParamsDialog(QDialog):
                 self.model_combo.setCurrentIndex(i)
                 break
 
+    def load_recent_custom_models(self):
+        """加载最近使用的自定义模型"""
+        custom_models = config_manager.get('image_models.custom', [])
+        for model in custom_models[-10:]:  # 最多显示最近10个
+            self.recent_models_list.addItem(model)
+
+    def on_model_mode_changed(self, checked):
+        """模型模式切换"""
+        is_custom = self.use_custom_model_radio.isChecked()
+        self.model_combo.setEnabled(not is_custom)
+        self.custom_model_edit.setEnabled(is_custom)
+        self.recent_models_list.setEnabled(is_custom)
+
+    def on_spec_changed(self, spec_text):
+        """规格改变时加载对应的比例"""
+        spec_key = spec_text.replace("规格", "")
+        self.load_ratio_buttons(spec_key)
+
+    def load_ratio_buttons(self, spec_key):
+        """加载比例按钮"""
+        # 清除现有按钮
+        for i in reversed(range(self.ratio_buttons_layout.count())):
+            child = self.ratio_buttons_layout.itemAt(i).widget()
+            if child is not None:
+                child.setParent(None)
+
+        presets = config_manager.get('image_sizes.presets', {})
+        if spec_key not in presets:
+            return
+
+        ratios = presets[spec_key]['ratios']
+        row, col = 0, 0
+        max_cols = 4
+
+        for ratio, size in ratios.items():
+            btn = RadioButton(f"{ratio}\n{size}")
+            btn.setAutoExclusive(True)
+            btn.setStyleSheet("QRadioButton { padding: 8px; }")
+            self.ratio_buttons_group.addButton(btn)
+
+            # 设置默认选中 756x1344 (1024规格的9:16)
+            if size == "756x1344":
+                btn.setChecked(True)
+
+            self.ratio_buttons_layout.addWidget(btn, row, col)
+            col += 1
+            if col >= max_cols:
+                col = 0
+                row += 1
+
+    def on_size_mode_changed(self, checked):
+        """尺寸模式切换"""
+        is_custom = self.use_custom_size_radio.isChecked()
+        self.spec_combo.setEnabled(not is_custom)
+        self.quick_size_combo.setEnabled(not is_custom)
+        self.custom_width_spin.setEnabled(is_custom)
+        self.custom_height_spin.setEnabled(is_custom)
+
+        # 禁用/启用比例按钮
+        for i in range(self.ratio_buttons_layout.count()):
+            widget = self.ratio_buttons_layout.itemAt(i).widget()
+            if isinstance(widget, RadioButton):
+                widget.setEnabled(not is_custom)
+
+    def on_quick_size_changed(self, size_text):
+        """快速选择尺寸"""
+        if self.quick_size_combo.currentData():
+            width, height = self.quick_size_combo.currentData().split('x')
+            self.custom_width_spin.setValue(int(width))
+            self.custom_height_spin.setValue(int(height))
+
     def load_current_params(self):
         """加载当前参数"""
         params = config_manager.get('image_params.default', {})
 
+        # 基础参数
         self.steps_spin.setValue(params.get('steps', 30))
         self.guidance_spin.setValue(params.get('guidance', 3.5))
-        
+
+        # 采样器
         sampler = params.get('sampler', 'Euler')
         for i in range(self.sampler_combo.count()):
             if self.sampler_combo.itemText(i) == sampler:
                 self.sampler_combo.setCurrentIndex(i)
                 break
 
-        size = params.get('size', '900x1600')
-        for i in range(self.size_combo.count()):
-            if self.size_combo.itemText(i) == size:
-                self.size_combo.setCurrentIndex(i)
-                break
-
+        # 负面提示词
         self.negative_prompt_edit.setText(params.get('negative_prompt', ''))
+
+        # 种子
+        self.seed_spin.setValue(params.get('seed', -1))
+
+        # 尺寸
+        size = params.get('size', '756x1344')
+        # 尝试在快速选择中找到
+        for i in range(self.quick_size_combo.count()):
+            if self.quick_size_combo.itemData(i) == size:
+                self.quick_size_combo.setCurrentIndex(i)
+                break
 
     def reset_to_default(self):
         """重置为默认参数"""
@@ -650,27 +1042,65 @@ class ImageParamsDialog(QDialog):
             'steps': self.steps_spin.value(),
             'guidance': self.guidance_spin.value(),
             'sampler': self.sampler_combo.currentText(),
-            'size': self.size_combo.currentText(),
-            'negative_prompt': self.negative_prompt_edit.toPlainText()
+            'size': self.get_current_size(),
+            'negative_prompt': self.negative_prompt_edit.toPlainText(),
+            'seed': self.seed_spin.value()
         }
 
         config_manager.set('image_params.default', params)
-        config_manager.set('image_models.default', self.model_combo.currentData())
-        
+
+        # 保存模型设置
+        if self.use_custom_model_radio.isChecked():
+            custom_model = self.custom_model_edit.text().strip()
+            if custom_model:
+                config_manager.set('image_models.default', custom_model)
+                # 添加到最近使用
+                custom_models = config_manager.get('image_models.custom', [])
+                if custom_model not in custom_models:
+                    custom_models.append(custom_model)
+                    config_manager.set('image_models.custom', custom_models)
+        else:
+            config_manager.set('image_models.default', self.model_combo.currentData())
+
         if config_manager.save_config():
             QMessageBox.information(self, "成功", "参数已保存为默认设置")
         else:
             QMessageBox.critical(self, "错误", "保存设置失败")
 
+    def get_current_size(self):
+        """获取当前选择的尺寸"""
+        if self.use_custom_size_radio.isChecked():
+            return f"{self.custom_width_spin.value()}x{self.custom_height_spin.value()}"
+        elif self.quick_size_combo.currentData():
+            return self.quick_size_combo.currentData()
+        else:
+            # 获取选中的比例按钮
+            for i in range(self.ratio_buttons_layout.count()):
+                widget = self.ratio_buttons_layout.itemAt(i).widget()
+                if isinstance(widget, RadioButton) and widget.isChecked():
+                    text = widget.text().strip()
+                    # 提取尺寸部分
+                    lines = text.split('\n')
+                    if len(lines) > 1:
+                        return lines[1].strip()
+            return "756x1344"  # 默认值
+
     def get_params(self):
         """获取当前参数"""
+        model_id = None
+        if self.use_custom_model_radio.isChecked():
+            model_id = self.custom_model_edit.text().strip()
+        else:
+            model_id = self.model_combo.currentData()
+
         return {
-            'model': self.model_combo.currentData(),
+            'model': model_id or config_manager.get('image_models.default'),
             'steps': self.steps_spin.value(),
             'guidance': self.guidance_spin.value(),
             'sampler': self.sampler_combo.currentText(),
-            'size': self.size_combo.currentText(),
-            'negative_prompt': self.negative_prompt_edit.toPlainText()
+            'size': self.get_current_size(),
+            'negative_prompt': self.negative_prompt_edit.toPlainText(),
+            'seed': self.seed_spin.value()
         }
 
 # 图片预览小部件
@@ -799,17 +1229,38 @@ class StoryboardPage(SmoothScrollArea):
         title.setFont(QFont("", 18, QFont.Bold))
         layout.addWidget(title)
 
-        # 主要内容区域
+        # 主要内容区域 - 左右分栏
         main_splitter = QSplitter(Qt.Horizontal)
         layout.addWidget(main_splitter)
 
-        # 左侧输入区域
+        # 左侧面板 - 文字内容区
+        left_panel = self.create_left_panel()
+        main_splitter.addWidget(left_panel)
+
+        # 右侧面板 - 图片生成区
+        right_panel = self.create_right_panel()
+        main_splitter.addWidget(right_panel)
+
+        # 设置分割比例 (左50% : 右50%)
+        main_splitter.setSizes([800, 800])
+
+        self.setWidget(widget)
+        self.setWidgetResizable(True)
+
+    def create_left_panel(self):
+        """创建左侧面板 - 文字内容区"""
         left_widget = QWidget()
         left_layout = QVBoxLayout(left_widget)
+        left_layout.setSpacing(15)
 
-        # 故事内容输入
-        content_group = QGroupBox("📝 故事内容")
-        content_layout = QVBoxLayout()
+        # 故事内容输入区
+        content_card = ElevatedCardWidget()
+        content_layout = QVBoxLayout(content_card)
+        content_layout.setContentsMargins(20, 20, 20, 20)
+
+        content_title = SubtitleLabel("📝 故事内容")
+        content_title.setFont(QFont("", 14, QFont.Bold))
+        content_layout.addWidget(content_title)
 
         self.content_edit = QTextEdit()
         self.content_edit.setPlaceholderText("请输入您的故事内容或创意描述...\n\n示例：一个被遗弃的机器人在荒芜的废土中漫无目的地游荡，直到它在破旧的瓦砾下发现了一株发出微光的植物。")
@@ -818,7 +1269,7 @@ class StoryboardPage(SmoothScrollArea):
 
         # 快速操作按钮
         quick_actions_layout = QHBoxLayout()
-        
+
         clear_btn = PushButton(FluentIcon.DELETE, "清空")
         clear_btn.clicked.connect(self.clear_content)
         quick_actions_layout.addWidget(clear_btn)
@@ -829,40 +1280,19 @@ class StoryboardPage(SmoothScrollArea):
 
         quick_actions_layout.addStretch()
         content_layout.addLayout(quick_actions_layout)
+        left_layout.addWidget(content_card)
 
-        content_group.setLayout(content_layout)
-        left_layout.addWidget(content_group)
+        # 分镜标题生成区
+        title_card = CardWidget()
+        title_layout = QVBoxLayout(title_card)
+        title_layout.setContentsMargins(20, 20, 20, 20)
 
-        # 生成设置
-        settings_group = QGroupBox("⚙️ 生成设置")
-        settings_layout = QGridLayout()
-
-        settings_layout.addWidget(QLabel("图片数量:"), 0, 0)
-        self.image_count_spin = QSpinBox()
-        self.image_count_spin.setRange(1, 20)
-        self.image_count_spin.setValue(config_manager.get('ui.default_image_count', 9))
-        settings_layout.addWidget(self.image_count_spin, 0, 1)
-
-        settings_layout.addWidget(QLabel("提示词前缀:"), 1, 0)
-        self.prompt_prefix_edit = LineEdit()
-        self.prompt_prefix_edit.setPlaceholderText("统一的风格关键词, 例如: Face the camera, showing the upper body")
-        self.prompt_prefix_edit.setText(",Face the camera, showing the upper body,")
-        settings_layout.addWidget(self.prompt_prefix_edit, 1, 1)
-
-        template_btn = PushButton(FluentIcon.EDIT, "模板管理")
-        template_btn.clicked.connect(self.show_template_manager)
-        settings_layout.addWidget(template_btn, 2, 0)
-
-        params_btn = PushButton(FluentIcon.SETTING, "图片参数")
-        params_btn.clicked.connect(self.show_image_params)
-        settings_layout.addWidget(params_btn, 2, 1)
-
-        settings_group.setLayout(settings_layout)
-        left_layout.addWidget(settings_group)
-
-        # 生成分镜标题
-        title_group = QGroupBox("🎭 分镜标题生成")
-        title_layout = QVBoxLayout()
+        title_header_layout = QHBoxLayout()
+        title_header = SubtitleLabel("🎭 分镜标题生成")
+        title_header.setFont(QFont("", 14, QFont.Bold))
+        title_header_layout.addWidget(title_header)
+        title_header_layout.addStretch()
+        title_layout.addLayout(title_header_layout)
 
         title_btn_layout = QHBoxLayout()
         self.generate_title_btn = PrimaryPushButton(FluentIcon.ADD, "生成分镜标题")
@@ -872,7 +1302,6 @@ class StoryboardPage(SmoothScrollArea):
         self.title_progress = ProgressBar()
         self.title_progress.setFixedHeight(8)
         title_btn_layout.addWidget(self.title_progress)
-
         title_layout.addLayout(title_btn_layout)
 
         self.title_thinking_edit = QTextEdit()
@@ -885,12 +1314,19 @@ class StoryboardPage(SmoothScrollArea):
         self.title_output_edit.setMinimumHeight(120)
         title_layout.addWidget(self.title_output_edit)
 
-        title_group.setLayout(title_layout)
-        left_layout.addWidget(title_group)
+        left_layout.addWidget(title_card)
 
-        # 生成分镜描述
-        summary_group = QGroupBox("📝 分镜描述生成")
-        summary_layout = QVBoxLayout()
+        # 分镜描述生成区
+        summary_card = CardWidget()
+        summary_layout = QVBoxLayout(summary_card)
+        summary_layout.setContentsMargins(20, 20, 20, 20)
+
+        summary_header_layout = QHBoxLayout()
+        summary_header = SubtitleLabel("📝 分镜描述生成")
+        summary_header.setFont(QFont("", 14, QFont.Bold))
+        summary_header_layout.addWidget(summary_header)
+        summary_header_layout.addStretch()
+        summary_layout.addLayout(summary_header_layout)
 
         summary_btn_layout = QHBoxLayout()
         self.generate_summary_btn = PrimaryPushButton(FluentIcon.EDIT, "生成分镜描述")
@@ -900,7 +1336,6 @@ class StoryboardPage(SmoothScrollArea):
         self.summary_progress = ProgressBar()
         self.summary_progress.setFixedHeight(8)
         summary_btn_layout.addWidget(self.summary_progress)
-
         summary_layout.addLayout(summary_btn_layout)
 
         self.summary_thinking_edit = QTextEdit()
@@ -913,22 +1348,83 @@ class StoryboardPage(SmoothScrollArea):
         self.summary_output_edit.setMinimumHeight(120)
         summary_layout.addWidget(self.summary_output_edit)
 
-        summary_group.setLayout(summary_layout)
-        left_layout.addWidget(summary_group)
+        left_layout.addWidget(summary_card)
 
+        # 生成控制区
+        control_card = CardWidget()
+        control_layout = QVBoxLayout(control_card)
+        control_layout.setContentsMargins(20, 20, 20, 20)
+
+        control_header = SubtitleLabel("⚙️ 生成控制")
+        control_header.setFont(QFont("", 14, QFont.Bold))
+        control_layout.addWidget(control_header)
+
+        # 图片数量和提示词前缀在同一行
+        control_row_layout = QHBoxLayout()
+
+        # 图片数量
+        count_group = QGroupBox("图片数量")
+        count_layout = QHBoxLayout()
+        self.image_count_spin = QSpinBox()
+        self.image_count_spin.setRange(1, 20)
+        self.image_count_spin.setValue(config_manager.get('ui.default_image_count', 9))
+        self.image_count_spin.setFixedWidth(80)
+        count_layout.addWidget(self.image_count_spin)
+        count_group.setLayout(count_layout)
+        control_row_layout.addWidget(count_group)
+
+        # 提示词前缀
+        prefix_group = QGroupBox("提示词前缀")
+        prefix_layout = QHBoxLayout()
+        self.prompt_prefix_edit = LineEdit()
+        self.prompt_prefix_edit.setPlaceholderText("统一的风格关键词")
+        self.prompt_prefix_edit.setText("Face the camera, showing the upper body")
+        self.prompt_prefix_edit.setFixedHeight(32)
+        prefix_layout.addWidget(self.prompt_prefix_edit)
+        prefix_group.setLayout(prefix_layout)
+        control_row_layout.addWidget(prefix_group)
+
+        control_layout.addLayout(control_row_layout)
+
+        # 一键生成按钮
+        self.generate_all_btn = PrimaryPushButton(FluentIcon.PLAY, "一键生成全部")
+        self.generate_all_btn.clicked.connect(self.generate_all)
+        self.generate_all_btn.setFixedHeight(40)
+        control_layout.addWidget(self.generate_all_btn)
+
+        # 设置按钮
+        settings_layout = QHBoxLayout()
+        template_btn = PushButton(FluentIcon.EDIT, "模板管理")
+        template_btn.clicked.connect(self.show_template_manager)
+        settings_layout.addWidget(template_btn)
+
+        params_btn = PushButton(FluentIcon.SETTING, "图片参数")
+        params_btn.clicked.connect(self.show_image_params)
+        settings_layout.addWidget(params_btn)
+        settings_layout.addStretch()
+        control_layout.addLayout(settings_layout)
+
+        left_layout.addWidget(control_card)
         left_layout.addStretch()
 
-        main_splitter.addWidget(left_widget)
+        return left_widget
 
-        # 右侧图片生成和预览区域
+    def create_right_panel(self):
+        """创建右侧面板 - 图片生成区"""
         right_widget = QWidget()
         right_layout = QVBoxLayout(right_widget)
+        right_layout.setSpacing(15)
 
-        # 图片生成控制
-        image_control_group = QGroupBox("🎨 图片生成")
-        image_control_layout = QVBoxLayout()
+        # 图片生成设置区
+        generate_card = ElevatedCardWidget()
+        generate_layout = QVBoxLayout(generate_card)
+        generate_layout.setContentsMargins(20, 20, 20, 20)
 
-        # 生成提示词
+        generate_title = SubtitleLabel("🎨 图片生成设置")
+        generate_title.setFont(QFont("", 14, QFont.Bold))
+        generate_layout.addWidget(generate_title)
+
+        # 生成绘图提示词
         prompt_btn_layout = QHBoxLayout()
         self.generate_prompt_btn = PrimaryPushButton(FluentIcon.LINK, "生成绘图提示词")
         self.generate_prompt_btn.clicked.connect(self.generate_prompts)
@@ -937,79 +1433,99 @@ class StoryboardPage(SmoothScrollArea):
         self.prompt_progress = ProgressBar()
         self.prompt_progress.setFixedHeight(8)
         prompt_btn_layout.addWidget(self.prompt_progress)
-
-        image_control_layout.addLayout(prompt_btn_layout)
+        generate_layout.addLayout(prompt_btn_layout)
 
         self.prompt_thinking_edit = QTextEdit()
         self.prompt_thinking_edit.setPlaceholderText("AI思考过程...")
         self.prompt_thinking_edit.setMaximumHeight(80)
-        image_control_layout.addWidget(self.prompt_thinking_edit)
+        generate_layout.addWidget(self.prompt_thinking_edit)
 
-        # 批量图片生成
-        batch_generate_layout = QHBoxLayout()
-        
-        self.generate_all_btn = PrimaryPushButton(FluentIcon.PLAY, "一键生成全部")
-        self.generate_all_btn.clicked.connect(self.generate_all)
-        batch_generate_layout.addWidget(self.generate_all_btn)
+        # 生成的绘图提示词显示区
+        prompts_label = QLabel("绘图提示词 (可编辑):")
+        prompts_label.setFont(QFont("", 12, QFont.Bold))
+        generate_layout.addWidget(prompts_label)
 
+        self.generated_prompts_edit = QTextEdit()
+        self.generated_prompts_edit.setPlaceholderText("点击\"生成绘图提示词\"后，这里将显示生成的提示词，您可以编辑修改...")
+        self.generated_prompts_edit.setMinimumHeight(120)
+        self.generated_prompts_edit.setMaximumHeight(200)
+        generate_layout.addWidget(self.generated_prompts_edit)
+
+        # 仅生成图片按钮
         self.generate_images_btn = PrimaryPushButton(FluentIcon.PHOTO, "仅生成图片")
         self.generate_images_btn.clicked.connect(self.generate_images_only)
-        batch_generate_layout.addWidget(self.generate_images_btn)
+        generate_layout.addWidget(self.generate_images_btn)
 
-        image_control_layout.addLayout(batch_generate_layout)
+        right_layout.addWidget(generate_card)
+
+        # 图片生成进度区
+        progress_card = CardWidget()
+        progress_layout = QVBoxLayout(progress_card)
+        progress_layout.setContentsMargins(20, 20, 20, 20)
+
+        progress_title = SubtitleLabel("📊 生成进度")
+        progress_title.setFont(QFont("", 14, QFont.Bold))
+        progress_layout.addWidget(progress_title)
 
         self.image_progress = ProgressBar()
-        self.image_progress.setFixedHeight(8)
-        image_control_layout.addWidget(self.image_progress)
+        self.image_progress.setFixedHeight(10)
+        progress_layout.addWidget(self.image_progress)
 
         self.image_status_label = QLabel("准备就绪")
-        image_control_layout.addWidget(self.image_status_label)
+        self.image_status_label.setAlignment(Qt.AlignCenter)
+        progress_layout.addWidget(self.image_status_label)
 
-        image_control_group.setLayout(image_control_layout)
-        right_layout.addWidget(image_control_group)
+        right_layout.addWidget(progress_card)
 
         # 图片预览区域
-        preview_group = QGroupBox("🖼️ 图片预览")
-        preview_layout = QVBoxLayout()
+        preview_card = ElevatedCardWidget()
+        preview_layout = QVBoxLayout(preview_card)
+        preview_layout.setContentsMargins(20, 20, 20, 20)
+
+        preview_title = SubtitleLabel("🖼️ 图片预览")
+        preview_title.setFont(QFont("", 14, QFont.Bold))
+        preview_layout.addWidget(preview_title)
 
         # 创建可滚动的图片网格
         self.image_scroll_area = ScrollArea()
         self.image_scroll_widget = QWidget()
         self.image_grid_layout = QGridLayout(self.image_scroll_widget)
-        
+        self.image_grid_layout.setSpacing(15)
+
         # 初始化图片预览小部件
         self.init_image_widgets()
-        
+
         self.image_scroll_area.setWidget(self.image_scroll_widget)
         self.image_scroll_area.setWidgetResizable(True)
         preview_layout.addWidget(self.image_scroll_area)
 
-        preview_group.setLayout(preview_layout)
-        right_layout.addWidget(preview_group)
+        right_layout.addWidget(preview_card)
 
-        # 导出操作
-        export_group = QGroupBox("📤 导出操作")
-        export_layout = QHBoxLayout()
+        # 导出操作区
+        export_card = CardWidget()
+        export_layout = QVBoxLayout(export_card)
+        export_layout.setContentsMargins(20, 20, 20, 20)
+
+        export_title = SubtitleLabel("📤 导出操作")
+        export_title.setFont(QFont("", 14, QFont.Bold))
+        export_layout.addWidget(export_title)
+
+        export_buttons_layout = QHBoxLayout()
 
         export_md_btn = PrimaryPushButton(FluentIcon.SAVE, "导出Markdown")
         export_md_btn.clicked.connect(self.export_markdown)
-        export_layout.addWidget(export_md_btn)
+        export_buttons_layout.addWidget(export_md_btn)
 
         export_images_btn = PrimaryPushButton(FluentIcon.FOLDER, "导出全部图片")
         export_images_btn.clicked.connect(self.export_all_images)
-        export_layout.addWidget(export_images_btn)
+        export_buttons_layout.addWidget(export_images_btn)
 
-        export_layout.addStretch()
-        export_group.setLayout(export_layout)
-        right_layout.addWidget(export_group)
+        export_layout.addLayout(export_buttons_layout)
+        right_layout.addWidget(export_card)
 
         right_layout.addStretch()
 
-        main_splitter.addWidget(right_widget)
-        main_splitter.setSizes([800, 800])
-
-        self.setWidget(widget)
-        self.setWidgetResizable(True)
+        return right_widget
 
     def init_image_widgets(self):
         """初始化图片预览小部件"""
@@ -1039,6 +1555,7 @@ class StoryboardPage(SmoothScrollArea):
         self.summary_thinking_edit.clear()
         self.summary_output_edit.clear()
         self.prompt_thinking_edit.clear()
+        self.generated_prompts_edit.clear()  # 清空提示词显示框
         self.current_titles.clear()
         self.current_summaries.clear()
         self.current_prompts.clear()
@@ -1081,9 +1598,13 @@ class StoryboardPage(SmoothScrollArea):
         self.title_progress.setValue(0)
 
         worker = TextGenerationWorker(content, system_prompt)
-        worker.reasoning_updated.connect(self.title_thinking_edit.setText)
-        worker.progress_updated.connect(lambda msg: self.title_progress.setValue(50))
-        worker.finished.connect(self.on_titles_finished)
+        # 使用 unique_connection 避免重复连接
+        worker.reasoning_updated.connect(self.title_thinking_edit.setText, Qt.UniqueConnection)
+        worker.progress_updated.connect(lambda msg: self.title_progress.setValue(50), Qt.UniqueConnection)
+        worker.finished.connect(self.on_titles_finished, Qt.UniqueConnection)
+
+        # 添加到线程管理器
+        thread_manager.add_worker(worker)
 
         worker.start()
 
@@ -1119,9 +1640,13 @@ class StoryboardPage(SmoothScrollArea):
         self.summary_progress.setValue(0)
 
         worker = TextGenerationWorker(titles_text, system_prompt)
-        worker.reasoning_updated.connect(self.summary_thinking_edit.setText)
-        worker.progress_updated.connect(lambda msg: self.summary_progress.setValue(50))
-        worker.finished.connect(self.on_summaries_finished)
+        # 使用 unique_connection 避免重复连接
+        worker.reasoning_updated.connect(self.summary_thinking_edit.setText, Qt.UniqueConnection)
+        worker.progress_updated.connect(lambda msg: self.summary_progress.setValue(50), Qt.UniqueConnection)
+        worker.finished.connect(self.on_summaries_finished, Qt.UniqueConnection)
+
+        # 添加到线程管理器
+        thread_manager.add_worker(worker)
 
         worker.start()
 
@@ -1164,13 +1689,18 @@ class StoryboardPage(SmoothScrollArea):
         for i in range(self.total_prompts):
             if self.current_summaries[i]:
                 worker = TextGenerationWorker(self.current_summaries[i], system_prompt)
+                # 使用 unique_connection 并指定连接类型
                 worker.reasoning_updated.connect(
-                    lambda text, idx=i: self.update_prompt_thinking(idx, text)
+                    lambda text, idx=i: self.update_prompt_thinking(idx, text),
+                    Qt.UniqueConnection
                 )
                 worker.finished.connect(
-                    lambda success, reasoning, result, idx=i: self.on_prompt_finished(idx, success, reasoning, result)
+                    lambda success, reasoning, result, idx=i: self.on_prompt_finished(idx, success, reasoning, result),
+                    Qt.UniqueConnection
                 )
                 self.prompt_worker_threads.append(worker)
+                # 添加到线程管理器
+                thread_manager.add_worker(worker)
                 worker.start()
 
     def update_prompt_thinking(self, index, text):
@@ -1184,12 +1714,15 @@ class StoryboardPage(SmoothScrollArea):
             # 添加前缀
             prefix = self.prompt_prefix_edit.text().strip()
             final_prompt = (prefix + ' ' + result.strip()).strip() if prefix else result.strip()
-            
+
             # 确保列表足够长
             while len(self.current_prompts) <= index:
                 self.current_prompts.append('')
-            
+
             self.current_prompts[index] = final_prompt
+
+            # 更新提示词显示框
+            self.update_prompts_display()
 
         self.completed_prompts += 1
         progress = int((self.completed_prompts / self.total_prompts) * 100)
@@ -1199,11 +1732,42 @@ class StoryboardPage(SmoothScrollArea):
             self.generate_prompt_btn.setEnabled(True)
             QMessageBox.information(self, "成功", "绘图提示词生成完成！")
 
+    def update_prompts_display(self):
+        """更新提示词显示框"""
+        prompts_text = ""
+        for i, prompt in enumerate(self.current_prompts):
+            if prompt:
+                prompts_text += f"=== 分镜 {i+1} ===\n{prompt}\n\n"
+
+        self.generated_prompts_edit.setPlainText(prompts_text.strip())
+
     def generate_images_only(self):
         """仅生成图片"""
-        if not self.current_prompts:
-            QMessageBox.warning(self, "警告", "请先生成绘图提示词")
+        # 从文本框中读取提示词
+        prompts_text = self.generated_prompts_edit.toPlainText().strip()
+
+        if not prompts_text:
+            QMessageBox.warning(self, "警告", "请先生成或输入绘图提示词")
             return
+
+        # 解析提示词（按分镜分隔）
+        self.current_prompts = []
+        sections = prompts_text.split("=== 分镜")
+
+        for section in sections[1:]:  # 第一个是空的
+            lines = section.strip().split('\n', 1)
+            if len(lines) > 1:
+                prompt = lines[1].strip()
+                if prompt:
+                    self.current_prompts.append(prompt)
+
+        if not self.current_prompts:
+            QMessageBox.warning(self, "警告", "请输入有效的绘图提示词")
+            return
+
+        # 确保有足够数量的提示词
+        while len(self.current_prompts) < self.image_count_spin.value():
+            self.current_prompts.append(self.current_prompts[-1] if self.current_prompts else "")
 
         self.start_image_generation()
 
@@ -1283,9 +1847,13 @@ class StoryboardPage(SmoothScrollArea):
         self.image_worker = ImageGenerationWorker(
             self.current_prompts, model_id, params, len(self.current_prompts)
         )
-        self.image_worker.progress_updated.connect(self.on_image_progress)
-        self.image_worker.image_generated.connect(self.on_image_generated)
-        self.image_worker.finished.connect(self.on_images_finished)
+        # 使用 unique_connection 避免重复连接
+        self.image_worker.progress_updated.connect(self.on_image_progress, Qt.UniqueConnection)
+        self.image_worker.image_generated.connect(self.on_image_generated, Qt.UniqueConnection)
+        self.image_worker.finished.connect(self.on_images_finished, Qt.UniqueConnection)
+
+        # 添加到线程管理器
+        thread_manager.add_worker(self.image_worker)
 
         self.image_worker.start()
 
@@ -1452,16 +2020,19 @@ class MainWindow(FluentWindow):
         self.api_key_edit = LineEdit()
         self.api_key_edit.setPlaceholderText("请输入ModelScope API密钥...")
         self.api_key_edit.setEchoMode(QLineEdit.Password)
+        self.api_key_edit.setFixedHeight(32)
         self.api_key_edit.setText(config_manager.get('api.api_key', ''))
         api_layout.addWidget(self.api_key_edit, 0, 1)
 
         api_layout.addWidget(QLabel("API基础URL:"), 1, 0)
         self.api_url_edit = LineEdit()
+        self.api_url_edit.setFixedHeight(32)
         self.api_url_edit.setText(config_manager.get('api.base_url', 'https://api-inference.modelscope.cn/v1/'))
         api_layout.addWidget(self.api_url_edit, 1, 1)
 
         api_layout.addWidget(QLabel("文本模型:"), 2, 0)
         self.text_model_edit = LineEdit()
+        self.text_model_edit.setFixedHeight(32)
         self.text_model_edit.setText(config_manager.get('api.text_model', 'Qwen/Qwen3-235B-A22B-Thinking-2507'))
         api_layout.addWidget(self.text_model_edit, 2, 1)
 
@@ -1570,10 +2141,8 @@ class MainWindow(FluentWindow):
         config_manager.set('ui.window_height', self.height())
         config_manager.save_config()
 
-        # 清理工作线程
-        if hasattr(self, 'storyboard_page'):
-            if hasattr(self.storyboard_page, 'image_worker'):
-                self.storyboard_page.image_worker.cancel()
+        # 清理所有工作线程
+        thread_manager.cancel_all()
 
         super().closeEvent(event)
 
@@ -1600,6 +2169,56 @@ def main():
     app.setApplicationName("BOZO-MCN分镜脚本生成器")
     app.setApplicationVersion("2.0")
     app.setOrganizationName("BOZO-MCN")
+
+    # 添加一些全局样式优化
+    app.setStyleSheet("""
+        QGroupBox {
+            font-weight: bold;
+            border: 2px solid #cccccc;
+            border-radius: 8px;
+            margin-top: 1ex;
+            padding-top: 10px;
+        }
+        QGroupBox::title {
+            subcontrol-origin: margin;
+            left: 10px;
+            padding: 0 5px 0 5px;
+        }
+        ComboBox {
+            padding: 5px;
+            border: 1px solid #cccccc;
+            border-radius: 4px;
+            background: white;
+        }
+        ComboBox:hover {
+            border-color: #888888;
+        }
+        ComboBox:focus {
+            border-color: #0078d4;
+        }
+        LineEdit {
+            padding: 5px;
+            border: 1px solid #cccccc;
+            border-radius: 4px;
+            background: white;
+        }
+        LineEdit:hover {
+            border-color: #888888;
+        }
+        LineEdit:focus {
+            border-color: #0078d4;
+        }
+        SpinBox {
+            padding: 5px;
+            border: 1px solid #cccccc;
+            border-radius: 4px;
+        }
+        DoubleSpinBox {
+            padding: 5px;
+            border: 1px solid #cccccc;
+            border-radius: 4px;
+        }
+    """)
 
     # 设置主题
     current_theme = config_manager.get('ui.theme', 'dark')
