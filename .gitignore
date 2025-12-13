@@ -4,7 +4,11 @@ __pycache__/
 *$py.class
 font
 temp
+
 storyboard_config.json
+buttons.json
+
+
 # C extensions
 *.so
 .DS_Store

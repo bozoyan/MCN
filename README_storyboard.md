@@ -51,7 +51,7 @@ export MODELSCOPE_SDK_TOKEN="your_api_key_here"
 
 4. **运行应用**
 ```bash
-python run_storyboard.py
+python run.py
 ```
 
 ## 📖 使用指南
