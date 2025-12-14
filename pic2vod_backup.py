@@ -293,73 +293,51 @@ class BatchVideoGenerationWorker(QThread):
             image_input = task.get('image_input', '')
             prompt = task.get('prompt', '')
             width = task.get('width', 480)
-            height = task.get('height', 854)
+            height = task_task.get('height', 854)
             num_frames = task.get('num_frames', 81)
 
             self.progress_updated.emit(10, "准备请求数据...", task_id)
 
-            # 图像格式检查和转换
-            if isinstance(image_input, str):
-                if image_input.startswith('data:image/'):
-                    self.log_message("🖼️ 检测到data URL格式的图片数据")
-                elif image_input and not image_input.startswith('http') and not image_input.startswith('data:'):
-                    # 纯base64数据或本地文件路径，需要转换为data URL格式
-                    try:
-                        image_path = task.get('image_path', '')
-                        if image_path and os.path.exists(image_path):
-                            # 从文件路径重新读取并转换为data URL
-                            with open(image_path, 'rb') as f:
-                                image_data = f.read()
-                                # 尝试确定图片类型
-                                import imghdr
-                                detected_type = imghdr.what(None, image_data)
+            # 检查图片格式和大小
+            if isinstance(image_input, str) and len(image_input) > 2000000:  # 2MB base64警告
+                self.log_message(f"⚠️ 图片文件较大({len(image_input)/1000:.1f}MB)，建议使用较小的图片")
 
+            if num_frames > 129:  # 超过8秒
+                self.log_message(f"⚠️ 视频时长过长({num_frames}帧，约{num_frames/16}秒)，建议缩短时长")
+
+            # 检查base64数据格式
+            if isinstance(image_input, str) and image_input.startswith('data:image/'):
+                self.log_message("🖼️ 检测到data URL格式的图片数据")
+            elif image_input and not image_input.startswith('http'):
+                # 本地文件，需要转换为data URL格式
+                try:
+                    # 检查是否已经转换为base64
+                    if not image_input.startswith('data:image/'):
+                        # 需要转换为data URL格式
+                        image_data = None
+                        if hasattr(self, '_current_image_path') and self._current_image_path:
+n                            with open(self._current_image_path, 'rb') as f:
+n                                image_data = f.read()
+n                                image_type = 'image/jpeg'  # 默认为jpeg
+n                                # 尝试确定图片类型
+n                                import imghdr
+n                                image_type = imghdr.what_guess(image_data)
+n
                                 # 根据图片类型设置MIME类型
-                                mime_types = {
-                                    'jpeg': 'image/jpeg',
-                                    'jpg': 'image/jpeg',
-                                    'png': 'image/png',
-                                    'webp': 'image/webp'
-                                }
-                                image_type = mime_types.get(detected_type, 'image/jpeg')
-                                image_input = f"data:{image_type};base64,{base64.b64encode(image_data).decode('utf-8')}"
-                                self.log_message(f"✅ 图片已从文件重新转换为data URL格式，类型: {image_type}, 大小: {len(image_input)}字符")
-                        else:
-                            # 尝试将纯base64转换为data URL
-                            import imghdr
-                            # 解码base64以检测图片类型
-                            try:
-                                decoded_data = base64.b64decode(image_input)
-                                detected_type = imghdr.what(None, decoded_data)
-                                mime_types = {
-                                    'jpeg': 'image/jpeg',
-                                    'jpg': 'image/jpeg',
-                                    'png': 'image/png',
-                                    'webp': 'image/webp'
-                                }
-                                image_type = mime_types.get(detected_type, 'image/jpeg')
-                                image_input = f"data:{image_type};base64,{image_input}"
-                                self.log_message(f"✅ 纯base64已转换为data URL格式，类型: {image_type}")
-                            except:
-                                # 如果解码失败，默认使用jpeg格式
-                                image_input = f"data:image/jpeg;base64,{image_input}"
-                                self.log_message(f"⚠️ 无法检测图片类型，默认使用JPEG格式")
-                    except Exception as e:
-                        self.log_message(f"⚠️ 图片转换失败: {str(e)}")
-                        return False
-                elif image_input.startswith('http'):
-                    self.log_message("🌐 使用网络图片URL")
-                else:
-                    self.log_message(f"📷 图片输入类型: {type(image_input)}")
+n                                mime_types = {
+n                                    'image/jpeg': 'image/jpeg',
+n                                    'image/png': 'image/png',n                                    'image/webp': 'image/webp'\n                                }\n                                image_type = mime_types.get(image_type.lower(), 'image/jpeg')\n                                image_data = f"data:{image_type};base64,{base64.b64encode(image_data).decode('utf-8')}"
+                            image_input = image_data
+                except Exception as e:
+n                    self.log_message(f"⚠️ 图片转换失败: {str(e)}")
+                    return False
+            elif image_input.startswith('data:image/'):
+n                self.log_message("✅ 图片已是data URL格式")
             else:
-                self.log_message(f"⚠️ 图片输入不是字符串格式: {type(image_input)}")
+n                self.log_message(f"📷 图片输入类型: {type(image_input)[:50]}...")
 
-            # 优化参数：如果图片过大或帧数过多，给出警告
-            if isinstance(image_input, str) and len(image_input) > 10000000:  # 10MB base64
-                self.log_message(f"⚠️ 警告: 图片较大({len(image_input)}字符)，可能影响处理速度")
-
-            if num_frames > 481:  # 超过30秒
-                self.log_message(f"⚠️ 警告: 帧数较多({num_frames}帧)，可能增加处理时间")
+            if num_frames > 129:  # 超过8秒
+                self.log_message(f"⚠️ 视频时长过长({num_frames}帧，约{num_frames/16}秒)，建议缩短时长")
 
             base_url = 'https://api.bizyair.cn/w/v1/webapp/task/openapi/create'
             headers = {
@@ -1282,7 +1260,6 @@ class VideoGenerationWidget(QWidget):
         task = {
             'name': f"任务_{len(self.batch_tasks)+1}",
             'image_input': image_input,
-            'image_path': self.drop_widget.current_image_path if self.input_type_combo.currentIndex() == 1 else '',
             'prompt': prompt,
             'width': self.width_spin.value(),
             'height': self.height_spin.value(),
@@ -1374,7 +1351,6 @@ class VideoGenerationWidget(QWidget):
         task = {
             'name': "单个任务",
             'image_input': image_input,
-            'image_path': self.drop_widget.current_image_path if self.input_type_combo.currentIndex() == 1 else '',
             'prompt': prompt,
             'width': self.width_spin.value(),
             'height': self.height_spin.value(),
