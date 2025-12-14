@@ -13,7 +13,7 @@ import threading
 import requests
 import base64
 from datetime import datetime
-from PyQt5.QtCore import QThread, pyqtSignal, QTimer, Qt, QMimeData, QUrl
+from PyQt5.QtCore import QThread, pyqtSignal, QTimer, Qt, QMimeData, QUrl, QObject
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
                             QLineEdit, QTextEdit, QPushButton, QComboBox,
                             QSpinBox, QProgressBar, QMessageBox, QFileDialog,
