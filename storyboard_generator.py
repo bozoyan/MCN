@@ -26,6 +26,7 @@ from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                             QTabWidget, QScrollArea) # 引入 QTabWidget, QScrollArea
 from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer, QUrl, QSettings, QSize, pyqtSlot
 from PyQt5.QtGui import QFont, QIcon, QDesktopServices, QPixmap
+from PyQt5.QtWidgets import QMenu, QAction, QFrame
 from qfluentwidgets import (FluentIcon, NavigationInterface, NavigationItemPosition,
                           FluentWindow, SubtitleLabel, BodyLabel, PrimaryPushButton,
                           PushButton, LineEdit, ComboBox, RadioButton,
@@ -238,6 +239,680 @@ thread_manager = ThreadManager()
 
 # 全局请求时间跟踪
 _last_request_time = 0
+
+# 页面基类
+class BasePage(QWidget):
+    """页面基类"""
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.main_window = parent
+        self.worker_threads = []
+
+    def show_info(self, title, message):
+        """显示信息"""
+        InfoBar.info(title=title, content=message, orient=Qt.Horizontal,
+                    isClosable=True, position=InfoBarPosition.TOP, duration=3000, parent=self)
+
+    def show_success(self, title, message):
+        """显示成功信息"""
+        InfoBar.success(title=title, content=message, orient=Qt.Horizontal,
+                      isClosable=True, position=InfoBarPosition.TOP, duration=3000, parent=self)
+
+    def show_error(self, title, message):
+        """显示错误信息"""
+        InfoBar.error(title=title, content=message, orient=Qt.Horizontal,
+                    isClosable=True, position=InfoBarPosition.TOP, duration=5000, parent=self)
+
+    def show_warning(self, title, message):
+        """显示警告信息"""
+        InfoBar.warning(title=title, content=message, orient=Qt.Horizontal,
+                      isClosable=True, position=InfoBarPosition.TOP, duration=4000, parent=self)
+
+# 首页类
+class HomePage(BasePage):
+    """首页 - AIGC 操作管理平台"""
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.buttons_file = os.path.join(os.path.dirname(__file__), "buttons.json")
+        self.buttons_data = []
+        self.load_buttons()
+        self.init_ui()
+
+    def load_buttons(self):
+        """从 JSON 文件加载按钮配置"""
+        try:
+            if os.path.exists(self.buttons_file):
+                with open(self.buttons_file, 'r', encoding='utf-8') as f:
+                    self.buttons_data = json.load(f)
+            else:
+                self.buttons_data = []
+                self.save_buttons()
+        except Exception as e:
+            self.buttons_data = []
+            print(f"加载按钮配置失败: {str(e)}")
+
+    def save_buttons(self):
+        """保存按钮配置到 JSON 文件"""
+        try:
+            with open(self.buttons_file, 'w', encoding='utf-8') as f:
+                json.dump(self.buttons_data, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            print(f"保存按钮配置失败: {str(e)}")
+
+    def init_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setSpacing(20)
+
+        # 标题
+        title = SubtitleLabel("🚀 AIGC 操作管理平台")
+        title.setFont(QFont("font/Light.otf", 18, QFont.Bold))
+        layout.addWidget(title)
+
+        # 创建滚动区域
+        scroll = SmoothScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+
+        scroll_widget = QWidget()
+        scroll_layout = QVBoxLayout(scroll_widget)
+        scroll_layout.setContentsMargins(20, 20, 20, 20)
+
+        # 按钮网格容器
+        self.button_grid_widget = QWidget()
+        self.button_grid_layout = QGridLayout(self.button_grid_widget)
+        self.button_grid_layout.setSpacing(24)  # 增加间距
+        scroll_layout.addWidget(self.button_grid_widget)
+        scroll_layout.addStretch()
+
+        scroll.setWidget(scroll_widget)
+        layout.addWidget(scroll)
+
+        # 底部按钮
+        bottom_layout = QHBoxLayout()
+
+        add_btn = PrimaryPushButton(FluentIcon.ADD, "添加新按钮")
+        add_btn.setFixedHeight(40)
+        add_btn.clicked.connect(self.add_button)
+        bottom_layout.addWidget(add_btn)
+
+        refresh_btn = PushButton(FluentIcon.SYNC, "刷新按钮")
+        refresh_btn.setFixedHeight(40)
+        refresh_btn.clicked.connect(self.refresh_buttons)
+        bottom_layout.addWidget(refresh_btn)
+
+        bottom_layout.addStretch()
+        layout.addLayout(bottom_layout)
+
+        # 渲染按钮
+        self.render_buttons()
+
+    def render_buttons(self):
+        """渲染所有按钮"""
+        # 清空现有按钮
+        while self.button_grid_layout.count():
+            item = self.button_grid_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
+        # 创建新按钮
+        max_cols = 6  # 每行6个按钮
+        for idx, btn_data in enumerate(self.buttons_data):
+            row, col = divmod(idx, max_cols)
+            btn = PrimaryPushButton(btn_data.get("title", "未命名"))
+            btn.setFixedSize(200, 70)
+
+            # 美化按钮样式
+            btn.setStyleSheet("""
+                QPushButton {
+                    font-size: 16px;
+                    font-weight: bold;
+                    border-radius: 12px;
+                    padding: 10px;
+                    background-color: #4CAF50;
+                }
+                QPushButton:hover {
+                    background-color: #45a049;
+                }
+                QPushButton:pressed {
+                    background-color: #3d8b40;
+                }
+            """)
+
+            # 绑定点击事件
+            btn.clicked.connect(lambda checked, data=btn_data: self.execute_button(data))
+
+            # 绑定右键菜单
+            btn.setContextMenuPolicy(Qt.CustomContextMenu)
+            btn.customContextMenuRequested.connect(
+                lambda pos, button=btn, data=btn_data, index=idx: self.show_context_menu(button, data, index)
+            )
+
+            self.button_grid_layout.addWidget(btn, row, col)
+
+    def show_context_menu(self, button, button_data, index):
+        """显示右键菜单"""
+        menu = QMenu(self)
+
+        # 美化菜单样式
+        menu.setStyleSheet("""
+            QMenu {
+                font-size: 16px;
+                padding: 10px;
+                background-color: #ffffff;
+                border-radius: 8px;
+                color: #111111;
+            }
+            QMenu::item {
+                padding: 8px 30px;
+                border-radius: 4px;
+            }
+            QMenu::item:selected {
+                background-color: #f0f0ff;
+            }
+        """)
+
+        edit_action = QAction(FluentIcon.EDIT.icon(), "编辑按钮", self)
+        edit_action.triggered.connect(lambda: self.edit_button(index))
+        menu.addAction(edit_action)
+
+        delete_action = QAction(FluentIcon.DELETE.icon(), "删除按钮", self)
+        delete_action.triggered.connect(lambda: self.delete_button(index))
+        menu.addAction(delete_action)
+
+        menu.exec_(button.mapToGlobal(button.rect().bottomRight()))
+
+    def execute_button(self, button_data):
+        """执行按钮命令"""
+        try:
+            cwd = button_data.get("cwd", ".")
+            if cwd == ".":
+                cwd = os.path.dirname(__file__)
+
+            cmd = button_data.get("cmd", "")
+            env = button_data.get("env")
+
+            if not cmd:
+                self.show_warning("警告", "按钮没有配置执行命令")
+                return
+
+            # 构建完整命令
+            if env:
+                full_cmd = f"source ~/.zshrc && conda activate {env} && cd '{cwd}' && {cmd}"
+            else:
+                full_cmd = f"cd '{cwd}' && {cmd}"
+
+            # 在新终端窗口中执行（macOS）
+            applescript = f'''
+            tell application "Terminal"
+                activate
+                do script "{full_cmd}"
+            end tell
+            '''
+
+            subprocess.Popen(["osascript", "-e", applescript])
+            self.show_success("执行", f"已启动: {button_data.get('title', '未命名')}")
+
+        except Exception as e:
+            self.show_error("错误", f"执行失败: {str(e)}")
+
+    def refresh_buttons(self):
+        """刷新按钮列表"""
+        self.load_buttons()
+        self.render_buttons()
+        self.show_success("刷新", "按钮列表已刷新")
+
+    def add_button(self):
+        """新增按钮"""
+        dialog = ButtonEditDialog(parent=self)
+        if dialog.exec_() == QDialog.Accepted:
+            button_data = dialog.button_data
+            self.buttons_data.append(button_data)
+            self.save_buttons()
+            self.render_buttons()
+            self.show_success("成功", f"已添加按钮: {button_data['title']}")
+
+    def edit_button(self, index):
+        """编辑按钮"""
+        if 0 <= index < len(self.buttons_data):
+            dialog = ButtonEditDialog(self.buttons_data[index], parent=self)
+            if dialog.exec_() == QDialog.Accepted:
+                button_data = dialog.button_data
+                self.buttons_data[index] = button_data
+                self.save_buttons()
+                self.render_buttons()
+                self.show_success("成功", f"已更新按钮: {button_data['title']}")
+
+    def delete_button(self, index):
+        """删除按钮"""
+        if 0 <= index < len(self.buttons_data):
+            button_data = self.buttons_data[index]
+            reply = QMessageBox.question(
+                self,
+                "确认删除",
+                f"确定要删除按钮 '{button_data['title']}' 吗？\n\n此操作不可恢复！",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No
+            )
+
+            if reply == QMessageBox.Yes:
+                del self.buttons_data[index]
+                self.save_buttons()
+                self.render_buttons()
+                self.show_success("成功", f"已删除按钮: {button_data['title']}")
+
+# 按钮编辑对话框
+class ButtonEditDialog(QDialog):
+    """按钮编辑对话框"""
+    def __init__(self, button_data=None, parent=None):
+        super().__init__(parent)
+        self.button_data = button_data or {}
+        self.is_edit = button_data is not None
+        self.init_ui()
+        self.load_data()
+
+        # 设置对话框样式
+        self.setStyleSheet("""
+            QGroupBox {
+                font-weight: bold;
+                border: 2px solid #cccccc;
+                border-radius: 8px;
+                margin-top: 1ex;
+                padding-top: 10px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 10px;
+                padding: 0 5px 0 5px;
+            }
+            QTextEdit {
+                border: 1px solid #cccccc;
+                border-radius: 4px;
+                padding: 8px;
+                font-family: 'Monaco', 'Menlo', monospace;
+                font-size: 13px;
+            }
+            QTextEdit:focus {
+                border-color: #0078d4;
+            }
+        """)
+
+    def init_ui(self):
+        self.setWindowTitle("编辑按钮" if self.is_edit else "新增按钮")
+        self.setMinimumSize(600, 500)
+        self.setModal(True)
+        self.resize(600, 500)  # 设置默认大小
+
+        # 主布局
+        layout = QVBoxLayout(self)
+        layout.setSpacing(20)
+        layout.setContentsMargins(25, 25, 25, 25)
+
+        # 提示信息卡片
+        tip_card = CardWidget()
+        tip_layout = QVBoxLayout(tip_card)
+        tip_layout.setContentsMargins(15, 15, 15, 15)
+
+        if self.is_edit:
+            tip_label = QLabel("✏️ 编辑现有按钮的配置信息")
+            tip_label.setStyleSheet("""
+                QLabel {
+                    color: #1976d2;
+                    font-size: 14px;
+                    font-weight: 500;
+                    padding: 8px;
+                    background-color: #e3f2fd;
+                    border-radius: 6px;
+                    border: 1px solid #bbdefb;
+                }
+            """)
+        else:
+            tip_label = QLabel("➕ 添加新的AIGC工具按钮")
+            tip_label.setStyleSheet("""
+                QLabel {
+                    color: #2e7d32;
+                    font-size: 14px;
+                    font-weight: 500;
+                    padding: 8px;
+                    background-color: #e8f5e8;
+                    border-radius: 6px;
+                    border: 1px solid #c8e6c9;
+                }
+            """)
+
+        tip_layout.addWidget(tip_label)
+        layout.addWidget(tip_card)
+
+        # 基本信息卡片
+        title_card = ElevatedCardWidget()
+        title_layout = QVBoxLayout(title_card)
+        title_layout.setContentsMargins(20, 20, 20, 20)
+        title_layout.setSpacing(15)
+
+        title_header = QLabel("📝 基本信息")
+        title_header.setFixedHeight(25)
+        title_header.setStyleSheet("""
+            QLabel {
+                font-size: 18px;
+                font-weight: bold;
+                color: #333;
+                padding: 5px 0px;
+            }
+        """)
+        title_layout.addWidget(title_header)
+
+        # 标题输入区域
+        title_form_layout = QHBoxLayout()
+        title_form_layout.setSpacing(15)
+        title_form_layout.setAlignment(Qt.AlignTop)
+
+        title_label = QLabel("按钮标题:")
+        title_label.setFixedWidth(80)
+        title_label.setFixedHeight(20)
+        title_label.setStyleSheet("font-size: 14px; color: #555;")
+
+        self.title_edit = LineEdit()
+        self.title_edit.setFixedHeight(36)
+        self.title_edit.setPlaceholderText("例如：AI故事绘本生成器")
+        self.title_edit.setStyleSheet("""
+            LineEdit {
+                border: 2px solid #e0e0e0;
+                border-radius: 6px;
+                padding: 8px 12px;
+                font-size: 14px;
+                background-color: #fafafa;
+            }
+            LineEdit:focus {
+                border-color: #2196f3;
+                background-color: white;
+            }
+        """)
+
+        title_form_layout.addWidget(title_label)
+        title_form_layout.addWidget(self.title_edit, 1)
+        title_layout.addLayout(title_form_layout)
+
+        layout.addWidget(title_card)
+
+        # 命令设置卡片
+        cmd_card = ElevatedCardWidget()
+        cmd_layout = QVBoxLayout(cmd_card)
+        cmd_layout.setContentsMargins(20, 20, 20, 20)
+        cmd_layout.setSpacing(15)
+
+        cmd_header = QLabel("⚙️ 命令设置")
+        cmd_header.setFixedHeight(25)
+        cmd_header.setStyleSheet("""
+            QLabel {
+                font-size: 18px;
+                font-weight: bold;
+                color: #333;
+                padding: 5px 0px;
+            }
+        """)
+        cmd_layout.addWidget(cmd_header)
+
+        # 命令输入区域
+        cmd_label = QLabel("执行命令:")
+        cmd_label.setFixedHeight(20)
+        cmd_label.setStyleSheet("font-size: 14px; color: #555;")
+        cmd_layout.addWidget(cmd_label)
+
+        self.cmd_edit = QTextEdit()
+        self.cmd_edit.setFixedHeight(100)
+        self.cmd_edit.setPlaceholderText("示例：\n• python story.py\n• streamlit run app.py\n• open /path/to/app")
+        self.cmd_edit.setStyleSheet("""
+            QTextEdit {
+                border: 2px solid #e0e0e0;
+                border-radius: 6px;
+                padding: 10px 12px;
+                font-size: 13px;
+                font-family: 'Monaco', 'Menlo', 'Consolas', monospace;
+                background-color: #fafafa;
+                line-height: 1.4;
+            }
+            QTextEdit:focus {
+                border-color: #2196f3;
+                background-color: white;
+            }
+        """)
+        cmd_layout.addWidget(self.cmd_edit)
+
+        # 工作目录输入区域
+        cwd_form_layout = QHBoxLayout()
+        cwd_form_layout.setSpacing(15)
+        cwd_form_layout.setAlignment(Qt.AlignTop)
+
+        cwd_label = QLabel("工作目录:")
+        cwd_label.setFixedWidth(80)
+        cwd_label.setFixedHeight(20)
+        cwd_label.setStyleSheet("font-size: 14px; color: #555;")
+
+        self.cwd_edit = LineEdit()
+        self.cwd_edit.setFixedHeight(36)
+        self.cwd_edit.setPlaceholderText("留空使用当前目录")
+        self.cwd_edit.setStyleSheet("""
+            LineEdit {
+                border: 2px solid #e0e0e0;
+                border-radius: 6px;
+                padding: 8px 12px;
+                font-size: 14px;
+                background-color: #fafafa;
+            }
+            LineEdit:focus {
+                border-color: #2196f3;
+                background-color: white;
+            }
+        """)
+
+        cwd_btn = PushButton(FluentIcon.FOLDER, "浏览")
+        cwd_btn.setFixedHeight(36)
+        cwd_btn.setFixedWidth(80)
+        cwd_btn.clicked.connect(self.browse_directory)
+        cwd_btn.setStyleSheet("""
+            PushButton {
+                border-radius: 6px;
+                font-size: 13px;
+                padding: 0px;
+            }
+        """)
+
+        cwd_form_layout.addWidget(cwd_label)
+        cwd_form_layout.addWidget(self.cwd_edit, 1)
+        cwd_form_layout.addWidget(cwd_btn)
+        cmd_layout.addLayout(cwd_form_layout)
+
+        layout.addWidget(cmd_card)
+
+        # 环境设置卡片
+        env_card = ElevatedCardWidget()
+        env_layout = QVBoxLayout(env_card)
+        env_layout.setContentsMargins(20, 20, 20, 20)
+        env_layout.setSpacing(15)
+
+        env_header = QLabel("🐍 环境设置")
+        env_header.setFixedHeight(25)
+        env_header.setStyleSheet("""
+            QLabel {
+                font-size: 18px;
+                font-weight: bold;
+                color: #333;
+                padding: 5px 0px;
+            }
+        """)
+        env_layout.addWidget(env_header)
+
+        # 环境选择区域
+        env_form_layout = QHBoxLayout()
+        env_form_layout.setSpacing(15)
+        env_form_layout.setAlignment(Qt.AlignTop)
+
+        env_label = QLabel("Conda环境:")
+        env_label.setFixedWidth(80)
+        env_label.setFixedHeight(20)
+        env_label.setStyleSheet("font-size: 14px; color: #555;")
+
+        self.env_combo = ComboBox()
+        self.env_combo.setFixedHeight(36)
+        self.env_combo.addItem("不使用环境", "")
+        self.env_combo.addItem("modelscope", "modelscope")
+        self.env_combo.addItem("mpp", "mpp")
+        self.env_combo.setStyleSheet("""
+            ComboBox {
+                border: 2px solid #e0e0e0;
+                border-radius: 6px;
+                padding: 8px 12px;
+                font-size: 14px;
+                background-color: #fafafa;
+            }
+            ComboBox:focus {
+                border-color: #2196f3;
+                background-color: white;
+            }
+            ComboBox::drop-down {
+                border: none;
+                width: 30px;
+            }
+            ComboBox::down-arrow {
+                image: none;
+                border-left: 4px solid transparent;
+                border-right: 4px solid transparent;
+                border-top: 4px solid #666;
+                margin-right: 8px;
+            }
+        """)
+
+        refresh_env_btn = PushButton(FluentIcon.SYNC, "刷新")
+        refresh_env_btn.setFixedHeight(36)
+        refresh_env_btn.setFixedWidth(80)
+        refresh_env_btn.clicked.connect(self.refresh_environments)
+        refresh_env_btn.setStyleSheet("""
+            PushButton {
+                border-radius: 6px;
+                font-size: 13px;
+                padding: 0px;
+            }
+        """)
+
+        env_form_layout.addWidget(env_label)
+        env_form_layout.addWidget(self.env_combo, 1)
+        env_form_layout.addWidget(refresh_env_btn)
+        env_layout.addLayout(env_form_layout)
+
+        layout.addWidget(env_card)
+
+        # 按钮区域
+        button_card = CardWidget()
+        button_layout = QHBoxLayout(button_card)
+        button_layout.setContentsMargins(20, 20, 20, 20)
+        button_layout.setSpacing(15)
+
+        button_layout.addStretch()
+
+        cancel_btn = PushButton("取消")
+        cancel_btn.setFixedHeight(40)
+        cancel_btn.setFixedWidth(120)
+        cancel_btn.setStyleSheet("""
+            PushButton {
+                border-radius: 8px;
+                font-size: 14px;
+                border: 2px solid #e0e0e0;
+                padding: 0px;
+            }
+            PushButton:hover {
+                border-color: #2196f3;
+            }
+        """)
+        cancel_btn.clicked.connect(self.reject)
+
+        save_btn = PrimaryPushButton("  保 存  ")
+        save_btn.setFixedHeight(40)
+        save_btn.setFixedWidth(120)
+        save_btn.setIcon(FluentIcon.SAVE)
+        save_btn.setStyleSheet("""
+            PrimaryPushButton {
+                border-radius: 8px;
+                font-size: 14px;
+                font-weight: 600;
+                spacing: 8px;
+            }
+        """)
+        save_btn.clicked.connect(self.save_button)
+
+        button_layout.addWidget(cancel_btn)
+        button_layout.addWidget(save_btn)
+        layout.addWidget(button_card)
+
+    def load_data(self):
+        """加载按钮数据"""
+        if self.is_edit:
+            self.title_edit.setText(self.button_data.get("title", ""))
+            self.cmd_edit.setText(self.button_data.get("cmd", ""))
+            self.cwd_edit.setText(self.button_data.get("cwd", ""))
+
+            env = self.button_data.get("env", "")
+            for i in range(self.env_combo.count()):
+                if self.env_combo.itemData(i) == env:
+                    self.env_combo.setCurrentIndex(i)
+                    break
+
+    def browse_directory(self):
+        """选择工作目录"""
+        directory = QFileDialog.getExistingDirectory(self, "选择工作目录")
+        if directory:
+            self.cwd_edit.setText(directory)
+
+    def refresh_environments(self):
+        """刷新Conda环境列表"""
+        try:
+            result = subprocess.run(["conda", "env", "list"],
+                                  capture_output=True, text=True, timeout=10)
+            if result.returncode == 0:
+                envs = []
+                for line in result.stdout.split('\n'):
+                    if line.strip() and not line.startswith('#'):
+                        parts = line.split()
+                        if len(parts) >= 1:
+                            env_name = parts[0]
+                            if env_name not in ['base', 'envs']:
+                                envs.append(env_name)
+
+                self.env_combo.clear()
+                self.env_combo.addItem("不使用环境", "")
+                for env in envs:
+                    self.env_combo.addItem(env, env)
+
+                # 重新添加常用环境
+                if "modelscope" not in envs:
+                    self.env_combo.addItem("modelscope", "modelscope")
+                if "mpp" not in envs:
+                    self.env_combo.addItem("mpp", "mpp")
+
+        except Exception as e:
+            print(f"刷新环境失败: {str(e)}")
+
+    def get_button_data(self):
+        """获取按钮数据"""
+        return {
+            "title": self.title_edit.text().strip(),
+            "cmd": self.cmd_edit.toPlainText().strip(),
+            "cwd": self.cwd_edit.text().strip() or ".",
+            "env": self.env_combo.currentData()
+        }
+
+    def save_button(self):
+        """保存按钮"""
+        data = self.get_button_data()
+
+        if not data["title"]:
+            QMessageBox.warning(self, "警告", "请输入按钮标题")
+            return
+
+        if not data["cmd"]:
+            QMessageBox.warning(self, "警告", "请输入执行命令")
+            return
+
+        self.button_data = data
+        self.accept()
 
 # 文本生成工作线程 (保留不变，用于与 SiliconFlow API 交互)
 class TextGenerationWorker(QThread):
@@ -1147,7 +1822,7 @@ class BaseTextPage(QScrollArea):
 
     def create_template_selection(self):
         """创建模板选择组件"""
-        template_group = QGroupBox("提示词模板选择")
+        template_group = QGroupBox("") #提示词模板选择
         template_layout = QVBoxLayout()
 
         # 模板选择下拉框
@@ -2095,6 +2770,14 @@ class MainWindow(FluentWindow):
 
     def init_navigation(self):
         """初始化导航栏"""
+        # 添加首页
+        self.addSubInterface(
+            self.create_home_page(),
+            FluentIcon.HOME,
+            "首页",
+            NavigationItemPosition.TOP
+        )
+
         self.storyboard_page = StoryboardPage(self)
         self.storyboard_page.setObjectName("storyboard_page")
         self.addSubInterface(
@@ -2110,6 +2793,12 @@ class MainWindow(FluentWindow):
             "设置",
             NavigationItemPosition.BOTTOM
         )
+
+    def create_home_page(self):
+        """创建首页"""
+        self.home_page = HomePage(self)
+        self.home_page.setObjectName("home_page")
+        return self.home_page
 
     def open_directory(self, dir_path):
         """打开指定的本地目录"""
@@ -2350,7 +3039,25 @@ def main():
              /* 增加 Tab 标题字体大小和填充 */
              font-size: 16px;
              padding: 8px 15px;
-             width:120px;
+             width:100px;
+             border: 2px solid transparent;
+             border-radius: 8px;
+             margin-right: 3px;
+             background-color: #cccccc;
+             color: #666;
+        }
+        QTabBar::tab:selected {
+             /* 激活状态样式 */
+             background-color: #2196f3;
+             color: white;
+             border-color: #2196f3;
+             font-weight: bold;
+        }
+        QTabBar::tab:hover:!selected {
+             /* 悬停但未激活状态 */
+             background-color: #e3f2fd;
+             color: #1976d2;
+             border-color: #bbdefb;
         }
         QToolButton#swap_size_btn {
              /* 调整互换按钮的尺寸和样式 */
@@ -2396,6 +3103,12 @@ def main():
 
     # 创建并显示主窗口
     window = MainWindow()
+
+    # 设置窗口图标
+    icon_path = os.path.join(os.path.dirname(__file__), "icon.png")
+    if os.path.exists(icon_path):
+        window.setWindowIcon(QIcon(icon_path))
+
     window.show()
 
     sys.exit(app.exec_())
