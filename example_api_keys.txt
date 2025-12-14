@@ -1,0 +1,24 @@
+# 示例API密钥文件
+# 每行一个API密钥，请替换为您的实际密钥
+# 至少18个密钥用于批量处理
+
+sk-your-api-key-1
+sk-your-api-key-2
+sk-your-api-key-3
+sk-your-api-key-4
+sk-your-api-key-5
+sk-your-api-key-6
+sk-your-api-key-7
+sk-your-api-key-8
+sk-your-api-key-9
+sk-your-api-key-10
+sk-your-api-key-11
+sk-your-api-key-12
+sk-your-api-key-13
+sk-your-api-key-14
+sk-your-api-key-15
+sk-your-api-key-16
+sk-your-api-key-17
+sk-your-api-key-18
+sk-your-api-key-19
+sk-your-api-key-20
