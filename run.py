@@ -36,12 +36,12 @@ def check_environment():
         return False
     
     # 检查API密钥
-    api_key = os.getenv('MODELSCOPE_SDK_TOKEN')
+    api_key = os.getenv('SiliconCloud_API_KEY')
     if api_key:
-        print(f"✅ ModelScope API密钥已配置 (长度: {len(api_key)})")
+        print(f"✅ API密钥已配置 (长度: {len(api_key)})")
     else:
-        print("⚠️  ModelScope API密钥未配置")
-        print("请设置环境变量 MODELSCOPE_SDK_TOKEN")
+        print("⚠️  API密钥未配置")
+        print("请设置环境变量 SiliconCloud_API_KEY")
         print("或在应用设置中配置API密钥")
     
     return True

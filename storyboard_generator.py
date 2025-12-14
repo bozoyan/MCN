@@ -348,6 +348,7 @@ class ImageGenerationWorker(QThread):
     progress_updated = pyqtSignal(int, str)
     image_generated = pyqtSignal(int, object, str)  # index, image, url
     finished = pyqtSignal(bool, list, list)
+    time_updated = pyqtSignal(str)  # 新增：更新运行时间信号
 
     def __init__(self, prompts, width, height, image_count=10):
         super().__init__()
@@ -359,12 +360,26 @@ class ImageGenerationWorker(QThread):
         self.is_cancelled = False
         self.image_urls = [''] * self.image_count
         self.web_app_id = config_manager.get('bizyair_params.web_app_id', 39808)
+        self.start_time = None
+        self.timer = QTimer()
+        self.timer.timeout.connect(self.update_elapsed_time)
+
+    def update_elapsed_time(self):
+        """更新运行时间"""
+        if self.start_time:
+            elapsed = time.time() - self.start_time
+            self.time_updated.emit(f"运行时间: {elapsed:.1f}秒")
 
     def run(self):
         """运行图片生成"""
         try:
+            # 记录开始时间并启动计时器
+            self.start_time = time.time()
+            self.timer.start(100)  # 每100毫秒更新一次时间显示
+
             api_key = config_manager.get('api.api_key', MODEL_API_KEY)
             if not api_key:
+                self.timer.stop()
                 self.finished.emit(False, [], [])
                 return
 
@@ -442,38 +457,62 @@ class ImageGenerationWorker(QThread):
                              final_urls.append('') # 添加空URL占位
 
             # 最终返回
+            self.timer.stop()  # 停止计时器
             if not self.is_cancelled:
-                self.progress_updated.emit(100, "图片生成完成!")
+                total_time = time.time() - self.start_time if self.start_time else 0
+                self.progress_updated.emit(100, f"图片生成完成! 总耗时: {total_time:.1f}秒")
                 # 只返回实际需要的 URL 数量
                 self.finished.emit(True, [], final_urls[:self.image_count])
             else:
-                 self.finished.emit(False, [], final_urls[:self.image_count])
+                total_time = time.time() - self.start_time if self.start_time else 0
+                self.progress_updated.emit(0, f"任务已取消! 耗时: {total_time:.1f}秒")
+                self.finished.emit(False, [], final_urls[:self.image_count])
                  
         except Exception as e:
+            self.timer.stop()  # 停止计时器
             logger.error(f"图片生成失败: {e}")
             self.finished.emit(False, [], [])
 
 
-# 模板管理对话框 (保留不变)
+# 模板管理对话框 (改进版)
 class TemplateManagerDialog(QDialog):
     """提示词模板管理对话框"""
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("提示词模板管理")
-        self.setMinimumSize(800, 600)
+        self.setMinimumSize(900, 700)
+        self.templates_by_type = {}
+        self.current_template_key = None
         self.init_ui()
 
     def init_ui(self):
         layout = QVBoxLayout(self)
 
+        # 模板类型选择
+        type_group = QGroupBox("模板类型")
+        type_layout = QVBoxLayout()
+
+        self.template_type_combo = ComboBox()
+        self.template_type_combo.setFixedHeight(32)
+        self.template_type_combo.addItem("全部模板", "all")
+        self.template_type_combo.addItem("故事标题模板 (story_title)", "story_title")
+        self.template_type_combo.addItem("故事描述模板 (story_summary)", "story_summary")
+        self.template_type_combo.addItem("AI绘图提示词模板 (image_prompt)", "image_prompt")
+        self.template_type_combo.currentIndexChanged.connect(self.on_template_type_changed)
+
+        type_layout.addWidget(QLabel("选择模板类型:"))
+        type_layout.addWidget(self.template_type_combo)
+        type_group.setLayout(type_layout)
+        layout.addWidget(type_group)
+
         # 模板选择
-        template_group = QGroupBox("选择模板")
+        template_group = QGroupBox("选择具体模板")
         template_layout = QVBoxLayout()
 
         self.template_combo = ComboBox()
         self.template_combo.setFixedHeight(32)
-        self.load_templates()
-        template_layout.addWidget(QLabel("模板类型:"))
+        self.template_combo.currentIndexChanged.connect(self.on_template_name_changed)
+        template_layout.addWidget(QLabel("模板名称:"))
         template_layout.addWidget(self.template_combo)
         template_group.setLayout(template_layout)
         layout.addWidget(template_group)
@@ -536,19 +575,80 @@ class TemplateManagerDialog(QDialog):
 
         layout.addLayout(button_layout)
 
+        # 初始化加载模板
+        self.load_templates()
+
+    def on_template_type_changed(self, index):
+        """模板类型改变时的处理"""
+        self.update_template_names_combo()
+        # 清空编辑区域
+        self.template_name_edit.clear()
+        self.template_content_edit.clear()
+        self.current_template_key = None
+
+    def on_template_name_changed(self, index):
+        """模板名称改变时的处理"""
+        current_data = self.template_combo.currentData()
+        if current_data:
+            template = config_manager.get_template(current_data)
+            self.template_name_edit.setText(template.get('name', ''))
+            self.template_content_edit.setText(template.get('template', ''))
+            self.current_template_key = current_data
+
+    def update_template_names_combo(self):
+        """更新模板名称下拉框"""
+        self.template_combo.clear()
+        current_type = self.template_type_combo.currentData()
+
+        # 确保current_type不为None
+        if current_type is None:
+            return
+
+        templates = config_manager.get('prompt_templates', {})
+
+        if current_type == "all":
+            # 显示所有模板，并按类型分组显示
+            used_names = set()  # 用于去重
+
+            # 按类型顺序显示
+            type_order = ['story_title', 'story_summary', 'image_prompt']
+            for template_type in type_order:
+                type_templates = {k: v for k, v in templates.items() if k.startswith(template_type)}
+                if type_templates:
+                    # 添加类型分隔符（用空项实现）
+                    type_name = {
+                        'story_title': '=== 故事标题模板 ===',
+                        'story_summary': '=== 故事描述模板 ===',
+                        'image_prompt': '=== AI绘图提示词模板 ==='
+                    }
+                    self.template_combo.addItem(type_name[template_type], None)
+
+                    # 添加该类型的所有模板
+                    for key, template in type_templates.items():
+                        name = template.get('name', key)
+                        if name not in used_names:  # 去重
+                            self.template_combo.addItem(f"  {name}", key)
+                            used_names.add(name)
+        else:
+            # 只显示指定类型的模板
+            type_templates = {k: v for k, v in templates.items() if k.startswith(current_type)}
+
+            for key, template in type_templates.items():
+                name = template.get('name', key)
+                self.template_combo.addItem(name, key)
+
+        self.template_combo.setCurrentIndex(-1)  # 默认不选中
+
     def new_template(self):
         """新建模板"""
         self.template_name_edit.clear()
         self.template_content_edit.clear()
         self.template_name_edit.setFocus()
+        self.current_template_key = None
 
     def load_templates(self):
-        """加载模板列表"""
-        self.template_combo.clear()
-        templates = config_manager.get('prompt_templates', {})
-        for key, template in templates.items():
-            self.template_combo.addItem(template.get('name', key), key)
-        self.template_combo.setCurrentIndex(-1) # 默认不选中
+        """加载模板列表（重命名为按类型加载）"""
+        self.update_template_names_combo()
 
     def load_template_content(self):
         """加载模板内容"""
@@ -557,6 +657,7 @@ class TemplateManagerDialog(QDialog):
             template = config_manager.get_template(current_data)
             self.template_name_edit.setText(template.get('name', ''))
             self.template_content_edit.setText(template.get('template', ''))
+            self.current_template_key = current_data
 
     def save_template_content(self):
         """保存模板内容"""
@@ -567,8 +668,31 @@ class TemplateManagerDialog(QDialog):
             QMessageBox.warning(self, "警告", "模板名称和内容不能为空")
             return
 
-        current_data = self.template_combo.currentData()
-        template_key = current_data or template_name.replace(' ', '_').lower()
+        # 检查当前选择的模板类型，如果没有选择类型，则根据现有模板判断
+        current_type = self.template_type_combo.currentData()
+        if current_type == "all":
+            # 如果是"全部模板"，则根据当前编辑的模板key来判断类型
+            if self.current_template_key:
+                for template_type in ['story_title', 'story_summary', 'image_prompt']:
+                    if self.current_template_key.startswith(template_type):
+                        current_type = template_type
+                        break
+            # 如果还是没有类型，默认使用story_title
+            if current_type == "all":
+                current_type = "story_title"
+
+        # 生成模板key，确保以类型开头
+        template_key = self.current_template_key
+        if not template_key:
+            # 新建模板，根据类型生成key
+            base_name = template_name.replace(' ', '_').lower()
+            template_key = f"{current_type}_{base_name}"
+        else:
+            # 编辑现有模板，保持原有key的类型前缀
+            for template_type in ['story_title', 'story_summary', 'image_prompt']:
+                if template_key.startswith(template_type):
+                    current_type = template_type
+                    break
 
         template_data = {
             'name': template_name,
@@ -578,6 +702,12 @@ class TemplateManagerDialog(QDialog):
         if config_manager.save_template(template_key, template_data):
             QMessageBox.information(self, "成功", "模板保存成功")
             self.load_templates()
+            # 重新选择刚保存的模板
+            for i in range(self.template_combo.count()):
+                if self.template_combo.itemData(i) == template_key:
+                    self.template_combo.setCurrentIndex(i)
+                    self.current_template_key = template_key
+                    break
         else:
             QMessageBox.critical(self, "错误", "模板保存失败")
 
@@ -594,6 +724,10 @@ class TemplateManagerDialog(QDialog):
                     config_manager.set('prompt_templates', templates)
                     config_manager.save_config()
                     self.load_templates()
+                    # 清空编辑区域
+                    self.template_name_edit.clear()
+                    self.template_content_edit.clear()
+                    self.current_template_key = None
                     QMessageBox.information(self, "成功", "模板删除成功")
 
     def import_template(self):
@@ -611,7 +745,12 @@ class TemplateManagerDialog(QDialog):
                     return
 
                 template_name = template_data.get('name', '导入的模板')
-                template_key = template_name.replace(' ', '_').lower()
+                # 获取当前选择的模板类型来生成key
+                current_type = self.template_type_combo.currentData()
+                if current_type == "all":
+                    current_type = "story_title"  # 默认类型
+
+                template_key = f"{current_type}_{template_name.replace(' ', '_').lower()}"
 
                 if config_manager.save_template(template_key, template_data):
                     QMessageBox.information(self, "成功", f"模板 '{template_name}' 导入成功")
@@ -1043,24 +1182,95 @@ class ImageControlDialog(QDialog):
 # 内容页面的基类 (调整布局，使其内容居中且自适应)
 class BaseTextPage(QScrollArea):
     """用于左侧 TabWidget 的内容页面基类"""
-    def __init__(self, title, input_widget, button_layout=None, parent=None):
+    def __init__(self, title, input_widget, button_layout=None, template_type=None, parent=None):
         super().__init__(parent)
         self.setWidgetResizable(True)
+        self.template_type = template_type
         widget = QWidget()
         layout = QVBoxLayout(widget)
         layout.setContentsMargins(20, 20, 20, 20)
-        
+
         title_label = SubtitleLabel(title)
         # title_label.setFont(QFont("", 14, QFont.Bold)) # 移除固定字体大小
         layout.addWidget(title_label)
-        
+
         layout.addWidget(input_widget)
-        
+
+        # 添加模板选择区域
+        if self.template_type:
+            self.template_selection_widget = self.create_template_selection()
+            layout.addWidget(self.template_selection_widget)
+
         if button_layout:
             layout.addLayout(button_layout)
-        
+
         layout.addStretch()
         self.setWidget(widget)
+
+    def create_template_selection(self):
+        """创建模板选择组件"""
+        template_group = QGroupBox("提示词模板选择")
+        template_layout = QVBoxLayout()
+
+        # 模板选择下拉框
+        self.template_combo = ComboBox()
+        self.template_combo.setFixedHeight(32)
+        self.template_combo.addItem("使用默认模板", None)
+
+        # 加载对应类型的模板
+        self.load_templates_by_type()
+
+        template_layout.addWidget(QLabel("选择模板:"))
+        template_layout.addWidget(self.template_combo)
+
+        # 当前使用模板标签
+        self.current_template_label = QLabel("当前使用: 默认模板")
+        self.current_template_label.setStyleSheet("color: #666; font-size: 12px; margin: 5px 0;")
+        template_layout.addWidget(self.current_template_label)
+
+        template_group.setLayout(template_layout)
+        return template_group
+
+    def load_templates_by_type(self):
+        """根据模板类型加载对应的模板"""
+        if not self.template_type:
+            return
+
+        templates = config_manager.get('prompt_templates', {})
+        type_templates = {k: v for k, v in templates.items() if k.startswith(self.template_type)}
+
+        # 清空现有选项（保留第一个默认选项）
+        while self.template_combo.count() > 1:
+            self.template_combo.removeItem(self.template_combo.count() - 1)
+
+        # 添加该类型的模板
+        for key, template in type_templates.items():
+            name = template.get('name', key)
+            self.template_combo.addItem(name, key)
+
+        # 设置默认选择第一个
+        self.template_combo.setCurrentIndex(0)
+
+    def get_selected_template_key(self):
+        """获取当前选择的模板key"""
+        return self.template_combo.currentData()
+
+    def get_selected_template(self):
+        """获取当前选择的模板内容"""
+        template_key = self.get_selected_template_key()
+        if template_key:
+            return config_manager.get_template(template_key)
+        return None
+
+    def update_current_template_label(self):
+        """更新当前使用模板的标签"""
+        template_key = self.get_selected_template_key()
+        if template_key:
+            template = config_manager.get_template(template_key)
+            name = template.get('name', template_key) if template else template_key
+            self.current_template_label.setText(f"当前使用: {name}")
+        else:
+            self.current_template_label.setText("当前使用: 默认模板")
 
 
 # 主功能页面 (重大重构)
@@ -1184,7 +1394,7 @@ class StoryboardPage(SmoothScrollArea):
         self.title_progress.setFixedHeight(10)
         title_btn_layout.addWidget(self.title_progress)
         title_btn_layout.addWidget(self.generate_title_btn)
-        title_page = BaseTextPage("🎭 分镜标题生成", self.title_output_edit, title_btn_layout)
+        title_page = BaseTextPage("🎭 分镜标题生成", self.title_output_edit, title_btn_layout, "story_title")
         tab_widget.addTab(title_page, "分镜标题")
 
         # 2. 分镜描述页 (按钮/进度条移入 BaseTextPage)
@@ -1192,7 +1402,7 @@ class StoryboardPage(SmoothScrollArea):
         self.summary_progress.setFixedHeight(10)
         summary_btn_layout.addWidget(self.summary_progress)
         summary_btn_layout.addWidget(self.generate_summary_btn)
-        summary_page = BaseTextPage("📝 分镜描述生成", self.summary_output_edit, summary_btn_layout)
+        summary_page = BaseTextPage("📝 分镜描述生成", self.summary_output_edit, summary_btn_layout, "story_summary")
         tab_widget.addTab(summary_page, "分镜描述")
 
         # 3. 绘图提示词页 (按钮/进度条移入 BaseTextPage)
@@ -1200,8 +1410,18 @@ class StoryboardPage(SmoothScrollArea):
         self.prompt_progress.setFixedHeight(10)
         prompt_btn_layout.addWidget(self.prompt_progress)
         prompt_btn_layout.addWidget(self.generate_prompt_btn)
-        prompt_page = BaseTextPage("🎨 绘图提示词", self.generated_prompts_edit, prompt_btn_layout)
+        prompt_page = BaseTextPage("🎨 绘图提示词", self.generated_prompts_edit, prompt_btn_layout, "image_prompt")
         tab_widget.addTab(prompt_page, "绘图提示词")
+
+        # 保存页面对象引用
+        self.title_page = title_page
+        self.summary_page = summary_page
+        self.prompt_page = prompt_page
+
+        # 连接模板选择信号
+        title_page.template_combo.currentIndexChanged.connect(lambda: title_page.update_current_template_label())
+        summary_page.template_combo.currentIndexChanged.connect(lambda: summary_page.update_current_template_label())
+        prompt_page.template_combo.currentIndexChanged.connect(lambda: prompt_page.update_current_template_label())
 
         return tab_widget
 
@@ -1233,6 +1453,12 @@ class StoryboardPage(SmoothScrollArea):
         self.image_status_label = QLabel("准备就绪")
         self.image_status_label.setAlignment(Qt.AlignCenter)
         progress_layout.addWidget(self.image_status_label)
+
+        # 添加运行时间显示标签
+        self.image_time_label = QLabel("运行时间: --")
+        self.image_time_label.setAlignment(Qt.AlignCenter)
+        self.image_time_label.setStyleSheet("color: #666; font-size: 12px; margin-top: 5px;")
+        progress_layout.addWidget(self.image_time_label)
 
         right_layout.addWidget(progress_card)
 
@@ -1350,7 +1576,8 @@ class StoryboardPage(SmoothScrollArea):
         # self.all_generation_step = 0
         self.image_progress.setValue(0)
         self.image_status_label.setText("准备就绪")
-        
+        self.image_time_label.setText("运行时间: --")
+
         self.init_image_widgets()
         # self.top_control_bar.set_generate_enabled(True)
 
@@ -1370,7 +1597,18 @@ class StoryboardPage(SmoothScrollArea):
     def show_template_manager(self):
         """显示模板管理对话框"""
         dialog = TemplateManagerDialog(self)
-        dialog.exec_()
+        if dialog.exec_() == QDialog.Accepted:
+            # 对话框关闭后刷新各页面的模板列表
+            self.refresh_all_template_lists()
+
+    def refresh_all_template_lists(self):
+        """刷新所有页面的模板列表"""
+        if hasattr(self, 'title_page'):
+            self.title_page.load_templates_by_type()
+        if hasattr(self, 'summary_page'):
+            self.summary_page.load_templates_by_type()
+        if hasattr(self, 'prompt_page'):
+            self.prompt_page.load_templates_by_type()
         
     # --- 文本生成核心逻辑 (保持不变) ---
 
@@ -1381,8 +1619,13 @@ class StoryboardPage(SmoothScrollArea):
             QMessageBox.warning(self, "警告", "请先输入故事内容")
             return
 
-        template = config_manager.get_template('story_title')
-        system_prompt = template.get('template', '')
+        # 使用选择的模板，如果没有选择则使用默认模板
+        selected_template = self.title_page.get_selected_template()
+        if selected_template:
+            system_prompt = selected_template.get('template', '')
+        else:
+            template = config_manager.get_template('story_title')
+            system_prompt = template.get('template', '')
 
         self.generate_title_btn.setEnabled(False)
         self.title_progress.setValue(0)
@@ -1453,8 +1696,13 @@ class StoryboardPage(SmoothScrollArea):
             QMessageBox.warning(self, "警告", "请先生成分镜标题")
             return
 
-        template = config_manager.get_template('story_summary')
-        system_prompt = template.get('template', '')
+        # 使用选择的模板，如果没有选择则使用默认模板
+        selected_template = self.summary_page.get_selected_template()
+        if selected_template:
+            system_prompt = selected_template.get('template', '')
+        else:
+            template = config_manager.get_template('story_summary')
+            system_prompt = template.get('template', '')
 
         self.generate_summary_btn.setEnabled(False)
         self.summary_progress.setValue(0)
@@ -1516,8 +1764,13 @@ class StoryboardPage(SmoothScrollArea):
             QMessageBox.warning(self, "警告", "请先生成分镜描述")
             return
 
-        template = config_manager.get_template('image_prompt')
-        system_prompt = template.get('template', '')
+        # 使用选择的模板，如果没有选择则使用默认模板
+        selected_template = self.prompt_page.get_selected_template()
+        if selected_template:
+            system_prompt = selected_template.get('template', '')
+        else:
+            template = config_manager.get_template('image_prompt')
+            system_prompt = template.get('template', '')
         
         # 将所有分镜描述作为一次性输入内容
         input_content = "请根据以下分镜描述内容生成 AI 绘图提示词，每个提示词一行，中间空一行，无需序号和中文解释：\n\n" + summary_text
@@ -1691,6 +1944,7 @@ class StoryboardPage(SmoothScrollArea):
         self.image_worker.progress_updated.connect(self.on_batch_image_progress)
         self.image_worker.image_generated.connect(self.on_batch_image_url_received)
         self.image_worker.finished.connect(self.on_all_images_finished)
+        self.image_worker.time_updated.connect(self.on_image_time_updated)
 
         # 启动worker
         self.image_worker.start()
@@ -1700,6 +1954,10 @@ class StoryboardPage(SmoothScrollArea):
         """批量图片生成进度"""
         self.image_progress.setValue(progress)
         self.image_status_label.setText(msg)
+
+    def on_image_time_updated(self, time_str):
+        """更新图片生成运行时间"""
+        self.image_time_label.setText(time_str)
 
     def on_batch_image_url_received(self, index, image, url):
         """接收单个图片 URL 并更新显示"""
@@ -1715,7 +1973,7 @@ class StoryboardPage(SmoothScrollArea):
         self.all_generation_step = 0 # 重置步骤
 
         if success:
-            self.image_status_label.setText("图片生成完成！")
+            # 保留带有总耗时的状态信息
             success_count = sum(1 for url in urls if url)
             QMessageBox.information(self, "成功", f"成功生成 {success_count}/{config_manager.get('ui.default_image_count', 10)} 张图片！")
         else:
@@ -1739,6 +1997,7 @@ class StoryboardPage(SmoothScrollArea):
         self.generated_prompts_edit.clear()
         self.image_progress.setValue(0)
         self.image_status_label.setText("准备就绪")
+        self.image_time_label.setText("运行时间: --")
         self.init_image_widgets()
 
         # 1. 生成标题
