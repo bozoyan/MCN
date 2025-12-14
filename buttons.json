@@ -148,5 +148,11 @@
     "env": null,
     "cmd": "open /Volumes/AI/AI/AsrTools/启动.command",
     "cwd": "."
+  },
+  {
+    "title": "分镜脚本与图片生成器",
+    "env": "modelscope",
+    "cwd": ".",
+    "cmd": "python storyboard_generator.py"
   }
 ]

@@ -135,8 +135,8 @@ class AdvancedConfigManager:
             },
             "ui": {
                 "theme": "dark",
-                "window_width": 1678,
-                "window_height": 1049,
+                "window_width": 1640,
+                "window_height": 900,
                 "default_image_count": 10 # 默认图片数量设置为 10
             },
             "directories": {
