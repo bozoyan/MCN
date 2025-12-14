@@ -54,11 +54,11 @@ class ImageDropWidget(QFrame):
 
     def init_ui(self):
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setContentsMargins(15, 15, 15, 15)  # 减少边距让界面更紧凑
 
         # 图片显示区域
         self.image_label = QLabel()
-        self.image_label.setFixedSize(280, 180)
+        self.image_label.setFixedSize(260, 160)  # 减小尺寸让界面更紧凑
         self.image_label.setStyleSheet("""
             QLabel {
                 border: 2px dashed #505050;
@@ -825,7 +825,8 @@ class VideoGenerationWidget(QWidget):
         panel = QWidget()
         panel.setStyleSheet("QWidget { background-color: #1e1e1e; }")
         layout = QVBoxLayout(panel)
-        layout.setSpacing(12)
+        layout.setSpacing(6)  # 减少模块间距
+        layout.setContentsMargins(8, 8, 8, 8)  # 减少面板边距
 
         # 创建滚动区域
         scroll = QScrollArea()
@@ -854,15 +855,11 @@ class VideoGenerationWidget(QWidget):
         scroll_widget = QWidget()
         scroll_widget.setStyleSheet("QWidget { background-color: #1e1e1e; }")
         scroll_layout = QVBoxLayout(scroll_widget)
-        scroll_layout.setSpacing(12)
+        scroll_layout.setSpacing(6)  # 减少滚动区域内间距
 
         # 图片输入组
         image_group = self.create_image_input_group()
         scroll_layout.addWidget(image_group)
-
-        scroll_layout.addStretch()
-        scroll.setWidget(scroll_widget)
-        layout.addWidget(scroll)
 
         # 批量任务组
         batch_group = self.create_batch_group()
@@ -871,6 +868,9 @@ class VideoGenerationWidget(QWidget):
         # 操作按钮组
         actions_group = self.create_actions_group()
         scroll_layout.addWidget(actions_group)
+
+        scroll.setWidget(scroll_widget)
+        layout.addWidget(scroll)
 
         return panel
 
@@ -889,7 +889,6 @@ class VideoGenerationWidget(QWidget):
                 background-color: #333333;
                 border: 1px solid #404040;
                 border-radius: 6px;
-                padding: 4px 8px;
                 color: #ffffff;
                 font-size: 13px;
             }
@@ -969,21 +968,19 @@ class VideoGenerationWidget(QWidget):
         # 创建滚动区域用于任务列表
         self.task_scroll = QScrollArea()
         self.task_scroll.setWidgetResizable(True)
-        self.task_scroll.setFixedHeight(160)
-        self.task_scroll.setStyleSheet("""
-            QGroupBox{
-                margin-top:-120px;
-            }
-        """)
+        self.task_scroll.setFixedHeight(130)  # 减少高度，让界面更紧凑
         self.task_scroll.setWidget(self.task_list_widget)
 
-        layout.addWidget(QLabel("")) #待处理任务:
+        # 任务标题 - 使用更紧凑的显示
+        task_title = QLabel("待处理任务:")
+        task_title.setStyleSheet("color: #ffffff; font-size: 18px; font-weight: bold; margin-top: -100px; padding: 2px 0;")
+        layout.addWidget(task_title)
         layout.addWidget(self.task_scroll)
 
         # 添加任务按钮
         add_task_layout = QHBoxLayout()
         self.add_task_btn = PushButton("添加到任务列表")  # 移除图标
-        self.add_task_btn.setFixedHeight(32)
+        self.add_task_btn.setFixedSize(240, 36)
         self.add_task_btn.setStyleSheet("""
             QPushButton {
                 background-color: #333333;
@@ -1005,7 +1002,7 @@ class VideoGenerationWidget(QWidget):
         add_task_layout.addWidget(self.add_task_btn)
 
         self.clear_tasks_btn = PushButton("清空任务")  # 移除图标
-        self.clear_tasks_btn.setFixedHeight(32)
+        self.clear_tasks_btn.setFixedSize(240, 36)
         self.clear_tasks_btn.setStyleSheet("""
             QPushButton {
                 background-color: #333333;
@@ -1117,7 +1114,7 @@ class VideoGenerationWidget(QWidget):
         # 提示词输入（增高）
         self.prompt_edit = QTextEdit()
         self.prompt_edit.setPlaceholderText("输入视频生成的提示词，例如：美女跳舞、风景变化等...")
-        self.prompt_edit.setFixedHeight(250)  # 增加高度
+        self.prompt_edit.setFixedHeight(180)  # 减少高度让界面更紧凑
         self.prompt_edit.setStyleSheet("""
             QTextEdit {
                 font-size: 18px;
@@ -1152,7 +1149,7 @@ class VideoGenerationWidget(QWidget):
                 border: none;
                 border-radius: 6px;
                 color: #ffffff;
-                font-size: 14px;
+                font-size: 18px;
                 font-weight: 500;
             }
             QPushButton:hover {
@@ -1173,7 +1170,7 @@ class VideoGenerationWidget(QWidget):
                 border: none;
                 border-radius: 6px;
                 color: #ffffff;
-                font-size: 14px;
+                font-size: 18px;
                 font-weight: 500;
             }
             QPushButton:hover {
@@ -1247,7 +1244,7 @@ class VideoGenerationWidget(QWidget):
 
         # 视频列表标题
         list_title = QLabel("📋 生成结果:")
-        list_title.setStyleSheet("font-size: 14px; font-weight: bold; color: #ffffff; margin-bottom: 5px;")
+        list_title.setStyleSheet("font-size: 16px; font-weight: bold; color: #ffffff; margin-bottom: 5px;")
         video_list_layout.addWidget(list_title)
 
         # 视频列表滚动区域（限制高度）
@@ -1371,7 +1368,7 @@ class VideoGenerationWidget(QWidget):
                 border: 1px solid #404040;
                 border-radius: 6px;
                 color: #ffffff;
-                font-size: 13px;
+                font-size: 16px;
                 padding: 6px 12px;
             }
             QPushButton:hover {
@@ -1392,7 +1389,7 @@ class VideoGenerationWidget(QWidget):
                 border: 1px solid #404040;
                 border-radius: 6px;
                 color: #ffffff;
-                font-size: 13px;
+                font-size: 16px;
                 padding: 6px 12px;
             }
             QPushButton:hover {
@@ -1497,11 +1494,11 @@ class VideoGenerationWidget(QWidget):
         # 任务信息
         info_layout = QVBoxLayout()
         name_label = QLabel(task['name'])
-        name_label.setStyleSheet("font-weight: bold;")
+        name_label.setStyleSheet("font-weight: bold;background-color:#292929;")
         info_layout.addWidget(name_label)
 
-        prompt_label = QLabel(f"提示词: {task['prompt'][:80]}...")
-        prompt_label.setStyleSheet("color: #666; font-size: 12px;")
+        prompt_label = QLabel(f"提示词: {task['prompt'][:60]}...")
+        prompt_label.setStyleSheet("color: #666; font-size: 12px;background-color:#292929;")
         info_layout.addWidget(prompt_label)
 
         layout.addLayout(info_layout)
