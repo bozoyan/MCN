@@ -158,7 +158,7 @@ class APIKeyManager:
         self.api_keys = []
         self.key_file = ""
         self.current_key_index = 0
-        self.web_app_id = 39386
+        self.web_app_id = 41082
 
     def load_keys_from_file(self, file_path):
         """从文件加载API密钥"""
@@ -390,20 +390,20 @@ class SingleVideoGenerationWorker(QThread):
                 }
             }
 
-            self.log_message(f"📤 发送BizyAir API请求: {width}x{height}, {num_frames}帧")
+            self.log_message(f"📤 发送BizyAir API请求: {width}x{height}, {num_frames}帧 (AppID: 41082)")
             self.log_message(f"🔑 API密钥: {self.api_key[:10]}...")
             self.log_message(f"📝 请求URL: https://api.bizyair.cn/w/v1/webapp/task/openapi/create")
 
-            # 先尝试简单的API调用进行测试
-            try:
-                test_response = requests.get(
-                    "https://api.bizyair.cn/w/v1/webapp/app/list",
-                    headers=headers,
-                    timeout=10
-                )
-                self.log_message(f"🔍 API连接测试: {test_response.status_code}")
-            except Exception as e:
-                self.log_message(f"⚠️ API连接测试失败: {str(e)}")
+            # 注释掉API连接测试，避免404错误干扰
+            # try:
+            #     test_response = requests.get(
+            #         "https://api.bizyair.cn/w/v1/webapp/app/list",
+            #         headers=headers,
+            #         timeout=10
+            #     )
+            #     self.log_message(f"🔍 API连接测试: {test_response.status_code}")
+            # except Exception as e:
+            #     self.log_message(f"⚠️ API连接测试失败: {str(e)}")
 
             response = requests.post(
                 "https://api.bizyair.cn/w/v1/webapp/task/openapi/create",
@@ -418,39 +418,43 @@ class SingleVideoGenerationWorker(QThread):
                 result_data = response.json()
                 self.log_message(f"✅ API请求成功，请求ID: {result_data.get('request_id', 'N/A')}")
 
-                # 对于BizyAir，直接等待任务完成并获取结果
-                if result_data.get('status') == 'Success' and 'outputs' in result_data:
-                    # 任务已经完成
-                    outputs = result_data['outputs']
-                    if outputs and len(outputs) > 0:
-                        video_url = outputs[0].get('object_url', '')
-                        if video_url:
-                            self.progress_updated.emit(90, "获取视频URL成功", self.task_id)
+                # 检查BizyAir的响应格式
+                request_id = result_data.get('request_id')
+                status = result_data.get('status', '')
 
-                            result = {
-                                'id': result_data.get('request_id', ''),
-                                'url': video_url,
-                                'width': width,
-                                'height': height,
-                                'num_frames': num_frames,
-                                'prompt': prompt,
-                                'task_name': task_name,
-                                'timestamp': datetime.now().isoformat()
-                            }
+                if request_id:
+                    self.log_message(f"📋 任务ID: {request_id}, 状态: {status}")
 
-                            self.progress_updated.emit(100, "任务完成！", self.task_id)
-                            self.task_finished.emit(True, "视频生成成功", result, self.task_id)
-                            return
+                    # 如果任务立即完成且有输出
+                    if status == 'Success' and 'outputs' in result_data:
+                        outputs = result_data['outputs']
+                        if outputs and len(outputs) > 0:
+                            video_url = outputs[0].get('object_url', '')
+                            if video_url:
+                                self.progress_updated.emit(90, "获取视频URL成功", self.task_id)
+
+                                result = {
+                                    'id': request_id,
+                                    'url': video_url,
+                                    'width': width,
+                                    'height': height,
+                                    'num_frames': num_frames,
+                                    'prompt': prompt,
+                                    'task_name': task_name,
+                                    'timestamp': datetime.now().isoformat()
+                                }
+
+                                self.progress_updated.emit(100, "任务完成！", self.task_id)
+                                self.task_finished.emit(True, "视频生成成功", result, self.task_id)
+                                return
+                            else:
+                                self.task_finished.emit(False, "视频生成成功但未获取到URL", {}, self.task_id)
+                                return
                         else:
-                            self.task_finished.emit(False, "视频生成成功但未获取到URL", {}, self.task_id)
+                            self.task_finished.emit(False, "视频生成成功但无输出结果", {}, self.task_id)
                             return
                     else:
-                        self.task_finished.emit(False, "视频生成成功但无输出结果", {}, self.task_id)
-                        return
-                else:
-                    # 任务可能还在处理中，需要查询状态
-                    request_id = result_data.get('request_id')
-                    if request_id:
+                        # 任务可能还在处理中，需要查询状态
                         self.progress_updated.emit(50, "查询任务状态...", self.task_id)
                         video_url = self.check_video_status_bizyair(request_id)
 
@@ -472,9 +476,9 @@ class SingleVideoGenerationWorker(QThread):
                             self.task_finished.emit(True, "视频生成成功", result, self.task_id)
                         else:
                             self.task_finished.emit(False, "视频生成失败或超时", {}, self.task_id)
-                    else:
-                        self.task_finished.emit(False, "API响应格式错误：缺少request_id", {}, self.task_id)
-                        return
+                else:
+                    self.task_finished.emit(False, "API响应格式错误：缺少request_id", {}, self.task_id)
+                    return
             else:
                 error_msg = f"API请求失败: HTTP {response.status_code}"
                 try:
@@ -655,7 +659,7 @@ class ConcurrentBatchManager(QObject):
         if len(available_keys) < len(tasks):
             self.log_updated.emit(f"⚠️ 警告: 只有{len(available_keys)}个密钥，但有{len(tasks)}个任务")
 
-        self.log_updated.emit(f"🚀 开始并发批量生成，共{len(tasks)}个任务")
+        self.log_updated.emit(f"🚀 开始并发批量生成，共{len(tasks)}个任务 (AppID: {self.api_manager.web_app_id})")
 
         # 为每个任务创建独立的工作线程
         for i, task in enumerate(tasks):
@@ -826,7 +830,7 @@ class BatchVideoGenerationWorker(QThread):
         try:
             self.start_time = time.time()
 
-            self.log_message(f"🚀 开始批量生成视频，共 {len(self.task_list)} 个任务")
+            self.log_message(f"🚀 开始批量生成视频，共 {len(self.task_list)} 个任务 (AppID: {self.api_manager.web_app_id})")
             self.batch_progress.emit(0, len(self.task_list))
 
             # 加载API密钥
@@ -1100,7 +1104,7 @@ class BatchVideoGenerationWorker(QThread):
                             self.log_message(f"✅ 视频生成成功: {video_url}")
 
                             result_data = {
-                                "video_url": video_url,
+                                "url": video_url,  # 统一使用 'url' 字段
                                 "input_image": image_input,
                                 "prompt": prompt,
                                 "width": width,
@@ -1275,6 +1279,20 @@ class VideoGenerationWidget(QWidget):
             min-width: 120px;
         """)
         layout.addWidget(self.key_status_label)
+
+        # 显示 Web App ID（避免混淆）
+        self.webapp_id_label = QLabel(f"AppID: {self.api_manager.web_app_id}")
+        self.webapp_id_label.setStyleSheet("""
+            color: #4a90e2;
+            padding: 6px 15px;
+            background: #2a3a4a;
+            border-radius: 6px;
+            border: 1px solid #4a90e2;
+            font-size: 12px;
+            font-weight: bold;
+            min-width: 100px;
+        """)
+        layout.addWidget(self.webapp_id_label)
 
         # 密钥设置按钮
         self.settings_btn = PushButton("设置")  # 移除图标，添加文字
@@ -2145,13 +2163,20 @@ class VideoGenerationWidget(QWidget):
             # 更新对应卡片为完成状态
             if hasattr(self, 'task_cards') and task_id in self.task_cards:
                 card = self.task_cards[task_id]
-                video_url = result_data.get('url', '')  # 使用 'url' 而不是 'video_url'
+                video_url = result_data.get('url', '')  # 统一使用 'url' 字段
                 if video_url:
                     card.complete_progress(video_url)
+                    self.add_log(f"📹 [{task_id}] 视频链接: {video_url}")
                 else:
                     card.error_progress("未获取到视频URL")
                 # 更新卡片的video_data
                 card.video_data.update(result_data)
+
+                # 停止该任务的计时器更新
+                if self.concurrent_batch_manager and task_id in self.concurrent_batch_manager.workers:
+                    worker = self.concurrent_batch_manager.workers.get(task_id)
+                    if worker and hasattr(worker, 'timer') and worker.timer:
+                        worker.timer.stop()
         else:
             self.add_log(f"❌ [{task_id}] {message}")
             # 更新对应卡片为错误状态
@@ -2164,7 +2189,9 @@ class VideoGenerationWidget(QWidget):
         # 更新对应卡片的时间显示
         if hasattr(self, 'task_cards') and task_id in self.task_cards:
             card = self.task_cards[task_id]
-            card.update_time(time_string)
+            # 检查任务是否已完成，如果已完成则不再更新时间
+            if card.progress_bar.value() < 100:
+                card.update_time(time_string)
 
     def on_all_tasks_finished(self):
         """所有任务完成的回调"""
@@ -3307,7 +3334,7 @@ class VideoResultCard(QWidget):
             self.play_local_video(self.local_video_path)
         else:
             # 如果没有本地文件，播放远程URL
-            video_url = self.video_data.get('video_url', '')
+            video_url = self.video_data.get('url', '')  # 统一使用 'url' 字段
             if video_url:
                 self.play_remote_video(video_url)
             else:
@@ -3328,18 +3355,68 @@ class VideoResultCard(QWidget):
             QMessageBox.warning(self, "错误", f"播放失败: {str(e)}")
 
     def play_remote_video(self, video_url):
-        """播放远程视频URL"""
+        """播放远程视频URL - 先下载到本地再播放"""
         try:
-            # 优先使用系统默认播放器播放远程URL
-            from PyQt5.QtCore import QUrl
-            from PyQt5.QtGui import QDesktopServices
-            QDesktopServices.openUrl(QUrl(video_url))
+            # 生成文件名
+            task_name = self.video_data.get('task_name', 'video')
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = f"{task_name}_{timestamp}_play.mp4"
+
+            # 清理文件名中的特殊字符
+            import re
+            filename = re.sub(r'[^\w\-_.]', '_', filename)
+
+            # 禁用播放按钮并显示状态
+            if hasattr(self, 'view_btn'):
+                self.view_btn.setEnabled(False)
+                self.view_btn.setText("下载中...")
+
+            # 创建下载工作线程用于播放
+            self.play_download_worker = VideoDownloadWorker(video_url, filename)
+            self.play_download_worker.download_finished.connect(self.on_play_download_finished)
+
+            # 如果父组件有日志功能，连接它
+            if hasattr(self.parent(), 'add_log'):
+                self.play_download_worker.log_updated.connect(self.parent().add_log)
+
+            self.play_download_worker.start()
+
         except Exception as e:
-            QMessageBox.warning(self, "错误", f"播放失败: {str(e)}")
+            QMessageBox.warning(self, "错误", f"启动播放失败: {str(e)}")
+            # 恢复按钮状态
+            if hasattr(self, 'view_btn'):
+                self.view_btn.setEnabled(True)
+                self.view_btn.setText("播放")
+
+    def on_play_download_finished(self, success, message, local_path):
+        """播放下载完成回调"""
+        # 恢复播放按钮状态
+        if hasattr(self, 'view_btn'):
+            self.view_btn.setEnabled(True)
+            self.view_btn.setText("本地播放")
+
+        if success and local_path:
+            try:
+                # 下载成功，播放本地视频
+                self.play_local_video(local_path)
+            except Exception as e:
+                QMessageBox.warning(self, "错误", f"播放失败: {str(e)}")
+        else:
+            # 下载失败，回退到系统播放器
+            if hasattr(self, 'view_btn'):
+                self.view_btn.setText("播放")
+            video_url = self.video_data.get('url', '')
+            if video_url:
+                try:
+                    from PyQt5.QtCore import QUrl
+                    from PyQt5.QtGui import QDesktopServices
+                    QDesktopServices.openUrl(QUrl(video_url))
+                except Exception as e:
+                    QMessageBox.warning(self, "错误", f"播放失败: {str(e)}")
 
     def download_video(self):
         """下载视频"""
-        video_url = self.video_data.get('video_url', '')
+        video_url = self.video_data.get('url', '')  # 统一使用 'url' 字段
         if not video_url:
             QMessageBox.warning(self, "警告", "视频URL不可用")
             return

@@ -98,12 +98,6 @@ export SiliconCloud_API_KEY="your_api_key_here"
 
 ## 🔍 技术细节
 
-### 节点ID说明
-- `67:LoadImage.image`: 图片加载节点
-- `68:ImageResizeKJv2`: 图片尺寸调整节点
-- `16:WanVideoTextEncode`: 文本编码节点（提示词）
-- `89:WanVideoImageToVideoEncode`: 视频生成节点
-
 ### API端点
 - 创建任务：`https://api.bizyair.cn/w/v1/webapp/task/openapi/create`
 - 查询状态：`https://api.bizyair.cn/w/v1/webapp/task/openapi/query?request_id={id}`
