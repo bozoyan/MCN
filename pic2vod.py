@@ -196,7 +196,405 @@ class APIKeyManager:
         env_key = os.getenv('SiliconCloud_API_KEY')
         return 1 if env_key else 0
 
-# 批量视频生成工作线程
+    def get_all_keys(self):
+        """获取所有可用的API密钥"""
+        if self.api_keys:
+            return self.api_keys
+        env_key = os.getenv('SiliconCloud_API_KEY')
+        return [env_key] if env_key else []
+
+# 独立任务视频生成工作线程
+class SingleVideoGenerationWorker(QThread):
+    """单个视频生成工作线程 - 支持独立计时和并发执行"""
+    progress_updated = pyqtSignal(int, str, str)  # progress, message, task_id
+    task_finished = pyqtSignal(bool, str, dict, str)  # success, message, result_data, task_id
+    time_updated = pyqtSignal(str, str)  # time_string, task_id
+    log_updated = pyqtSignal(str)  # 日志更新信号
+
+    def __init__(self, task, task_id, api_key):
+        super().__init__()
+        self.task = task
+        self.task_id = task_id
+        self.api_key = api_key
+        self.start_time = None
+        self.is_cancelled = False
+
+        # 创建日志目录
+        self.log_dir = "logs"
+        if not os.path.exists(self.log_dir):
+            os.makedirs(self.log_dir)
+
+        # 计时器
+        self.timer = QTimer()
+        self.timer.timeout.connect(self.update_timer)
+        self.timer.setInterval(1000)  # 每秒更新一次
+
+    def update_timer(self):
+        """更新计时器显示"""
+        if self.start_time:
+            elapsed = time.time() - self.start_time
+            hours = int(elapsed // 3600)
+            minutes = int((elapsed % 3600) // 60)
+            seconds = int(elapsed % 60)
+            time_str = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+            self.time_updated.emit(time_str, self.task_id)
+
+    def log_message(self, message):
+        """记录日志消息"""
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        task_name = self.task.get('name', f'任务 {self.task_id}')
+        log_entry = f"[{timestamp}] [{task_name}] {message}"
+        self.log_updated.emit(log_entry)
+
+        # 写入日志文件
+        log_file = os.path.join(self.log_dir, "batch_video_generation.log")
+        try:
+            with open(log_file, "a", encoding="utf-8") as f:
+                f.write(log_entry + "\n")
+        except Exception as e:
+            print(f"写入日志失败: {e}")
+
+    def compress_image(self, image_data, original_path):
+        """压缩图像数据"""
+        try:
+            # 尝试使用 PIL 进行图像压缩
+            try:
+                from PIL import Image
+                import io
+
+                # 将二进制数据转换为 PIL Image
+                image = Image.open(io.BytesIO(image_data))
+
+                # 转换为 RGB（如果是 RGBA 或其他格式）
+                if image.mode in ('RGBA', 'LA', 'P'):
+                    background = Image.new('RGB', image.size, (255, 255, 255))
+                    if image.mode == 'P':
+                        image = image.convert('RGBA')
+                    background.paste(image, mask=image.split()[-1] if image.mode == 'RGBA' else None)
+                    image = background
+
+                # 调整图片大小，保持宽高比
+                max_dimension = 1024
+                if max(image.size) > max_dimension:
+                    ratio = max_dimension / max(image.size)
+                    new_size = tuple(int(dim * ratio) for dim in image.size)
+                    image = image.resize(new_size, Image.Resampling.LANCZOS)
+
+                # 压缩图片质量
+                output = io.BytesIO()
+                image.save(output, format='JPEG', quality=85, optimize=True)
+                compressed_data = output.getvalue()
+                output.close()
+
+                self.log_message(f"✅ 图片压缩成功: {len(image_data)} → {len(compressed_data)} 字节")
+                return compressed_data
+
+            except ImportError:
+                self.log_message("⚠️ PIL未安装，跳过图片压缩")
+                return image_data
+
+        except Exception as e:
+            self.log_message(f"❌ 图片压缩失败: {str(e)}")
+            return image_data
+
+    def run(self):
+        """运行单个视频生成任务"""
+        try:
+            self.start_time = time.time()
+            self.timer.start()  # 开始计时
+
+            task_name = self.task.get('name', f'任务 {self.task_id}')
+            self.log_message(f"🚀 开始生成视频: {task_name}")
+            self.progress_updated.emit(5, "初始化任务...", self.task_id)
+
+            # 准备请求数据
+            image_input = self.task.get('image_input', '')
+            prompt = self.task.get('prompt', '')
+            width = self.task.get('width', 480)
+            height = self.task.get('height', 854)
+            num_frames = self.task.get('num_frames', 81)
+
+            self.progress_updated.emit(10, "准备请求数据...", self.task_id)
+
+            # 图像格式检查和转换
+            if isinstance(image_input, str):
+                if image_input.startswith('data:image/'):
+                    self.log_message("🖼️ 检测到data URL格式的图片数据")
+                elif image_input and not image_input.startswith('http') and not image_input.startswith('data:'):
+                    try:
+                        image_path = self.task.get('image_path', '')
+                        if image_path and os.path.exists(image_path):
+                            with open(image_path, 'rb') as f:
+                                image_data = f.read()
+
+                                max_size = 500 * 1024  # 500KB 限制
+                                original_size = len(image_data)
+
+                                if len(image_data) > max_size:
+                                    self.log_message(f"⚠️ 图片过大({original_size}字节)，开始压缩...")
+                                    image_data = self.compress_image(image_data, image_path)
+                                    compressed_size = len(image_data)
+                                    compression_ratio = (1 - compressed_size / original_size) * 100
+                                    self.log_message(f"✅ 图片压缩完成: {original_size}→{compressed_size}字节 (压缩{compression_ratio:.1f}%)")
+
+                                import imghdr
+                                detected_type = imghdr.what(None, image_data)
+
+                                mime_types = {
+                                    'jpeg': 'image/jpeg',
+                                    'jpg': 'image/jpeg',
+                                    'png': 'image/png',
+                                    'webp': 'image/webp'
+                                }
+                                image_type = mime_types.get(detected_type, 'image/jpeg')
+
+                                base64_data = base64.b64encode(image_data).decode('utf-8')
+                                self.task['image_input'] = f"data:{image_type};base64,{base64_data}"
+                                self.log_message(f"📝 已转换图片为 {image_type} 格式")
+
+                    except Exception as e:
+                        self.task_finished.emit(False, f"图片处理失败: {str(e)}", {}, self.task_id)
+                        return
+
+            self.progress_updated.emit(20, "准备API请求...", self.task_id)
+
+            # 构建请求数据
+            request_data = {
+                "input": {
+                    "image": self.task['image_input'],
+                    "prompt": prompt,
+                    "width": width,
+                    "height": height,
+                    "num_frames": num_frames
+                }
+            }
+
+            self.progress_updated.emit(30, "发送API请求...", self.task_id)
+
+            # 发送API请求
+            headers = {
+                "Authorization": f"Bearer {self.api_key}",
+                "Content-Type": "application/json"
+            }
+
+            self.log_message(f"📤 发送API请求: {width}x{height}, {num_frames}帧")
+
+            response = requests.post(
+                "https://api.bizyair.com/v1/inferences",
+                headers=headers,
+                json=request_data,
+                timeout=600  # 10分钟超时
+            )
+
+            if response.status_code == 200:
+                result_data = response.json()
+                self.log_message(f"✅ API请求成功，任务ID: {result_data.get('id', 'N/A')}")
+
+                video_id = result_data.get('id')
+                if not video_id:
+                    self.task_finished.emit(False, "API响应格式错误：缺少任务ID", {}, self.task_id)
+                    return
+
+                self.progress_updated.emit(50, "查询视频生成状态...", self.task_id)
+
+                # 查询视频生成状态
+                video_url = self.check_video_status(video_id)
+
+                if video_url:
+                    self.progress_updated.emit(90, "获取视频URL成功", self.task_id)
+
+                    result = {
+                        'id': video_id,
+                        'url': video_url,
+                        'width': width,
+                        'height': height,
+                        'num_frames': num_frames,
+                        'prompt': prompt,
+                        'task_name': task_name,
+                        'timestamp': datetime.now().isoformat()
+                    }
+
+                    self.progress_updated.emit(100, "任务完成！", self.task_id)
+                    self.task_finished.emit(True, "视频生成成功", result, self.task_id)
+                else:
+                    self.task_finished.emit(False, "视频生成失败或超时", {}, self.task_id)
+            else:
+                error_msg = f"API请求失败: HTTP {response.status_code}"
+                try:
+                    error_detail = response.json()
+                    error_msg += f" - {error_detail.get('message', '未知错误')}"
+                except:
+                    error_msg += f" - {response.text[:200]}"
+
+                self.log_message(f"❌ {error_msg}")
+                self.task_finished.emit(False, error_msg, {}, self.task_id)
+
+        except requests.exceptions.Timeout:
+            self.log_message(f"❌ API请求超时")
+            self.task_finished.emit(False, "API请求超时", {}, self.task_id)
+        except requests.exceptions.RequestException as e:
+            self.log_message(f"❌ 网络错误: {str(e)}")
+            self.task_finished.emit(False, f"网络错误: {str(e)}", {}, self.task_id)
+        except Exception as e:
+            self.log_message(f"❌ 任务执行异常: {str(e)}")
+            self.task_finished.emit(False, f"任务执行异常: {str(e)}", {}, self.task_id)
+        finally:
+            self.timer.stop()  # 停止计时
+
+    def check_video_status(self, video_id):
+        """检查视频生成状态"""
+        max_attempts = 120  # 最大尝试次数（10分钟）
+        check_interval = 5  # 检查间隔5秒
+
+        for attempt in range(max_attempts):
+            if self.is_cancelled:
+                self.log_message("⏹️ 任务已取消")
+                return None
+
+            try:
+                headers = {
+                    "Authorization": f"Bearer {self.api_key}",
+                    "Content-Type": "application/json"
+                }
+
+                response = requests.get(
+                    f"https://api.bizyair.com/v1/inferences/{video_id}",
+                    headers=headers,
+                    timeout=30
+                )
+
+                if response.status_code == 200:
+                    data = response.json()
+                    status = data.get('status', '')
+
+                    self.progress_updated.emit(
+                        min(80, 50 + (attempt * 30 // max_attempts)),
+                        f"检查进度... ({status})",
+                        self.task_id
+                    )
+
+                    if status == 'succeeded':
+                        video_url = data.get('output', {}).get('videos', [{}])[0].get('url', '')
+                        if video_url:
+                            self.log_message(f"🎉 视频生成完成: {video_url}")
+                            return video_url
+
+                    elif status == 'failed':
+                        error_info = data.get('error', '生成失败')
+                        self.log_message(f"❌ 视频生成失败: {error_info}")
+                        return None
+
+                    else:
+                        self.log_message(f"⏳ 视频生成中... ({status}) - 第{attempt+1}次检查")
+
+                else:
+                    self.log_message(f"⚠️ 状态查询失败: HTTP {response.status_code}")
+
+            except Exception as e:
+                self.log_message(f"⚠️ 状态查询异常: {str(e)}")
+
+            # 如果不是最后一次尝试，等待后继续
+            if attempt < max_attempts - 1:
+                time.sleep(check_interval)
+
+        self.log_message(f"⏰ 视频生成超时 ({max_attempts * check_interval}秒)")
+        return None
+
+    def cancel(self):
+        """取消任务"""
+        self.is_cancelled = True
+        self.timer.stop()
+
+
+# 并发批量任务管理器
+class ConcurrentBatchManager(QObject):
+    """并发批量任务管理器"""
+    all_tasks_finished = pyqtSignal()  # 所有任务完成信号
+    task_progress = pyqtSignal(int, str, str)  # 进度更新
+    task_finished = pyqtSignal(bool, str, dict, str)  # 任务完成
+    task_time_updated = pyqtSignal(str, str)  # 任务时间更新
+    log_updated = pyqtSignal(str)  # 日志更新
+    batch_progress_updated = pyqtSignal(int, int)  # 批量进度更新
+
+    def __init__(self):
+        super().__init__()
+        self.workers = {}  # task_id -> worker
+        self.completed_tasks = 0
+        self.total_tasks = 0
+        self.api_manager = APIKeyManager()
+
+    def execute_batch_tasks(self, tasks, key_file=None):
+        """并发执行批量任务"""
+        self.total_tasks = len(tasks)
+        self.completed_tasks = 0
+
+        # 加载API密钥
+        if key_file:
+            self.api_manager.load_keys_from_file(key_file)
+
+        available_keys = self.api_manager.get_all_keys()
+        if len(available_keys) < len(tasks):
+            self.log_updated.emit(f"⚠️ 警告: 只有{len(available_keys)}个密钥，但有{len(tasks)}个任务")
+
+        self.log_updated.emit(f"🚀 开始并发批量生成，共{len(tasks)}个任务")
+
+        # 为每个任务创建独立的工作线程
+        for i, task in enumerate(tasks):
+            task_id = f"task_{i+1}"
+
+            # 循环分配API密钥
+            api_key = available_keys[i % len(available_keys)] if available_keys else None
+
+            if not api_key:
+                self.task_finished.emit(False, "没有可用的API密钥", {}, task_id)
+                self.completed_tasks += 1
+                self.update_batch_progress()
+                continue
+
+            # 创建工作线程
+            worker = SingleVideoGenerationWorker(task, task_id, api_key)
+            self.workers[task_id] = worker
+
+            # 连接信号
+            worker.progress_updated.connect(self.task_progress)
+            worker.task_finished.connect(self.on_single_task_finished)
+            worker.time_updated.connect(self.task_time_updated)
+            worker.log_updated.connect(self.log_updated)
+
+            # 启动任务（立即并发执行）
+            worker.start()
+
+            # 稍微错开启动时间，避免同时请求API
+            time.sleep(0.1)
+
+    def on_single_task_finished(self, success, message, result_data, task_id):
+        """单个任务完成的回调"""
+        self.completed_tasks += 1
+        self.update_batch_progress()
+
+        # 移除已完成的工作线程
+        if task_id in self.workers:
+            worker = self.workers.pop(task_id)
+            worker.deleteLater()
+
+        # 检查是否所有任务都已完成
+        if self.completed_tasks >= self.total_tasks:
+            self.log_updated.emit(f"✅ 所有任务完成！成功: {self.completed_tasks}/{self.total_tasks}")
+            self.all_tasks_finished.emit()
+
+    def update_batch_progress(self):
+        """更新批量进度"""
+        self.batch_progress_updated.emit(self.completed_tasks, self.total_tasks)
+
+    def cancel_all_tasks(self):
+        """取消所有任务"""
+        for worker in self.workers.values():
+            worker.cancel()
+            worker.wait()  # 等待线程结束
+        self.workers.clear()
+
+
+# 保留原有的批量视频生成工作线程（向后兼容）
 class BatchVideoGenerationWorker(QThread):
     """批量视频生成工作线程"""
     progress_updated = pyqtSignal(int, str, str)  # progress, message, task_id
@@ -650,6 +1048,7 @@ class VideoGenerationWidget(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.current_batch_worker = None
+        self.concurrent_batch_manager = None  # 新增并发管理器
         self.batch_tasks = []
         self.api_manager = APIKeyManager()
 
@@ -1570,8 +1969,8 @@ class VideoGenerationWidget(QWidget):
         self.execute_batch_tasks(self.batch_tasks)
 
     def execute_batch_tasks(self, tasks):
-        """执行批量任务"""
-        if self.current_batch_worker and self.current_batch_worker.isRunning():
+        """执行批量任务 - 使用并发管理器"""
+        if self.concurrent_batch_manager and len(self.concurrent_batch_manager.workers) > 0:
             QMessageBox.warning(self, "警告", "当前有任务正在执行")
             return
 
@@ -1596,17 +1995,20 @@ class VideoGenerationWidget(QWidget):
         # 切换到视频列表Tab
         self.result_tabs.setCurrentIndex(0)
 
-        self.current_batch_worker = BatchVideoGenerationWorker(tasks)
-        self.current_batch_worker.progress_updated.connect(self.update_task_progress)
-        self.current_batch_worker.task_finished.connect(self.on_task_finished)
-        self.current_batch_worker.batch_progress.connect(self.update_batch_progress)
-        self.current_batch_worker.log_updated.connect(self.add_log)
+        # 使用新的并发批量管理器
+        self.concurrent_batch_manager = ConcurrentBatchManager()
+        self.concurrent_batch_manager.task_progress.connect(self.update_task_progress)
+        self.concurrent_batch_manager.task_finished.connect(self.on_task_finished)
+        self.concurrent_batch_manager.task_time_updated.connect(self.update_task_time)
+        self.concurrent_batch_manager.log_updated.connect(self.add_log)
+        self.concurrent_batch_manager.batch_progress_updated.connect(self.update_batch_progress)
+        self.concurrent_batch_manager.all_tasks_finished.connect(self.on_all_tasks_finished)
 
-        # 如果有密钥文件，加载密钥
-        if hasattr(self, 'key_file_path') and self.key_file_path:
-            self.current_batch_worker.api_manager.load_keys_from_file(self.key_file_path)
+        # 获取密钥文件路径
+        key_file_path = getattr(self, 'key_file_path', None)
 
-        self.current_batch_worker.start()
+        # 开始并发执行
+        self.concurrent_batch_manager.execute_batch_tasks(tasks, key_file_path)
 
     def update_task_progress(self, progress, message, task_id):
         """更新单个任务进度"""
@@ -1624,8 +2026,11 @@ class VideoGenerationWidget(QWidget):
             # 更新对应卡片为完成状态
             if hasattr(self, 'task_cards') and task_id in self.task_cards:
                 card = self.task_cards[task_id]
-                video_url = result_data.get('video_url', '')
-                card.complete_progress(video_url)
+                video_url = result_data.get('url', '')  # 使用 'url' 而不是 'video_url'
+                if video_url:
+                    card.complete_progress(video_url)
+                else:
+                    card.error_progress("未获取到视频URL")
                 # 更新卡片的video_data
                 card.video_data.update(result_data)
         else:
@@ -1634,6 +2039,23 @@ class VideoGenerationWidget(QWidget):
             if hasattr(self, 'task_cards') and task_id in self.task_cards:
                 card = self.task_cards[task_id]
                 card.error_progress(message)
+
+    def update_task_time(self, time_string, task_id):
+        """更新任务计时显示"""
+        # 更新对应卡片的时间显示
+        if hasattr(self, 'task_cards') and task_id in self.task_cards:
+            card = self.task_cards[task_id]
+            card.update_time(time_string)
+
+    def on_all_tasks_finished(self):
+        """所有任务完成的回调"""
+        self.add_log("🎉 所有并发任务已完成！")
+        # 可以在这里添加批量完成后的处理逻辑
+        QMessageBox.information(self, "完成", "所有视频生成任务已完成！")
+
+        # 清理管理器
+        if self.concurrent_batch_manager:
+            self.concurrent_batch_manager = None
 
     def update_batch_progress(self, current, total):
         """更新批量进度"""
@@ -2634,6 +3056,11 @@ class VideoResultCard(QWidget):
             elapsed = int(time.time() - self.start_time)
             current_progress = self.progress_bar.value()
             self.progress_info_label.setText(f"进度: {current_progress}% - 已用时: {elapsed}秒")
+
+    def update_time(self, time_string):
+        """从外部更新计时器显示"""
+        current_progress = self.progress_bar.value()
+        self.progress_info_label.setText(f"进度: {current_progress}% - 用时: {time_string}")
 
     def complete_progress(self, video_url=""):
         """完成进度显示"""
