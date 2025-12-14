@@ -73,7 +73,7 @@ class ImageDropWidget(QFrame):
         layout.addWidget(self.image_label, alignment=Qt.AlignCenter)
 
         # 选择文件按钮
-        self.select_btn = PushButton(FluentIcon.FOLDER, "选择图片文件")
+        self.select_btn = PushButton("选择图片文件")  # 移除图标
         self.select_btn.setFixedHeight(32)
         self.select_btn.setStyleSheet("""
             QPushButton {
@@ -291,14 +291,16 @@ class BatchVideoGenerationWorker(QThread):
                 self.task_finished.emit(False, "没有可用的API密钥", {}, task_id)
                 return False
 
-            self.progress_updated.emit(10, "准备生成视频...", task_id)
+            self.progress_updated.emit(5, "获取API密钥...", task_id)
 
             # 准备请求数据
             image_input = task.get('image_input', '')
             prompt = task.get('prompt', '')
-            width = task.get('width', 720)
-            height = task.get('height', 720)
+            width = task.get('width', 480)
+            height = task.get('height', 854)
             num_frames = task.get('num_frames', 81)
+
+            self.progress_updated.emit(10, "准备请求数据...", task_id)
 
             base_url = 'https://api.bizyair.cn/w/v1/webapp/task/openapi/create'
             headers = {
@@ -320,7 +322,10 @@ class BatchVideoGenerationWorker(QThread):
                 "input_values": input_values
             }
 
-            self.progress_updated.emit(30, "发送API请求...", task_id)
+            self.progress_updated.emit(20, "连接API服务器...", task_id)
+
+            # 开始请求计时
+            request_start_time = time.time()
 
             response = requests.post(
                 base_url,
@@ -332,12 +337,16 @@ class BatchVideoGenerationWorker(QThread):
             if self.is_cancelled:
                 return False
 
-            self.progress_updated.emit(70, "处理响应...", task_id)
+            # 计算请求用时
+            request_time = time.time() - request_start_time
+            self.progress_updated.emit(60, f"API请求完成({request_time:.1f}s)，处理响应...", task_id)
 
             if response.status_code == 200:
+                self.progress_updated.emit(80, "解析API响应...", task_id)
                 result = response.json()
 
                 if result.get("status") == "Success" and result.get("outputs"):
+                    self.progress_updated.emit(90, "提取视频URL...", task_id)
                     outputs = result["outputs"]
                     if outputs and len(outputs) > 0:
                         video_output = outputs[0]
@@ -355,7 +364,7 @@ class BatchVideoGenerationWorker(QThread):
                                 "timestamp": datetime.now().isoformat()
                             }
 
-                            self.progress_updated.emit(100, "生成完成!", task_id)
+                            self.progress_updated.emit(100, "视频生成完成!", task_id)
                             self.task_finished.emit(True, "视频生成成功!", result_data, task_id)
                             return True
 
@@ -364,6 +373,16 @@ class BatchVideoGenerationWorker(QThread):
             self.task_finished.emit(False, error_msg, {}, task_id)
             return False
 
+        except requests.exceptions.Timeout:
+            error_msg = "API请求超时"
+            self.progress_updated.emit(0, error_msg, task_id)
+            self.task_finished.emit(False, error_msg, {}, task_id)
+            return False
+        except requests.exceptions.ConnectionError:
+            error_msg = "网络连接错误"
+            self.progress_updated.emit(0, error_msg, task_id)
+            self.task_finished.emit(False, error_msg, {}, task_id)
+            return False
         except Exception as e:
             error_msg = f"生成异常: {str(e)}"
             self.progress_updated.emit(0, error_msg, task_id)
@@ -482,8 +501,8 @@ class VideoGenerationWidget(QWidget):
         layout.addWidget(self.key_status_label)
 
         # 密钥设置按钮
-        self.settings_btn = PushButton(FluentIcon.SETTING, "")
-        self.settings_btn.setFixedSize(32, 32)
+        self.settings_btn = PushButton("设置")  # 移除图标，添加文字
+        self.settings_btn.setFixedSize(60, 32)  # 增加宽度以适应文字
         self.settings_btn.clicked.connect(self.show_settings_dialog)
         self.settings_btn.setStyleSheet("""
             QPushButton {
@@ -687,15 +706,15 @@ class VideoGenerationWidget(QWidget):
         # 创建滚动区域用于任务列表
         self.task_scroll = QScrollArea()
         self.task_scroll.setWidgetResizable(True)
-        self.task_scroll.setFixedHeight(150)
+        self.task_scroll.setFixedHeight(120)
         self.task_scroll.setWidget(self.task_list_widget)
 
-        layout.addWidget(QLabel("待处理任务:"))
+        layout.addWidget(QLabel("")) #待处理任务:
         layout.addWidget(self.task_scroll)
 
         # 添加任务按钮
         add_task_layout = QHBoxLayout()
-        self.add_task_btn = PushButton(FluentIcon.ADD, "添加到任务列表")
+        self.add_task_btn = PushButton("添加到任务列表")  # 移除图标
         self.add_task_btn.setFixedHeight(32)
         self.add_task_btn.setStyleSheet("""
             QPushButton {
@@ -717,7 +736,7 @@ class VideoGenerationWidget(QWidget):
         self.add_task_btn.clicked.connect(self.add_to_batch_tasks)
         add_task_layout.addWidget(self.add_task_btn)
 
-        self.clear_tasks_btn = PushButton(FluentIcon.DELETE, "清空任务")
+        self.clear_tasks_btn = PushButton("清空任务")  # 移除图标
         self.clear_tasks_btn.setFixedHeight(32)
         self.clear_tasks_btn.setStyleSheet("""
             QPushButton {
@@ -810,7 +829,7 @@ class VideoGenerationWidget(QWidget):
         layout.addWidget(QLabel("宽度:"), 1, 0)
         self.width_spin = QSpinBox()
         self.width_spin.setRange(256, 2048)
-        self.width_spin.setValue(720)
+        self.width_spin.setValue(480)
         self.width_spin.setSingleStep(64)
         self.width_spin.setFixedHeight(32)
         self.width_spin.setStyleSheet("""
@@ -831,7 +850,7 @@ class VideoGenerationWidget(QWidget):
         layout.addWidget(QLabel("高度:"), 1, 2)
         self.height_spin = QSpinBox()
         self.height_spin.setRange(256, 2048)
-        self.height_spin.setValue(720)
+        self.height_spin.setValue(854)
         self.height_spin.setSingleStep(64)
         self.height_spin.setFixedHeight(32)
         self.height_spin.setStyleSheet("""
@@ -899,8 +918,6 @@ class VideoGenerationWidget(QWidget):
                 font-weight: bold;
                 border: 1px solid #404040;
                 border-radius: 8px;
-                margin-top: 8px;
-                padding-top: 8px;
                 background-color: #2a2a2a;
                 color: #ffffff;
             }
@@ -913,19 +930,20 @@ class VideoGenerationWidget(QWidget):
             }
         """)
         layout = QVBoxLayout(group)
-        layout.setSpacing(10)
+        layout.setSpacing(8)  # 减小间距
 
         # 提示词输入（深色主题，增大字体）
         self.prompt_edit = QTextEdit()
         self.prompt_edit.setPlaceholderText("输入视频生成的提示词，例如：美女跳舞、风景变化等...")
-        self.prompt_edit.setFixedHeight(100)
+        self.prompt_edit.setFixedHeight(140)  # 减小高度
         self.prompt_edit.setStyleSheet("""
             QTextEdit {
-                font-size: 14px;
+                margin-top:-120px;
+                font-size: 20px;
                 font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
                 border: 1px solid #404040;
                 border-radius: 6px;
-                padding: 10px;
+                padding: 8px;
                 background-color: #333333;
                 color: #ffffff;
                 selection-background-color: #4a90e2;
@@ -936,11 +954,12 @@ class VideoGenerationWidget(QWidget):
         """)
         layout.addWidget(self.prompt_edit)
 
-        # 生成按钮（深色主题）
+        # 生成按钮（深色主题，移除图标）
         button_layout = QHBoxLayout()
+        button_layout.setSpacing(10)  # 按钮间距
 
-        self.single_generate_btn = PrimaryPushButton(FluentIcon.PLAY, "单个生成")
-        self.single_generate_btn.setFixedHeight(40)
+        self.single_generate_btn = PrimaryPushButton("单个生成")  # 移除图标
+        self.single_generate_btn.setFixedHeight(36)  # 稍微减小高度
         self.single_generate_btn.setStyleSheet("""
             QPushButton {
                 background-color: #4a90e2;
@@ -960,8 +979,8 @@ class VideoGenerationWidget(QWidget):
         self.single_generate_btn.clicked.connect(self.generate_single_video)
         button_layout.addWidget(self.single_generate_btn)
 
-        self.batch_generate_btn = PrimaryPushButton(FluentIcon.PLAY_SOLID, "批量生成")
-        self.batch_generate_btn.setFixedHeight(40)
+        self.batch_generate_btn = PrimaryPushButton("批量生成")  # 移除图标
+        self.batch_generate_btn.setFixedHeight(36)  # 稍微减小高度
         self.batch_generate_btn.setStyleSheet("""
             QPushButton {
                 background-color: #28a745;
@@ -997,7 +1016,6 @@ class VideoGenerationWidget(QWidget):
         self.result_tabs = QTabWidget()
         self.result_tabs.setStyleSheet("""
             QTabWidget::pane {
-                border: 1px solid #404040;
                 background: #2a2a2a;
                 border-radius: 8px;
             }
@@ -1068,12 +1086,12 @@ class VideoGenerationWidget(QWidget):
                 selection-background-color: #4a90e2;
             }
         """)
-        log_layout.addWidget(QLabel("操作日志:"))
+        log_layout.addWidget(QLabel("")) #操作日志:
         log_layout.addWidget(self.log_text)
 
         # 日志控制按钮
         log_controls = QHBoxLayout()
-        clear_log_btn = PushButton(FluentIcon.DELETE, "清空日志")
+        clear_log_btn = PushButton("清空日志")  # 移除图标
         clear_log_btn.setStyleSheet("""
             QPushButton {
                 background-color: #333333;
@@ -1094,7 +1112,7 @@ class VideoGenerationWidget(QWidget):
         clear_log_btn.clicked.connect(self.clear_log)
         log_controls.addWidget(clear_log_btn)
 
-        save_log_btn = PushButton(FluentIcon.SAVE, "保存日志")
+        save_log_btn = PushButton("保存日志")  # 移除图标
         save_log_btn.setStyleSheet("""
             QPushButton {
                 background-color: #333333;
@@ -1217,7 +1235,7 @@ class VideoGenerationWidget(QWidget):
         layout.addStretch()
 
         # 删除按钮
-        delete_btn = PushButton(FluentIcon.DELETE, "")
+        delete_btn = PushButton("删除")  # 移除图标，添加文字
         delete_btn.setFixedSize(30, 30)
         delete_btn.clicked.connect(lambda: self.remove_task(index))
         layout.addWidget(delete_btn)
@@ -1285,6 +1303,27 @@ class VideoGenerationWidget(QWidget):
             QMessageBox.warning(self, "警告", "当前有任务正在执行")
             return
 
+        # 为每个任务创建进度卡片
+        self.task_cards = {}
+        for i, task in enumerate(tasks):
+            task_id = f"task_{i+1}"
+            # 创建包含任务ID的视频数据
+            video_data = {
+                **task,
+                'task_name': task.get('name', f'任务 {i+1}'),
+                'timestamp': datetime.now().isoformat()
+            }
+            # 创建并添加卡片
+            video_card = VideoResultCard(video_data, self)
+            video_card.task_id = task_id  # 设置任务ID
+            self.video_scroll_layout.addWidget(video_card)
+            self.task_cards[task_id] = video_card
+            # 开始进度显示
+            video_card.start_progress()
+
+        # 切换到视频列表Tab
+        self.result_tabs.setCurrentIndex(0)
+
         self.current_batch_worker = BatchVideoGenerationWorker(tasks)
         self.current_batch_worker.progress_updated.connect(self.update_task_progress)
         self.current_batch_worker.task_finished.connect(self.on_task_finished)
@@ -1301,13 +1340,28 @@ class VideoGenerationWidget(QWidget):
         """更新单个任务进度"""
         self.add_log(f"[{task_id}] {progress}% - {message}")
 
+        # 更新对应卡片的进度
+        if hasattr(self, 'task_cards') and task_id in self.task_cards:
+            card = self.task_cards[task_id]
+            card.update_progress(progress, message)
+
     def on_task_finished(self, success, message, result_data, task_id):
         """任务完成回调"""
         if success:
             self.add_log(f"✅ [{task_id}] {message}")
-            self.add_video_result(result_data)
+            # 更新对应卡片为完成状态
+            if hasattr(self, 'task_cards') and task_id in self.task_cards:
+                card = self.task_cards[task_id]
+                video_url = result_data.get('video_url', '')
+                card.complete_progress(video_url)
+                # 更新卡片的video_data
+                card.video_data.update(result_data)
         else:
             self.add_log(f"❌ [{task_id}] {message}")
+            # 更新对应卡片为错误状态
+            if hasattr(self, 'task_cards') and task_id in self.task_cards:
+                card = self.task_cards[task_id]
+                card.error_progress(message)
 
     def update_batch_progress(self, current, total):
         """更新批量进度"""
@@ -1330,6 +1384,12 @@ class VideoGenerationWidget(QWidget):
         if dialog.exec_() == QDialog.Accepted:
             self.update_key_status()
             self.save_settings()
+
+    def cancel_task(self, task_id):
+        """取消指定任务"""
+        if self.current_batch_worker and self.current_batch_worker.isRunning():
+            self.current_batch_worker.cancel()
+            self.add_log(f"⏹️ 用户请求取消任务 {task_id}")
 
     def update_key_status(self):
         """更新密钥状态显示（深色主题）"""
@@ -1450,7 +1510,7 @@ class APISettingsDialog(QDialog):
         self.key_file_edit.setText(getattr(self.parent(), 'key_file_path', ''))
         file_layout.addWidget(self.key_file_edit)
 
-        self.browse_btn = PushButton(FluentIcon.FOLDER, "浏览")
+        self.browse_btn = PushButton("浏览")  # 移除图标
         self.browse_btn.clicked.connect(self.browse_key_file)
         file_layout.addWidget(self.browse_btn)
 
@@ -1462,7 +1522,7 @@ class APISettingsDialog(QDialog):
         key_layout.addWidget(info_label)
 
         # 测试按钮
-        self.test_btn = PushButton(FluentIcon.PLAY, "测试密钥")
+        self.test_btn = PushButton("测试密钥")  # 移除图标
         self.test_btn.clicked.connect(self.test_keys)
         key_layout.addWidget(self.test_btn)
 
@@ -1524,11 +1584,14 @@ class APISettingsDialog(QDialog):
 
 # 视频结果卡片
 class VideoResultCard(CardWidget):
-    """视频结果展示卡片"""
+    """视频结果展示卡片（支持进度显示）"""
 
     def __init__(self, video_data, parent=None):
         super().__init__(parent)
         self.video_data = video_data
+        self.start_time = None
+        self.progress_timer = None
+        self.task_id = None  # 用于标识任务
         self.init_ui()
 
     def init_ui(self):
@@ -1546,14 +1609,30 @@ class VideoResultCard(CardWidget):
                 pass
 
         self.title_label = QLabel(title)
-        self.title_label.setStyleSheet("font-weight: bold; color: #333; font-size: 14px;")
+        self.title_label.setStyleSheet("font-weight: bold; color: #ffffff; font-size: 14px;")
         layout.addWidget(self.title_label)
+
+        # 状态显示
+        self.status_label = QLabel("准备中...")
+        self.status_label.setStyleSheet("color: #4a90e2; font-size: 12px; font-weight: bold;")
+        layout.addWidget(self.status_label)
+
+        # 进度条
+        self.progress_bar = ProgressBar()
+        self.progress_bar.setFixedHeight(20)
+        self.progress_bar.setValue(0)
+        layout.addWidget(self.progress_bar)
+
+        # 进度文字显示（百分比和时间）
+        self.progress_info_label = QLabel("等待开始...")
+        self.progress_info_label.setStyleSheet("color: #cccccc; font-size: 11px;")
+        layout.addWidget(self.progress_info_label)
 
         # 视频信息
         info_text = f"尺寸: {self.video_data.get('width', 'N/A')}×{self.video_data.get('height', 'N/A')}"
         info_text += f"\n帧数: {self.video_data.get('num_frames', 'N/A')}"
         self.info_label = QLabel(info_text)
-        self.info_label.setStyleSheet("color: #666; font-size: 12px;")
+        self.info_label.setStyleSheet("color: #cccccc; font-size: 12px;")
         layout.addWidget(self.info_label)
 
         # 提示词预览
@@ -1561,39 +1640,164 @@ class VideoResultCard(CardWidget):
         if prompt:
             prompt_preview = prompt[:50] + "..." if len(prompt) > 50 else prompt
             self.prompt_label = QLabel(f"提示词: {prompt_preview}")
-            self.prompt_label.setStyleSheet("color: #888; font-size: 11px;")
+            self.prompt_label.setStyleSheet("color: #888888; font-size: 11px;")
             self.prompt_label.setWordWrap(True)
             layout.addWidget(self.prompt_label)
 
-        # 视频URL显示
-        video_url = self.video_data.get('video_url', '')
-        if video_url:
-            url_label = QLabel("视频URL:")
-            url_label.setStyleSheet("color: #333; font-size: 12px; font-weight: bold;")
-            layout.addWidget(url_label)
+        # 视频URL显示（初始隐藏）
+        self.url_container = QWidget()
+        self.url_layout = QVBoxLayout(self.url_container)
 
-            self.url_edit = LineEdit()
-            self.url_edit.setText(video_url)
-            self.url_edit.setReadOnly(True)
-            self.url_edit.setStyleSheet("font-size: 11px; padding: 5px;")
-            layout.addWidget(self.url_edit)
+        url_label = QLabel("视频URL:")
+        url_label.setStyleSheet("color: #ffffff; font-size: 12px; font-weight: bold;")
+        self.url_layout.addWidget(url_label)
 
-        # 按钮
+        self.url_edit = LineEdit()
+        self.url_edit.setReadOnly(True)
+        self.url_edit.setStyleSheet("""
+            LineEdit {
+                font-size: 11px;
+                padding: 5px;
+                background-color: #333333;
+                border: 1px solid #404040;
+                color: #ffffff;
+            }
+        """)
+        self.url_layout.addWidget(self.url_edit)
+
+        self.url_container.hide()  # 初始隐藏
+        layout.addWidget(self.url_container)
+
+        # 按钮（初始隐藏URL相关按钮）
         button_layout = QHBoxLayout()
 
-        self.view_btn = PushButton(FluentIcon.VIEW, "播放")
+        self.view_btn = PushButton("播放")
         self.view_btn.clicked.connect(self.view_video)
+        self.view_btn.hide()  # 初始隐藏
         button_layout.addWidget(self.view_btn)
 
-        self.download_btn = PushButton(FluentIcon.DOWNLOAD, "下载")
+        self.download_btn = PushButton("下载")
         self.download_btn.clicked.connect(self.download_video)
+        self.download_btn.hide()  # 初始隐藏
         button_layout.addWidget(self.download_btn)
 
-        self.copy_url_btn = PushButton(FluentIcon.COPY, "复制URL")
+        self.copy_url_btn = PushButton("复制URL")
         self.copy_url_btn.clicked.connect(self.copy_url)
+        self.copy_url_btn.hide()  # 初始隐藏
         button_layout.addWidget(self.copy_url_btn)
 
+        # 取消按钮（进行中显示）
+        self.cancel_btn = PushButton("取消")
+        self.cancel_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #dc3545;
+                color: #ffffff;
+                border: none;
+                border-radius: 6px;
+                padding: 6px 12px;
+            }
+            QPushButton:hover {
+                background-color: #e74c3c;
+            }
+        """)
+        self.cancel_btn.hide()  # 初始隐藏
+        self.cancel_btn.clicked.connect(self.cancel_clicked)
+        button_layout.addWidget(self.cancel_btn)
+
         layout.addLayout(button_layout)
+
+    def start_progress(self):
+        """开始进度显示"""
+        self.status_label.setText("正在生成...")
+        self.status_label.setStyleSheet("color: #f39c12; font-size: 12px; font-weight: bold;")
+        self.progress_bar.setValue(0)
+        self.start_time = time.time()
+
+        # 显示取消按钮，隐藏URL相关按钮
+        self.cancel_btn.show()
+        self.view_btn.hide()
+        self.download_btn.hide()
+        self.copy_url_btn.hide()
+        self.url_container.hide()
+
+        # 启动计时器
+        if self.progress_timer:
+            self.progress_timer.stop()
+
+        self.progress_timer = QTimer()
+        self.progress_timer.timeout.connect(self.update_timer)
+        self.progress_timer.start(1000)  # 每秒更新一次
+
+    def update_progress(self, value, status_text=""):
+        """更新进度"""
+        self.progress_bar.setValue(value)
+        if status_text:
+            self.progress_info_label.setText(f"{status_text} - {value}%")
+        else:
+            elapsed = int(time.time() - self.start_time) if self.start_time else 0
+            self.progress_info_label.setText(f"进度: {value}% - 已用时: {elapsed}秒")
+
+    def update_timer(self):
+        """更新计时器显示"""
+        if self.start_time:
+            elapsed = int(time.time() - self.start_time)
+            current_progress = self.progress_bar.value()
+            self.progress_info_label.setText(f"进度: {current_progress}% - 已用时: {elapsed}秒")
+
+    def complete_progress(self, video_url=""):
+        """完成进度显示"""
+        self.progress_bar.setValue(100)
+        self.status_label.setText("生成完成")
+        self.status_label.setStyleSheet("color: #28a745; font-size: 12px; font-weight: bold;")
+
+        if self.progress_timer:
+            self.progress_timer.stop()
+
+        elapsed = int(time.time() - self.start_time) if self.start_time else 0
+        self.progress_info_label.setText(f"完成! 总用时: {elapsed}秒")
+
+        if video_url:
+            self.url_edit.setText(video_url)
+            self.url_container.show()
+            self.view_btn.show()
+            self.download_btn.show()
+            self.copy_url_btn.show()
+
+        # 隐藏取消按钮
+        self.cancel_btn.hide()
+
+    def error_progress(self, error_msg=""):
+        """显示错误状态"""
+        self.status_label.setText("生成失败")
+        self.status_label.setStyleSheet("color: #dc3545; font-size: 12px; font-weight: bold;")
+
+        if self.progress_timer:
+            self.progress_timer.stop()
+
+        self.progress_info_label.setText(f"错误: {error_msg}")
+
+        # 隐藏取消按钮
+        self.cancel_btn.hide()
+
+    def cancel_clicked(self):
+        """取消按钮被点击"""
+        # 通知父组件取消对应任务
+        if self.parent() and hasattr(self.parent(), 'cancel_task'):
+            self.parent().cancel_task(self.task_id)
+
+        self.cancel_generation()
+
+    def cancel_generation(self):
+        """取消生成"""
+        if self.progress_timer:
+            self.progress_timer.stop()
+
+        self.status_label.setText("已取消")
+        self.status_label.setStyleSheet("color: #666666; font-size: 12px; font-weight: bold;")
+        self.progress_info_label.setText("用户取消操作")
+
+        # 隐藏取消按钮
+        self.cancel_btn.hide()
 
     def view_video(self):
         """查看视频"""
