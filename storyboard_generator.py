@@ -474,170 +474,160 @@ class ImageGenerationWorker(QThread):
             self.finished.emit(False, [], [])
 
 
-# 模板管理对话框 (改进版)
+# 模板管理对话框 (简化版)
 class TemplateManagerDialog(QDialog):
     """提示词模板管理对话框"""
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("提示词模板管理")
-        self.setMinimumSize(900, 700)
-        self.templates_by_type = {}
+        self.setMinimumSize(800, 600)
         self.current_template_key = None
+        self.is_editing = False  # 标记是否正在编辑已有模板
         self.init_ui()
 
     def init_ui(self):
         layout = QVBoxLayout(self)
+        layout.setSpacing(15)
 
         # 模板类型选择
-        type_group = QGroupBox("模板类型")
+        type_group = QGroupBox("1. 选择模板类型")
         type_layout = QVBoxLayout()
 
         self.template_type_combo = ComboBox()
         self.template_type_combo.setFixedHeight(32)
-        self.template_type_combo.addItem("全部模板", "all")
         self.template_type_combo.addItem("故事标题模板 (story_title)", "story_title")
         self.template_type_combo.addItem("故事描述模板 (story_summary)", "story_summary")
         self.template_type_combo.addItem("AI绘图提示词模板 (image_prompt)", "image_prompt")
         self.template_type_combo.currentIndexChanged.connect(self.on_template_type_changed)
 
-        type_layout.addWidget(QLabel("选择模板类型:"))
+        type_layout.addWidget(QLabel("模板类型:"))
         type_layout.addWidget(self.template_type_combo)
         type_group.setLayout(type_layout)
         layout.addWidget(type_group)
 
         # 模板选择
-        template_group = QGroupBox("选择具体模板")
+        template_group = QGroupBox("2. 选择现有模板 (可选)")
         template_layout = QVBoxLayout()
 
         self.template_combo = ComboBox()
         self.template_combo.setFixedHeight(32)
+        self.template_combo.addItem("-- 选择要编辑的模板 --", None)
         self.template_combo.currentIndexChanged.connect(self.on_template_name_changed)
-        template_layout.addWidget(QLabel("模板名称:"))
+        template_layout.addWidget(QLabel("选择要编辑的模板:"))
         template_layout.addWidget(self.template_combo)
+
+        # 操作提示
+        self.action_label = QLabel("💡 提示：选择现有模板进行编辑，或直接创建新模板")
+        self.action_label.setStyleSheet("color: #666; font-size: 12px; margin: 5px 0;")
+        template_layout.addWidget(self.action_label)
+
         template_group.setLayout(template_layout)
         layout.addWidget(template_group)
 
         # 模板编辑
-        edit_group = QGroupBox("模板编辑")
+        edit_group = QGroupBox("3. 模板内容编辑")
         edit_layout = QVBoxLayout()
 
         self.template_name_edit = LineEdit()
-        self.template_name_edit.setPlaceholderText("模板名称")
+        self.template_name_edit.setPlaceholderText("输入模板名称")
         self.template_name_edit.setFixedHeight(32)
         edit_layout.addWidget(QLabel("模板名称:"))
         edit_layout.addWidget(self.template_name_edit)
 
         self.template_content_edit = QTextEdit()
-        self.template_content_edit.setPlaceholderText("模板内容...")
+        self.template_content_edit.setPlaceholderText("输入模板内容...")
+        self.template_content_edit.setMinimumHeight(200)
         edit_layout.addWidget(QLabel("模板内容:"))
         edit_layout.addWidget(self.template_content_edit)
 
         edit_group.setLayout(edit_layout)
         layout.addWidget(edit_group)
 
-        # 按钮
+        # 操作按钮
         button_layout = QHBoxLayout()
 
-        new_btn = PushButton(FluentIcon.ADD, "新建模板")
-        new_btn.clicked.connect(self.new_template)
-        button_layout.addWidget(new_btn)
+        self.new_btn = PushButton(FluentIcon.ADD, "新建模板")
+        self.new_btn.clicked.connect(self.new_template)
+        button_layout.addWidget(self.new_btn)
 
-        load_btn = PushButton(FluentIcon.DOWNLOAD, "加载模板")
-        load_btn.clicked.connect(self.load_template_content)
-        button_layout.addWidget(load_btn)
+        self.save_btn = PrimaryPushButton(FluentIcon.SAVE, "保存模板")
+        self.save_btn.clicked.connect(self.save_template_content)
+        button_layout.addWidget(self.save_btn)
 
-        save_btn = PrimaryPushButton(FluentIcon.SAVE, "保存模板")
-        save_btn.clicked.connect(self.save_template_content)
-        button_layout.addWidget(save_btn)
-
-        delete_btn = PushButton(FluentIcon.DELETE, "删除模板")
-        delete_btn.clicked.connect(self.delete_template)
-        button_layout.addWidget(delete_btn)
-
-        # 导入导出功能
-        import_btn = PushButton(FluentIcon.FOLDER, "导入模板")
-        import_btn.clicked.connect(self.import_template)
-        button_layout.addWidget(import_btn)
-
-        export_btn = PushButton(FluentIcon.DOWNLOAD, "导出模板")
-        export_btn.clicked.connect(self.export_template)
-        button_layout.addWidget(export_btn)
+        self.delete_btn = PushButton(FluentIcon.DELETE, "删除模板")
+        self.delete_btn.clicked.connect(self.delete_template)
+        self.delete_btn.setEnabled(False)  # 初始时禁用删除按钮
+        button_layout.addWidget(self.delete_btn)
 
         button_layout.addStretch()
 
-        ok_btn = PrimaryPushButton("确定")
-        ok_btn.clicked.connect(self.accept)
-        button_layout.addWidget(ok_btn)
-
-        cancel_btn = PushButton("取消")
-        cancel_btn.clicked.connect(self.reject)
-        button_layout.addWidget(cancel_btn)
+        # 关闭按钮
+        close_btn = PushButton("关闭")
+        close_btn.clicked.connect(self.accept)
+        button_layout.addWidget(close_btn)
 
         layout.addLayout(button_layout)
 
         # 初始化加载模板
-        self.load_templates()
+        self.on_template_type_changed(0)
 
     def on_template_type_changed(self, index):
         """模板类型改变时的处理"""
+        current_type = self.template_type_combo.currentData()
+        if not current_type:
+            return
+
         self.update_template_names_combo()
         # 清空编辑区域
-        self.template_name_edit.clear()
-        self.template_content_edit.clear()
-        self.current_template_key = None
+        self.new_template()
 
     def on_template_name_changed(self, index):
         """模板名称改变时的处理"""
         current_data = self.template_combo.currentData()
         if current_data:
+            # 加载模板内容进行编辑
             template = config_manager.get_template(current_data)
             self.template_name_edit.setText(template.get('name', ''))
             self.template_content_edit.setText(template.get('template', ''))
             self.current_template_key = current_data
+            self.is_editing = True
+
+            # 更新界面状态
+            self.action_label.setText(f"💡 正在编辑: {template.get('name', current_data)}")
+            self.delete_btn.setEnabled(True)
+            self.save_btn.setText("更新模板")
+        else:
+            # 没有选择模板，准备新建
+            self.is_editing = False
+            self.delete_btn.setEnabled(False)
+            self.save_btn.setText("保存模板")
 
     def update_template_names_combo(self):
         """更新模板名称下拉框"""
-        self.template_combo.clear()
-        current_type = self.template_type_combo.currentData()
+        # 保留第一个选项，清空其余选项
+        while self.template_combo.count() > 1:
+            self.template_combo.removeItem(1)
 
-        # 确保current_type不为None
-        if current_type is None:
+        current_type = self.template_type_combo.currentData()
+        if not current_type:
             return
 
         templates = config_manager.get('prompt_templates', {})
 
-        if current_type == "all":
-            # 显示所有模板，并按类型分组显示
-            used_names = set()  # 用于去重
+        # 只显示指定类型的模板
+        type_templates = {k: v for k, v in templates.items() if k.startswith(current_type)}
 
-            # 按类型顺序显示
-            type_order = ['story_title', 'story_summary', 'image_prompt']
-            for template_type in type_order:
-                type_templates = {k: v for k, v in templates.items() if k.startswith(template_type)}
-                if type_templates:
-                    # 添加类型分隔符（用空项实现）
-                    type_name = {
-                        'story_title': '=== 故事标题模板 ===',
-                        'story_summary': '=== 故事描述模板 ===',
-                        'image_prompt': '=== AI绘图提示词模板 ==='
-                    }
-                    self.template_combo.addItem(type_name[template_type], None)
+        if type_templates:
+            # 按名称排序显示
+            sorted_templates = sorted(type_templates.items(),
+                                    key=lambda x: x[1].get('name', x[0]))
 
-                    # 添加该类型的所有模板
-                    for key, template in type_templates.items():
-                        name = template.get('name', key)
-                        if name not in used_names:  # 去重
-                            self.template_combo.addItem(f"  {name}", key)
-                            used_names.add(name)
-        else:
-            # 只显示指定类型的模板
-            type_templates = {k: v for k, v in templates.items() if k.startswith(current_type)}
-
-            for key, template in type_templates.items():
+            for key, template in sorted_templates:
                 name = template.get('name', key)
                 self.template_combo.addItem(name, key)
-
-        self.template_combo.setCurrentIndex(-1)  # 默认不选中
+        else:
+            # 没有模板时添加提示
+            self.template_combo.addItem("-- 暂无模板 --", None)
 
     def new_template(self):
         """新建模板"""
@@ -645,19 +635,13 @@ class TemplateManagerDialog(QDialog):
         self.template_content_edit.clear()
         self.template_name_edit.setFocus()
         self.current_template_key = None
+        self.is_editing = False
 
-    def load_templates(self):
-        """加载模板列表（重命名为按类型加载）"""
-        self.update_template_names_combo()
-
-    def load_template_content(self):
-        """加载模板内容"""
-        current_data = self.template_combo.currentData()
-        if current_data:
-            template = config_manager.get_template(current_data)
-            self.template_name_edit.setText(template.get('name', ''))
-            self.template_content_edit.setText(template.get('template', ''))
-            self.current_template_key = current_data
+        # 重置界面状态
+        self.template_combo.setCurrentIndex(0)
+        self.action_label.setText("💡 提示：选择现有模板进行编辑，或直接创建新模板")
+        self.delete_btn.setEnabled(False)
+        self.save_btn.setText("保存模板")
 
     def save_template_content(self):
         """保存模板内容"""
@@ -668,31 +652,21 @@ class TemplateManagerDialog(QDialog):
             QMessageBox.warning(self, "警告", "模板名称和内容不能为空")
             return
 
-        # 检查当前选择的模板类型，如果没有选择类型，则根据现有模板判断
         current_type = self.template_type_combo.currentData()
-        if current_type == "all":
-            # 如果是"全部模板"，则根据当前编辑的模板key来判断类型
-            if self.current_template_key:
-                for template_type in ['story_title', 'story_summary', 'image_prompt']:
-                    if self.current_template_key.startswith(template_type):
-                        current_type = template_type
-                        break
-            # 如果还是没有类型，默认使用story_title
-            if current_type == "all":
-                current_type = "story_title"
+        if not current_type:
+            QMessageBox.warning(self, "警告", "请选择模板类型")
+            return
 
-        # 生成模板key，确保以类型开头
-        template_key = self.current_template_key
-        if not template_key:
+        # 生成模板key
+        if self.is_editing and self.current_template_key:
+            # 编辑现有模板，保持原有key
+            template_key = self.current_template_key
+            action = "更新"
+        else:
             # 新建模板，根据类型生成key
             base_name = template_name.replace(' ', '_').lower()
             template_key = f"{current_type}_{base_name}"
-        else:
-            # 编辑现有模板，保持原有key的类型前缀
-            for template_type in ['story_title', 'story_summary', 'image_prompt']:
-                if template_key.startswith(template_type):
-                    current_type = template_type
-                    break
+            action = "保存"
 
         template_data = {
             'name': template_name,
@@ -700,96 +674,42 @@ class TemplateManagerDialog(QDialog):
         }
 
         if config_manager.save_template(template_key, template_data):
-            QMessageBox.information(self, "成功", "模板保存成功")
-            self.load_templates()
-            # 重新选择刚保存的模板
-            for i in range(self.template_combo.count()):
-                if self.template_combo.itemData(i) == template_key:
-                    self.template_combo.setCurrentIndex(i)
-                    self.current_template_key = template_key
-                    break
+            QMessageBox.information(self, "成功", f"模板{action}成功！")
+            # 刷新模板列表
+            self.update_template_names_combo()
+
+            # 如果是新建模板，重新选择刚保存的模板
+            if not self.is_editing:
+                for i in range(self.template_combo.count()):
+                    if self.template_combo.itemData(i) == template_key:
+                        self.template_combo.setCurrentIndex(i)
+                        break
         else:
             QMessageBox.critical(self, "错误", "模板保存失败")
 
     def delete_template(self):
         """删除模板"""
-        current_data = self.template_combo.currentData()
-        if current_data:
-            reply = QMessageBox.question(self, "确认", "确定要删除这个模板吗？",
-                                       QMessageBox.Yes | QMessageBox.No)
-            if reply == QMessageBox.Yes:
-                templates = config_manager.get('prompt_templates', {})
-                if current_data in templates:
-                    del templates[current_data]
-                    config_manager.set('prompt_templates', templates)
-                    config_manager.save_config()
-                    self.load_templates()
-                    # 清空编辑区域
-                    self.template_name_edit.clear()
-                    self.template_content_edit.clear()
-                    self.current_template_key = None
-                    QMessageBox.information(self, "成功", "模板删除成功")
-
-    def import_template(self):
-        """导入模板"""
-        file_path, _ = QFileDialog.getOpenFileName(
-            self, "导入模板文件", "", "JSON Files (*.json)"
-        )
-        if file_path:
-            try:
-                with open(file_path, 'r', encoding='utf-8') as f:
-                    template_data = json.load(f)
-
-                if not isinstance(template_data, dict) or 'name' not in template_data or 'template' not in template_data:
-                    QMessageBox.warning(self, "警告", "无效的模板文件格式")
-                    return
-
-                template_name = template_data.get('name', '导入的模板')
-                # 获取当前选择的模板类型来生成key
-                current_type = self.template_type_combo.currentData()
-                if current_type == "all":
-                    current_type = "story_title"  # 默认类型
-
-                template_key = f"{current_type}_{template_name.replace(' ', '_').lower()}"
-
-                if config_manager.save_template(template_key, template_data):
-                    QMessageBox.information(self, "成功", f"模板 '{template_name}' 导入成功")
-                    self.load_templates()
-                    for i in range(self.template_combo.count()):
-                        if self.template_combo.itemData(i) == template_key:
-                            self.template_combo.setCurrentIndex(i)
-                            break
-                else:
-                    QMessageBox.critical(self, "错误", "模板导入失败")
-
-            except Exception as e:
-                QMessageBox.critical(self, "错误", f"导入模板时出错：{str(e)}")
-
-    def export_template(self):
-        """导出模板"""
-        current_data = self.template_combo.currentData()
-        if not current_data:
-            QMessageBox.warning(self, "警告", "请先选择要导出的模板")
+        if not self.current_template_key or not self.is_editing:
+            QMessageBox.warning(self, "警告", "请先选择要删除的模板")
             return
 
-        template = config_manager.get_template(current_data)
-        if not template:
-            QMessageBox.warning(self, "警告", "模板数据不存在")
-            return
+        template_name = self.template_name_edit.text().strip()
+        reply = QMessageBox.question(self, "确认删除",
+                                   f"确定要删除模板 '{template_name}' 吗？\n\n此操作不可恢复！",
+                                   QMessageBox.Yes | QMessageBox.No,
+                                   QMessageBox.No)
 
-        file_path, _ = QFileDialog.getSaveFileName(
-            self, "导出模板文件",
-            f"{template.get('name', current_data)}.json",
-            "JSON Files (*.json)"
-        )
+        if reply == QMessageBox.Yes:
+            templates = config_manager.get('prompt_templates', {})
+            if self.current_template_key in templates:
+                del templates[self.current_template_key]
+                config_manager.set('prompt_templates', templates)
+                config_manager.save_config()
 
-        if file_path:
-            try:
-                with open(file_path, 'w', encoding='utf-8') as f:
-                    json.dump(template, f, indent=2, ensure_ascii=False)
-                QMessageBox.information(self, "成功", f"模板 '{template.get('name')}' 导出成功")
-            except Exception as e:
-                QMessageBox.critical(self, "错误", f"导出模板时出错：{str(e)}")
+                QMessageBox.information(self, "成功", "模板删除成功")
+                # 重置界面
+                self.new_template()
+                self.update_template_names_combo()
 
 
 # 图片预览小部件 (保留不变，但精简了不用的导入)
