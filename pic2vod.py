@@ -61,11 +61,11 @@ class ImageDropWidget(QFrame):
         self.image_label.setFixedSize(280, 180)
         self.image_label.setStyleSheet("""
             QLabel {
-                border: 2px dashed #d0d0d0;
-                border-radius: 6px;
-                background-color: #fafafa;
-                color: #666;
-                font-size: 12px;
+                border: 2px dashed #505050;
+                border-radius: 8px;
+                background-color: #2a2a2a;
+                color: #888888;
+                font-size: 13px;
             }
         """)
         self.image_label.setAlignment(Qt.AlignCenter)
@@ -75,6 +75,23 @@ class ImageDropWidget(QFrame):
         # 选择文件按钮
         self.select_btn = PushButton(FluentIcon.FOLDER, "选择图片文件")
         self.select_btn.setFixedHeight(32)
+        self.select_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #333333;
+                border: 1px solid #404040;
+                border-radius: 6px;
+                color: #ffffff;
+                font-size: 13px;
+                padding: 6px 12px;
+            }
+            QPushButton:hover {
+                background-color: #3a3a3a;
+                border: 1px solid #4a90e2;
+            }
+            QPushButton:pressed {
+                background-color: #2a2a2a;
+            }
+        """)
         self.select_btn.clicked.connect(self.select_file)
         layout.addWidget(self.select_btn)
 
@@ -367,19 +384,56 @@ class VideoGenerationWidget(QWidget):
 
     def init_ui(self):
         layout = QVBoxLayout(self)
-        layout.setSpacing(10)
-        layout.setContentsMargins(10, 5, 10, 10)
+        layout.setSpacing(12)
+        layout.setContentsMargins(8, 8, 8, 8)
 
-        # 设置整体背景色
-        self.setStyleSheet("VideoGenerationWidget { background-color: #f5f6fa; }")
+        # 设置深色主题整体样式
+        self.setStyleSheet("""
+            VideoGenerationWidget {
+                background-color: #1e1e1e;
+                color: #ffffff;
+            }
+            QScrollArea {
+                background-color: #1e1e1e;
+                border: none;
+            }
+            QSplitter::handle {
+                background-color: #3a3a3a;
+                width: 2px;
+            }
+            QSplitter::handle:hover {
+                background-color: #4a4a4a;
+            }
+            QLabel {
+                color: #ffffff;
+                font-size: 13px;
+            }
+            QGroupBox {
+                color: #ffffff;
+            }
+            QPushButton {
+                color: #ffffff;
+            }
+            QTextEdit {
+                color: #ffffff;
+            }
+            QLineEdit {
+                color: #ffffff;
+            }
+            QComboBox {
+                color: #ffffff;
+            }
+            QSpinBox {
+                color: #ffffff;
+            }
+        """)
 
-        # 顶部控制栏 - 密钥设置（更紧凑）
+        # 顶部控制栏 - 密钥设置（深色主题）
         top_bar = self.create_top_bar()
         layout.addWidget(top_bar)
 
         # 创建分割器
         splitter = QSplitter(Qt.Horizontal)
-        splitter.setStyleSheet("QSplitter::handle { background-color: #e0e0e0; width: 1px; }")
         layout.addWidget(splitter)
 
         # 左侧控制面板
@@ -394,35 +448,35 @@ class VideoGenerationWidget(QWidget):
         splitter.setSizes([450, 750])
 
     def create_top_bar(self):
-        """创建顶部控制栏（更紧凑）"""
+        """创建顶部控制栏（深色主题）"""
         bar = QFrame()
         bar.setFixedHeight(40)
         bar.setStyleSheet("""
             QFrame {
-                background-color: #ffffff;
-                border: 1px solid #e0e0e0;
-                border-radius: 6px;
+                background-color: #2a2a2a;
+                border: 1px solid #404040;
+                border-radius: 8px;
                 margin: 2px;
             }
         """)
         layout = QHBoxLayout(bar)
-        layout.setContentsMargins(10, 5, 10, 5)
+        layout.setContentsMargins(12, 6, 12, 6)
 
         # 标题
         title = QLabel("🎬 图片转视频生成")
-        title.setStyleSheet("font-size: 16px; font-weight: bold; color: #333;")
+        title.setStyleSheet("font-size: 16px; font-weight: bold; color: #ffffff;")
         layout.addWidget(title)
 
         layout.addStretch()
 
-        # 当前密钥状态显示（更宽）
+        # 当前密钥状态显示（深色主题）
         self.key_status_label = QLabel("密钥: 未配置")
         self.key_status_label.setStyleSheet("""
-            color: #666;
+            color: #cccccc;
             padding: 6px 15px;
-            background: #f8f9fa;
-            border-radius: 4px;
-            border: 1px solid #e0e0e0;
+            background: #333333;
+            border-radius: 6px;
+            border: 1px solid #404040;
             font-size: 12px;
             min-width: 120px;
         """)
@@ -432,28 +486,55 @@ class VideoGenerationWidget(QWidget):
         self.settings_btn = PushButton(FluentIcon.SETTING, "")
         self.settings_btn.setFixedSize(32, 32)
         self.settings_btn.clicked.connect(self.show_settings_dialog)
-        self.settings_btn.setStyleSheet("QPushButton { border: none; }")
+        self.settings_btn.setStyleSheet("""
+            QPushButton {
+                border: none;
+                background-color: transparent;
+                border-radius: 4px;
+            }
+            QPushButton:hover {
+                background-color: #3a3a3a;
+            }
+        """)
         layout.addWidget(self.settings_btn)
 
         return bar
 
     def create_control_panel(self):
-        """创建控制面板"""
+        """创建控制面板（深色主题）"""
         panel = QWidget()
-        panel.setStyleSheet("QWidget { background-color: #f5f6fa; }")
+        panel.setStyleSheet("QWidget { background-color: #1e1e1e; }")
         layout = QVBoxLayout(panel)
-        layout.setSpacing(10)
+        layout.setSpacing(12)
 
         # 创建滚动区域
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.NoFrame)
-        scroll.setStyleSheet("QScrollArea { background-color: #f5f6fa; }")
+        scroll.setStyleSheet("""
+            QScrollArea {
+                background-color: #1e1e1e;
+                border: none;
+            }
+            QScrollBar:vertical {
+                background-color: #2a2a2a;
+                width: 8px;
+                border-radius: 4px;
+            }
+            QScrollBar::handle:vertical {
+                background-color: #4a4a4a;
+                border-radius: 4px;
+                min-height: 20px;
+            }
+            QScrollBar::handle:vertical:hover {
+                background-color: #5a5a5a;
+            }
+        """)
 
         scroll_widget = QWidget()
-        scroll_widget.setStyleSheet("QWidget { background-color: #f5f6fa; }")
+        scroll_widget.setStyleSheet("QWidget { background-color: #1e1e1e; }")
         scroll_layout = QVBoxLayout(scroll_widget)
-        scroll_layout.setSpacing(10)
+        scroll_layout.setSpacing(12)
 
         # 图片输入组
         image_group = self.create_image_input_group()
@@ -478,31 +559,58 @@ class VideoGenerationWidget(QWidget):
         return panel
 
     def create_image_input_group(self):
-        """创建图片输入组"""
+        """创建图片输入组（深色主题）"""
         group = QGroupBox("📸 图片输入")
         group.setStyleSheet("""
             QGroupBox {
                 font-weight: bold;
-                border: 1px solid #e0e0e0;
-                border-radius: 6px;
+                border: 1px solid #404040;
+                border-radius: 8px;
                 margin-top: 8px;
                 padding-top: 8px;
-                background-color: #ffffff;
+                background-color: #2a2a2a;
+                color: #ffffff;
             }
             QGroupBox::title {
                 subcontrol-origin: margin;
-                left: 10px;
-                padding: 0 5px 0 5px;
-                color: #333;
+                left: 12px;
+                padding: 0 8px 0 8px;
+                color: #ffffff;
+                font-size: 14px;
             }
         """)
         layout = QVBoxLayout(group)
-        layout.setSpacing(8)
+        layout.setSpacing(10)
 
         # 输入方式选择（简化，一行显示）
         self.input_type_combo = ComboBox()
         self.input_type_combo.addItems(["图片URL", "本地文件上传"])
         self.input_type_combo.setFixedHeight(32)
+        self.input_type_combo.setStyleSheet("""
+            QComboBox {
+                background-color: #333333;
+                border: 1px solid #404040;
+                border-radius: 6px;
+                padding: 4px 8px;
+                color: #ffffff;
+                font-size: 13px;
+            }
+            QComboBox::drop-down {
+                border: none;
+                width: 20px;
+            }
+            QComboBox::down-arrow {
+                image: url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAA4AAAAOCAYAAAAfSC3RAAAABHNCSVQICAgIfAhkiAAAAAlwSFlzAAAA7AAAAOwBeShxvQAAABl0RVh0U29mdHdhcmUAd3d3Lmlua3NjYXBlLm9yZ5vuPBoAAAEFSURBVCiRldKxSgNBEMbxH0QZ0CuEF2CiEwJCgKESFuwBLhAT8AFyEO7wELsAC7AQX4CNxgU0cG6+dCZmZn8ZzYwXJJW8k8/fnOeOA8gw/r9fSEECGNFIAiCRZSROJIKJVmQygJMFQYGIFFsCgnhBaiBiOIEFEZgYhBRRGYGGYBFJp9uQRZZYcS1Lb5EA/ghggCVBJEARRyESOhKhszEMDQDdICB9ALRxZUeCcOPPMi5F+T8SX6FMaVvUIFxAIsgYgsI6IEHEhgUYEagIYRGAqPwiwAEYQmAqBQbY4QhBiBoZfn+/fXfjPMO4KdYvKEnKcTb1ncNcIrr8AyVcOlH9Zc1wAAAAASUVORK5CYII=);
+                width: 12px;
+                height: 12px;
+            }
+            QComboBox QAbstractItemView {
+                background-color: #333333;
+                border: 1px solid #404040;
+                selection-background-color: #4a90e2;
+                color: #ffffff;
+            }
+        """)
         self.input_type_combo.currentIndexChanged.connect(self.on_input_type_changed)
         layout.addWidget(self.input_type_combo)
 
@@ -514,6 +622,19 @@ class VideoGenerationWidget(QWidget):
         self.image_url_edit = LineEdit()
         self.image_url_edit.setFixedHeight(32)
         self.image_url_edit.setPlaceholderText("输入图片URL地址...")
+        self.image_url_edit.setStyleSheet("""
+            QLineEdit {
+                background-color: #333333;
+                border: 1px solid #404040;
+                border-radius: 6px;
+                padding: 6px 12px;
+                color: #ffffff;
+                font-size: 13px;
+            }
+            QLineEdit:focus {
+                border: 1px solid #4a90e2;
+            }
+        """)
         url_layout.addWidget(self.image_url_edit)
 
         layout.addWidget(self.url_widget)
@@ -536,26 +657,28 @@ class VideoGenerationWidget(QWidget):
         return group
 
     def create_batch_group(self):
-        """创建批量任务组"""
+        """创建批量任务组（深色主题）"""
         group = QGroupBox("📋 批量任务管理")
         group.setStyleSheet("""
             QGroupBox {
                 font-weight: bold;
-                border: 1px solid #e0e0e0;
-                border-radius: 6px;
+                border: 1px solid #404040;
+                border-radius: 8px;
                 margin-top: 8px;
                 padding-top: 8px;
-                background-color: #ffffff;
+                background-color: #2a2a2a;
+                color: #ffffff;
             }
             QGroupBox::title {
                 subcontrol-origin: margin;
-                left: 10px;
-                padding: 0 5px 0 5px;
-                color: #333;
+                left: 12px;
+                padding: 0 8px 0 8px;
+                color: #ffffff;
+                font-size: 14px;
             }
         """)
         layout = QVBoxLayout(group)
-        layout.setSpacing(8)
+        layout.setSpacing(10)
 
         # 任务列表
         self.task_list_widget = QWidget()
@@ -575,11 +698,45 @@ class VideoGenerationWidget(QWidget):
         add_task_layout = QHBoxLayout()
         self.add_task_btn = PushButton(FluentIcon.ADD, "添加到任务列表")
         self.add_task_btn.setFixedHeight(32)
+        self.add_task_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #333333;
+                border: 1px solid #404040;
+                border-radius: 6px;
+                color: #ffffff;
+                font-size: 13px;
+                padding: 6px 12px;
+            }
+            QPushButton:hover {
+                background-color: #3a3a3a;
+                border: 1px solid #4a90e2;
+            }
+            QPushButton:pressed {
+                background-color: #2a2a2a;
+            }
+        """)
         self.add_task_btn.clicked.connect(self.add_to_batch_tasks)
         add_task_layout.addWidget(self.add_task_btn)
 
         self.clear_tasks_btn = PushButton(FluentIcon.DELETE, "清空任务")
         self.clear_tasks_btn.setFixedHeight(32)
+        self.clear_tasks_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #333333;
+                border: 1px solid #404040;
+                border-radius: 6px;
+                color: #ffffff;
+                font-size: 13px;
+                padding: 6px 12px;
+            }
+            QPushButton:hover {
+                background-color: #3a3a3a;
+                border: 1px solid #dc3545;
+            }
+            QPushButton:pressed {
+                background-color: #2a2a2a;
+            }
+        """)
         self.clear_tasks_btn.clicked.connect(self.clear_batch_tasks)
         add_task_layout.addWidget(self.clear_tasks_btn)
 
@@ -588,26 +745,28 @@ class VideoGenerationWidget(QWidget):
         return group
 
     def create_params_group(self):
-        """创建视频参数组"""
+        """创建视频参数组（深色主题）"""
         group = QGroupBox("⚙️ 视频参数")
         group.setStyleSheet("""
             QGroupBox {
                 font-weight: bold;
-                border: 1px solid #e0e0e0;
-                border-radius: 6px;
+                border: 1px solid #404040;
+                border-radius: 8px;
                 margin-top: 8px;
                 padding-top: 8px;
-                background-color: #ffffff;
+                background-color: #2a2a2a;
+                color: #ffffff;
             }
             QGroupBox::title {
                 subcontrol-origin: margin;
-                left: 10px;
-                padding: 0 5px 0 5px;
-                color: #333;
+                left: 12px;
+                padding: 0 8px 0 8px;
+                color: #ffffff;
+                font-size: 14px;
             }
         """)
         layout = QGridLayout(group)
-        layout.setSpacing(8)
+        layout.setSpacing(10)
 
         # 预设分辨率
         layout.addWidget(QLabel("预设分辨率:"), 0, 0)
@@ -620,6 +779,31 @@ class VideoGenerationWidget(QWidget):
             "720p - 9:16 (720×1280)"
         ])
         self.resolution_combo.setFixedHeight(32)
+        self.resolution_combo.setStyleSheet("""
+            QComboBox {
+                background-color: #333333;
+                border: 1px solid #404040;
+                border-radius: 6px;
+                padding: 4px 8px;
+                color: #ffffff;
+                font-size: 13px;
+            }
+            QComboBox::drop-down {
+                border: none;
+                width: 20px;
+            }
+            QComboBox::down-arrow {
+                image: url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAA4AAAAOCAYAAAAfSC3RAAAABHNCSVQICAgIfAhkiAAAAAlwSFlzAAAA7AAAAOwBeShxvQAAABl0RVh0U29mdHdhcmUAd3d3Lmlua3NjYXBlLm9yZ5vuPBoAAAEFSURBVCiRldKxSgNBEMbxH0QZ0CuEF2CiEwJCgKESFuwBLhAT8AFyEO7wELsAC7AQX4CNxgU0cG6+dCZmZn8ZzYwXJJW8k8/fnOeOA8gw/r9fSEECGNFIAiCRZSROJIKJVmQygJMFQYGIFFsCgnhBaiBiOIEFEZgYhBRRGYGGYBFJp9uQRZZYcS1Lb5EA/ghggCVBJEARRyESOhKhszEMDQDdICB9ALRxZUeCcOPPMi5F+T8SX6FMaVvUIFxAIsgYgsI6IEHEhgUYEagIYRGAqPwiwAEYQmAqBQbY4QhBiBoZfn+/fXfjPMO4KdYvKEnKcTb1ncNcIrr8AyVcOlH9Zc1wAAAAASUVORK5CYII=);
+                width: 12px;
+                height: 12px;
+            }
+            QComboBox QAbstractItemView {
+                background-color: #333333;
+                border: 1px solid #404040;
+                selection-background-color: #4a90e2;
+                color: #ffffff;
+            }
+        """)
         self.resolution_combo.currentIndexChanged.connect(self.on_resolution_changed)
         layout.addWidget(self.resolution_combo, 0, 1, 1, 2)
 
@@ -630,6 +814,19 @@ class VideoGenerationWidget(QWidget):
         self.width_spin.setValue(720)
         self.width_spin.setSingleStep(64)
         self.width_spin.setFixedHeight(32)
+        self.width_spin.setStyleSheet("""
+            QSpinBox {
+                background-color: #333333;
+                border: 1px solid #404040;
+                border-radius: 6px;
+                padding: 4px 8px;
+                color: #ffffff;
+                font-size: 13px;
+            }
+            QSpinBox:focus {
+                border: 1px solid #4a90e2;
+            }
+        """)
         layout.addWidget(self.width_spin, 1, 1)
 
         layout.addWidget(QLabel("高度:"), 1, 2)
@@ -638,6 +835,19 @@ class VideoGenerationWidget(QWidget):
         self.height_spin.setValue(720)
         self.height_spin.setSingleStep(64)
         self.height_spin.setFixedHeight(32)
+        self.height_spin.setStyleSheet("""
+            QSpinBox {
+                background-color: #333333;
+                border: 1px solid #404040;
+                border-radius: 6px;
+                padding: 4px 8px;
+                color: #ffffff;
+                font-size: 13px;
+            }
+            QSpinBox:focus {
+                border: 1px solid #4a90e2;
+            }
+        """)
         layout.addWidget(self.height_spin, 1, 3)
 
         # 视频时长
@@ -647,6 +857,19 @@ class VideoGenerationWidget(QWidget):
         self.duration_spin.setValue(5)
         self.duration_spin.setSingleStep(1)
         self.duration_spin.setFixedHeight(32)
+        self.duration_spin.setStyleSheet("""
+            QSpinBox {
+                background-color: #333333;
+                border: 1px solid #404040;
+                border-radius: 6px;
+                padding: 4px 8px;
+                color: #ffffff;
+                font-size: 13px;
+            }
+            QSpinBox:focus {
+                border: 1px solid #4a90e2;
+            }
+        """)
         self.duration_spin.valueChanged.connect(self.update_frames)
         layout.addWidget(self.duration_spin, 2, 1)
 
@@ -656,45 +879,48 @@ class VideoGenerationWidget(QWidget):
         self.frames_label.setStyleSheet("""
             QLabel {
                 font-weight: bold;
-                color: #0078d4;
-                background: #e3f2fd;
+                color: #4a90e2;
+                background: #2a3a4a;
                 padding: 8px;
                 border-radius: 4px;
                 font-size: 14px;
+                border: 1px solid #3a5a7a;
             }
         """)
         layout.addWidget(self.frames_label, 2, 3)
 
         # 帧数说明
         frames_note = QLabel("注：16帧 = 1秒，含封面帧")
-        frames_note.setStyleSheet("color: #666; font-size: 12px;")
+        frames_note.setStyleSheet("color: #888888; font-size: 12px;")
         layout.addWidget(frames_note, 3, 0, 1, 4)
 
         return group
 
     def create_actions_group(self):
-        """创建操作按钮组"""
+        """创建操作按钮组（深色主题）"""
         group = QGroupBox("🚀 操作")
         group.setStyleSheet("""
             QGroupBox {
                 font-weight: bold;
-                border: 1px solid #e0e0e0;
-                border-radius: 6px;
+                border: 1px solid #404040;
+                border-radius: 8px;
                 margin-top: 8px;
                 padding-top: 8px;
-                background-color: #ffffff;
+                background-color: #2a2a2a;
+                color: #ffffff;
             }
             QGroupBox::title {
                 subcontrol-origin: margin;
-                left: 10px;
-                padding: 0 5px 0 5px;
-                color: #333;
+                left: 12px;
+                padding: 0 8px 0 8px;
+                color: #ffffff;
+                font-size: 14px;
             }
         """)
         layout = QVBoxLayout(group)
-        layout.setSpacing(8)
+        layout.setSpacing(10)
 
-        # 提示词输入（删除标题，增大高度和字体）
+        # 提示词输入（深色主题，增大字体）
         self.prompt_edit = QTextEdit()
         self.prompt_edit.setPlaceholderText("输入视频生成的提示词，例如：美女跳舞、风景变化等...")
         self.prompt_edit.setFixedHeight(100)
@@ -702,24 +928,61 @@ class VideoGenerationWidget(QWidget):
             QTextEdit {
                 font-size: 14px;
                 font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
-                border: 1px solid #e0e0e0;
+                border: 1px solid #404040;
                 border-radius: 6px;
-                padding: 8px;
-                background-color: #fafafa;
+                padding: 10px;
+                background-color: #333333;
+                color: #ffffff;
+                selection-background-color: #4a90e2;
+            }
+            QTextEdit:focus {
+                border: 1px solid #4a90e2;
             }
         """)
         layout.addWidget(self.prompt_edit)
 
-        # 生成按钮
+        # 生成按钮（深色主题）
         button_layout = QHBoxLayout()
 
         self.single_generate_btn = PrimaryPushButton(FluentIcon.PLAY, "单个生成")
         self.single_generate_btn.setFixedHeight(40)
+        self.single_generate_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #4a90e2;
+                border: none;
+                border-radius: 6px;
+                color: #ffffff;
+                font-size: 14px;
+                font-weight: 500;
+            }
+            QPushButton:hover {
+                background-color: #5ba0f2;
+            }
+            QPushButton:pressed {
+                background-color: #3a80d2;
+            }
+        """)
         self.single_generate_btn.clicked.connect(self.generate_single_video)
         button_layout.addWidget(self.single_generate_btn)
 
         self.batch_generate_btn = PrimaryPushButton(FluentIcon.PLAY_SOLID, "批量生成")
         self.batch_generate_btn.setFixedHeight(40)
+        self.batch_generate_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #28a745;
+                border: none;
+                border-radius: 6px;
+                color: #ffffff;
+                font-size: 14px;
+                font-weight: 500;
+            }
+            QPushButton:hover {
+                background-color: #38b755;
+            }
+            QPushButton:pressed {
+                background-color: #1a9735;
+            }
+        """)
         self.batch_generate_btn.clicked.connect(self.generate_batch_videos)
         button_layout.addWidget(self.batch_generate_btn)
 
@@ -728,39 +991,41 @@ class VideoGenerationWidget(QWidget):
         return group
 
     def create_result_panel(self):
-        """创建结果展示面板"""
+        """创建结果展示面板（深色主题）"""
         panel = QWidget()
-        panel.setStyleSheet("QWidget { background-color: #f5f6fa; }")
+        panel.setStyleSheet("QWidget { background-color: #1e1e1e; }")
         layout = QVBoxLayout(panel)
-        layout.setSpacing(8)
+        layout.setSpacing(10)
         layout.setContentsMargins(5, 0, 0, 0)
 
         # 创建Tab Widget
         self.result_tabs = QTabWidget()
         self.result_tabs.setStyleSheet("""
             QTabWidget::pane {
-                border: 1px solid #e0e0e0;
-                background: #ffffff;
-                border-radius: 6px;
+                border: 1px solid #404040;
+                background: #2a2a2a;
+                border-radius: 8px;
             }
             QTabBar::tab {
-                background: #f8f9fa;
-                color: #666;
+                background: #333333;
+                color: #cccccc;
                 padding: 10px 20px;
                 margin-right: 2px;
-                border-top-left-radius: 6px;
-                border-top-right-radius: 6px;
-                border: 1px solid #e0e0e0;
+                border-top-left-radius: 8px;
+                border-top-right-radius: 8px;
+                border: 1px solid #404040;
                 border-bottom: none;
                 font-weight: 500;
+                font-size: 13px;
             }
             QTabBar::tab:selected {
-                background: #ffffff;
-                color: #0078d4;
-                border-bottom: 1px solid #ffffff;
+                background: #4a90e2;
+                color: #ffffff;
+                border-bottom: 1px solid #4a90e2;
             }
             QTabBar::tab:hover:!selected {
-                background: #e9ecef;
+                background: #3a3a3a;
+                color: #ffffff;
             }
         """)
 
@@ -801,9 +1066,11 @@ class VideoGenerationWidget(QWidget):
             QTextEdit {
                 font-family: 'Consolas', 'Monaco', monospace;
                 font-size: 12px;
-                background-color: #f8f9fa;
-                border: 1px solid #e0e0e0;
-                border-radius: 4px;
+                background-color: #1a1a1a;
+                border: 1px solid #404040;
+                border-radius: 6px;
+                color: #ffffff;
+                selection-background-color: #4a90e2;
             }
         """)
         log_layout.addWidget(QLabel("操作日志:"))
@@ -812,10 +1079,44 @@ class VideoGenerationWidget(QWidget):
         # 日志控制按钮
         log_controls = QHBoxLayout()
         clear_log_btn = PushButton(FluentIcon.DELETE, "清空日志")
+        clear_log_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #333333;
+                border: 1px solid #404040;
+                border-radius: 6px;
+                color: #ffffff;
+                font-size: 13px;
+                padding: 6px 12px;
+            }
+            QPushButton:hover {
+                background-color: #3a3a3a;
+                border: 1px solid #dc3545;
+            }
+            QPushButton:pressed {
+                background-color: #2a2a2a;
+            }
+        """)
         clear_log_btn.clicked.connect(self.clear_log)
         log_controls.addWidget(clear_log_btn)
 
         save_log_btn = PushButton(FluentIcon.SAVE, "保存日志")
+        save_log_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #333333;
+                border: 1px solid #404040;
+                border-radius: 6px;
+                color: #ffffff;
+                font-size: 13px;
+                padding: 6px 12px;
+            }
+            QPushButton:hover {
+                background-color: #3a3a3a;
+                border: 1px solid #28a745;
+            }
+            QPushButton:pressed {
+                background-color: #2a2a2a;
+            }
+        """)
         save_log_btn.clicked.connect(self.save_log)
         log_controls.addWidget(save_log_btn)
 
@@ -1036,14 +1337,30 @@ class VideoGenerationWidget(QWidget):
             self.save_settings()
 
     def update_key_status(self):
-        """更新密钥状态显示"""
+        """更新密钥状态显示（深色主题）"""
         count = self.api_manager.get_available_keys_count()
         if count > 0:
             self.key_status_label.setText(f"密钥: {count}个可用")
-            self.key_status_label.setStyleSheet("color: #4CAF50; padding: 5px 10px; background: #e8f5e8; border-radius: 4px;")
+            self.key_status_label.setStyleSheet("""
+                color: #4CAF50;
+                padding: 6px 15px;
+                background: #1e3a1e;
+                border-radius: 6px;
+                border: 1px solid #2e5a2e;
+                font-size: 12px;
+                min-width: 120px;
+            """)
         else:
             self.key_status_label.setText("密钥: 未配置")
-            self.key_status_label.setStyleSheet("color: #f44336; padding: 5px 10px; background: #ffebee; border-radius: 4px;")
+            self.key_status_label.setStyleSheet("""
+                color: #ff6b6b;
+                padding: 6px 15px;
+                background: #3a1e1e;
+                border-radius: 6px;
+                border: 1px solid #5a2e2e;
+                font-size: 12px;
+                min-width: 120px;
+            """)
 
     def add_log(self, message):
         """添加日志"""
@@ -1158,7 +1475,7 @@ class APISettingsDialog(QDialog):
 
         # 状态显示
         self.status_label = QLabel("准备就绪")
-        self.status_label.setStyleSheet("padding: 10px; background: #f0f0f0; border-radius: 4px;")
+        self.status_label.setStyleSheet("padding: 10px; background: #333333; border-radius: 4px;")
         layout.addWidget(self.status_label)
 
         # 按钮
