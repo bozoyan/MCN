@@ -964,11 +964,7 @@ class VideoGenerationWidget(QWidget):
         self.task_list_widget = QWidget()
         self.task_list_layout = QVBoxLayout(self.task_list_widget)
         self.task_list_layout.setSpacing(0)
-        self.task_list_layout.setStyleSheet("""
-            QGroupBox{
-                margin-top:-120px;
-            }
-        """)
+        # 注意：QVBoxLayout 没有 setStyleSheet 方法，移除这个调用
 
         # 创建滚动区域用于任务列表
         self.task_scroll = QScrollArea()
