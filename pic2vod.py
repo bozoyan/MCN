@@ -450,21 +450,20 @@ class VideoGenerationWidget(QWidget):
     def create_top_bar(self):
         """创建顶部控制栏（深色主题）"""
         bar = QFrame()
-        bar.setFixedHeight(40)
+        bar.setFixedHeight(60)  # 增加高度
         bar.setStyleSheet("""
             QFrame {
                 background-color: #2a2a2a;
-                border: 1px solid #404040;
                 border-radius: 8px;
                 margin: 2px;
             }
         """)
         layout = QHBoxLayout(bar)
-        layout.setContentsMargins(12, 6, 12, 6)
+        layout.setContentsMargins(12, 12, 12, 12)  # 增加上下边距
 
         # 标题
         title = QLabel("🎬 图片转视频生成")
-        title.setStyleSheet("font-size: 16px; font-weight: bold; color: #ffffff;")
+        title.setStyleSheet("font-size: 18px; font-weight: bold; color: #ffffff;")
         layout.addWidget(title)
 
         layout.addStretch()
@@ -880,11 +879,7 @@ class VideoGenerationWidget(QWidget):
             QLabel {
                 font-weight: bold;
                 color: #4a90e2;
-                background: #2a3a4a;
-                padding: 8px;
-                border-radius: 4px;
                 font-size: 14px;
-                border: 1px solid #3a5a7a;
             }
         """)
         layout.addWidget(self.frames_label, 2, 3)
