@@ -232,6 +232,73 @@ class BatchVideoGenerationWorker(QThread):
         except Exception as e:
             print(f"写入日志失败: {e}")
 
+    def compress_image(self, image_data, original_path):
+        """压缩图像数据"""
+        try:
+            # 尝试使用 PIL 进行图像压缩
+            try:
+                from PIL import Image
+                import io
+
+                # 将二进制数据转换为 PIL Image
+                image = Image.open(io.BytesIO(image_data))
+
+                # 转换为 RGB（如果是 RGBA 或其他格式）
+                if image.mode in ('RGBA', 'LA', 'P'):
+                    background = Image.new('RGB', image.size, (255, 255, 255))
+                    if image.mode == 'P':
+                        image = image.convert('RGBA')
+                    background.paste(image, mask=image.split()[-1] if image.mode == 'RGBA' else None)
+                    image = background
+
+                # 计算新的尺寸，保持宽高比
+                max_dimension = 1024  # 最大尺寸
+                width, height = image.size
+
+                if width > max_dimension or height > max_dimension:
+                    ratio = min(max_dimension / width, max_dimension / height)
+                    new_width = int(width * ratio)
+                    new_height = int(height * ratio)
+                    image = image.resize((new_width, new_height), Image.Resampling.LANCZOS)
+                    self.log_message(f"🖼️ 图片尺寸调整: {width}×{height} → {new_width}×{new_height}")
+
+                # 压缩图像
+                output = io.BytesIO()
+                # 使用 JPEG 格式压缩，质量 85%
+                image.save(output, format='JPEG', quality=85, optimize=True)
+                compressed_data = output.getvalue()
+                output.close()
+
+                self.log_message(f"🔧 使用PIL压缩完成")
+                return compressed_data
+
+            except ImportError:
+                self.log_message("⚠️ PIL库未安装，使用简单压缩方法")
+                return self.simple_image_compress(image_data, original_path)
+
+        except Exception as e:
+            self.log_message(f"⚠️ 图像压缩失败，使用原始数据: {str(e)}")
+            return image_data
+
+    def simple_image_compress(self, image_data, original_path):
+        """简单图像压缩方法（当 PIL 不可用时）"""
+        try:
+            # 检查是否为 PNG，如果是，尝试转换为 JPEG
+            import imghdr
+            detected_type = imghdr.what(None, image_data)
+
+            if detected_type == 'png':
+                self.log_message("🔄 尝试将 PNG 转换为 JPEG 以减小文件大小")
+                # 这里只能进行简单处理，PIL 不可用时功能有限
+                # 返回原始数据，但记录日志
+                self.log_message("⚠️ 无法进行格式转换，保持原始 PNG 格式")
+
+            return image_data
+
+        except Exception as e:
+            self.log_message(f"⚠️ 简单压缩失败: {str(e)}")
+            return image_data
+
     def cancel(self):
         """取消任务"""
         self.is_cancelled = True
@@ -298,18 +365,31 @@ class BatchVideoGenerationWorker(QThread):
 
             self.progress_updated.emit(10, "准备请求数据...", task_id)
 
-            # 图像格式检查和转换
+            # 图像格式检查和转换 - 针对BizyAir API优化
             if isinstance(image_input, str):
                 if image_input.startswith('data:image/'):
                     self.log_message("🖼️ 检测到data URL格式的图片数据")
+                    # 对于已有的data URL格式，保持不变
                 elif image_input and not image_input.startswith('http') and not image_input.startswith('data:'):
-                    # 纯base64数据或本地文件路径，需要转换为data URL格式
+                    # 纯base64数据或本地文件路径，需要转换为正确格式
                     try:
                         image_path = task.get('image_path', '')
                         if image_path and os.path.exists(image_path):
-                            # 从文件路径重新读取并转换为data URL
+                            # 从文件路径重新读取并转换
                             with open(image_path, 'rb') as f:
                                 image_data = f.read()
+
+                                # 检查图片大小，如果过大则压缩
+                                max_size = 500 * 1024  # 500KB 限制
+                                original_size = len(image_data)
+
+                                if len(image_data) > max_size:
+                                    self.log_message(f"⚠️ 图片过大({original_size}字节)，开始压缩...")
+                                    image_data = self.compress_image(image_data, image_path)
+                                    compressed_size = len(image_data)
+                                    compression_ratio = (1 - compressed_size / original_size) * 100
+                                    self.log_message(f"✅ 图片压缩完成: {original_size}→{compressed_size}字节 (压缩{compression_ratio:.1f}%)")
+
                                 # 尝试确定图片类型
                                 import imghdr
                                 detected_type = imghdr.what(None, image_data)
@@ -322,12 +402,15 @@ class BatchVideoGenerationWorker(QThread):
                                     'webp': 'image/webp'
                                 }
                                 image_type = mime_types.get(detected_type, 'image/jpeg')
-                                image_input = f"data:{image_type};base64,{base64.b64encode(image_data).decode('utf-8')}"
-                                self.log_message(f"✅ 图片已从文件重新转换为data URL格式，类型: {image_type}, 大小: {len(image_input)}字符")
+
+                                # 转换为 data URL 格式（BizyAir API可能需要这种格式）
+                                base64_data = base64.b64encode(image_data).decode('utf-8')
+                                image_input = f"data:{image_type};base64,{base64_data}"
+                                self.log_message(f"✅ 图片已转换为data URL格式，类型: {image_type}, 大小: {len(image_input)}字符")
+                                self.log_message(f"💡 提示: 将使用data URL格式提交API（包含MIME类型前缀）")
                         else:
                             # 尝试将纯base64转换为data URL
                             import imghdr
-                            # 解码base64以检测图片类型
                             try:
                                 decoded_data = base64.b64decode(image_input)
                                 detected_type = imghdr.what(None, decoded_data)
@@ -338,12 +421,13 @@ class BatchVideoGenerationWorker(QThread):
                                     'webp': 'image/webp'
                                 }
                                 image_type = mime_types.get(detected_type, 'image/jpeg')
+                                # 转换为 data URL 格式
                                 image_input = f"data:{image_type};base64,{image_input}"
-                                self.log_message(f"✅ 纯base64已转换为data URL格式，类型: {image_type}")
+                                self.log_message(f"✅ 已转换为data URL格式，检测到类型: {image_type}")
                             except:
-                                # 如果解码失败，默认使用jpeg格式
+                                # 如果解码失败，默认使用JPEG格式的data URL
                                 image_input = f"data:image/jpeg;base64,{image_input}"
-                                self.log_message(f"⚠️ 无法检测图片类型，默认使用JPEG格式")
+                                self.log_message(f"⚠️ 无法检测图片类型，使用默认JPEG格式的data URL")
                     except Exception as e:
                         self.log_message(f"⚠️ 图片转换失败: {str(e)}")
                         return False
@@ -354,9 +438,18 @@ class BatchVideoGenerationWorker(QThread):
             else:
                 self.log_message(f"⚠️ 图片输入不是字符串格式: {type(image_input)}")
 
+            # API验证和参数优化
+            self.log_message(f"🔑 API密钥验证: {api_key[:20]}...{api_key[-10:] if len(api_key) > 30 else api_key}")
+            self.log_message(f"🆔 Web App ID: {self.api_manager.web_app_id}")
+
             # 优化参数：如果图片过大或帧数过多，给出警告
-            if isinstance(image_input, str) and len(image_input) > 10000000:  # 10MB base64
-                self.log_message(f"⚠️ 警告: 图片较大({len(image_input)}字符)，可能影响处理速度")
+            if isinstance(image_input, str) and len(image_input) > 5000000:  # 5MB base64 限制降低
+                self.log_message(f"⚠️ 警告: 图片较大({len(image_input)}字符)，可能影响API处理")
+                # 如果仍然过大，尝试进一步压缩
+                if len(image_input) > 8000000:  # 8MB 硬限制
+                    self.log_message(f"❌ 错误: 图片过大({len(image_input)}字符)，超过API限制")
+                    self.task_finished.emit(False, f"图片过大，请使用更小的图片({len(image_input)}字符 > 8MB限制)", {}, task_id)
+                    return False
 
             if num_frames > 481:  # 超过30秒
                 self.log_message(f"⚠️ 警告: 帧数较多({num_frames}帧)，可能增加处理时间")
@@ -367,8 +460,21 @@ class BatchVideoGenerationWorker(QThread):
                 "Content-Type": "application/json",
             }
 
+            # 准备图像数据 - 根据BizyAir API文档使用简单字符串格式
+            if image_input.startswith('http'):
+                # 对于URL，直接使用
+                image_value = image_input
+                self.log_message("🔧 使用图像URL格式")
+            else:
+                # 对于data URL或base64，直接使用字符串格式
+                image_value = image_input
+                if image_input.startswith('data:image/'):
+                    self.log_message("🔧 使用data URL字符串格式")
+                else:
+                    self.log_message("🔧 使用base64字符串格式")
+
             input_values = {
-                "67:LoadImage.image": image_input,
+                "67:LoadImage.image": image_value,
                 "68:ImageResizeKJv2.width": width,
                 "68:ImageResizeKJv2.height": height,
                 "16:WanVideoTextEncode.positive_prompt": prompt,
@@ -389,14 +495,43 @@ class BatchVideoGenerationWorker(QThread):
             # 优化超时设置：改为300秒，给足够时间但不会太长
             self.log_message(f"📤 发送API请求: {prompt[:100]}...")
 
-            # 创建日志友好的请求数据（隐藏base64图片数据）
-            log_request_data = request_data.copy()
-            if "input_values" in log_request_data and "67:LoadImage.image" in log_request_data["input_values"]:
-                image_data = log_request_data["input_values"]["67:LoadImage.image"]
-                if len(image_data) > 100:  # 如果是base64数据，显示摘要
-                    log_request_data["input_values"]["67:LoadImage.image"] = f"[Base64数据，长度: {len(image_data)}字符]"
+            # 记录请求数据信息（不影响实际发送的数据）
+            image_info = ""
+            if "input_values" in request_data and "67:LoadImage.image" in request_data["input_values"]:
+                image_data = request_data["input_values"]["67:LoadImage.image"]
+                if isinstance(image_data, dict):
+                    # 对象格式
+                    data_type = image_data.get("type", "unknown")
+                    if "data" in image_data:
+                        data_length = len(image_data["data"])
+                        image_info = f"图像格式: [对象格式，类型: {data_type}, 数据长度: {data_length}字符]"
+                    else:
+                        image_info = f"图像格式: [对象格式，类型: {data_type}]"
+                elif isinstance(image_data, str):
+                    if image_data.startswith('data:'):
+                        # data URL格式
+                        image_info = f"图像格式: [Data URL格式，长度: {len(image_data)}字符]"
+                    elif image_data.startswith('http'):
+                        # URL格式
+                        image_info = f"图像格式: [URL格式: {image_data[:80]}...]"
+                    else:
+                        # 纯base64或其他格式
+                        image_info = f"图像格式: [字符串格式，长度: {len(image_data)}字符]"
                 else:
-                    log_request_data["input_values"]["67:LoadImage.image"] = image_data
+                    image_info = f"图像格式: [数据类型: {type(image_data)}]"
+
+            # 创建用于日志的请求数据副本（隐藏敏感信息）
+            log_request_data = {
+                "web_app_id": request_data["web_app_id"],
+                "suppress_preview_output": request_data["suppress_preview_output"],
+                "input_values": {
+                    "67:LoadImage.image": image_info,
+                    "68:ImageResizeKJv2.width": request_data["input_values"]["68:ImageResizeKJv2.width"],
+                    "68:ImageResizeKJv2.height": request_data["input_values"]["68:ImageResizeKJv2.height"],
+                    "16:WanVideoTextEncode.positive_prompt": request_data["input_values"]["16:WanVideoTextEncode.positive_prompt"],
+                    "89:WanVideoImageToVideoEncode.num_frames": request_data["input_values"]["89:WanVideoImageToVideoEncode.num_frames"]
+                }
+            }
 
             self.log_message(f"📋 请求数据: {json.dumps(log_request_data, ensure_ascii=False, indent=2)}")
 
@@ -1160,6 +1295,70 @@ class VideoGenerationWidget(QWidget):
 
         self.result_tabs.addTab(self.video_list_widget, "视频列表")
 
+        # 视频播放Tab
+        self.video_display_widget = QWidget()
+        video_display_layout = QVBoxLayout(self.video_display_widget)
+        video_display_layout.setContentsMargins(10, 10, 10, 10)
+
+        # 视频播放区域标题
+        video_title = QLabel("🎬 视频播放区域")
+        video_title.setStyleSheet("font-size: 16px; font-weight: bold; color: #ffffff; margin-bottom: 10px;")
+        video_display_layout.addWidget(video_title)
+
+        # 视频播放器
+        from PyQt5.QtMultimediaWidgets import QVideoWidget
+        from PyQt5.QtMultimedia import QMediaPlayer, QMediaContent
+
+        self.video_player = QVideoWidget()
+        self.video_player.setStyleSheet("""
+            QVideoWidget {
+                background-color: #000000;
+                border: 2px solid #404040;
+                border-radius: 8px;
+                min-height: 400px;
+            }
+        """)
+        video_display_layout.addWidget(self.video_player)
+
+        # 媒体播放器
+        self.media_player = QMediaPlayer()
+        self.media_player.setVideoOutput(self.video_player)
+
+        # 播放控制区域
+        playback_controls = QHBoxLayout()
+
+        self.play_btn = PushButton("▶️ 播放")
+        self.play_btn.setFixedHeight(32)
+        self.play_btn.clicked.connect(self.toggle_playback)
+        self.play_btn.setEnabled(False)
+        playback_controls.addWidget(self.play_btn)
+
+        self.stop_btn = PushButton("⏹️ 停止")
+        self.stop_btn.setFixedHeight(32)
+        self.stop_btn.clicked.connect(self.stop_playback)
+        self.stop_btn.setEnabled(False)
+        playback_controls.addWidget(self.stop_btn)
+
+        # 当前播放信息
+        self.current_video_label = QLabel("未选择视频")
+        self.current_video_label.setStyleSheet("""
+            QLabel {
+                color: #cccccc;
+                font-size: 12px;
+                padding: 8px 12px;
+                background-color: #333333;
+                border-radius: 6px;
+                border: 1px solid #404040;
+            }
+        """)
+        playback_controls.addWidget(self.current_video_label)
+
+        playback_controls.addStretch()
+
+        video_display_layout.addLayout(playback_controls)
+
+        self.result_tabs.addTab(self.video_display_widget, "视频播放")
+
         # 日志Tab
         self.log_widget = QWidget()
         log_layout = QVBoxLayout(self.log_widget)
@@ -1568,6 +1767,71 @@ class VideoGenerationWidget(QWidget):
         except Exception as e:
             self.add_log(f"保存设置失败: {e}")
 
+    def add_video_to_display(self, video_path, video_name):
+        """添加视频到播放区域"""
+        try:
+            # 切换到视频播放Tab
+            self.result_tabs.setCurrentIndex(1)  # 索引1是视频播放Tab
+
+            # 设置当前播放的视频
+            self.current_video_path = video_path
+            self.current_video_label.setText(f"当前: {os.path.basename(video_path)}")
+
+            # 启用播放控制按钮
+            self.play_btn.setEnabled(True)
+            self.stop_btn.setEnabled(True)
+
+            # 加载视频到播放器
+            from PyQt5.QtCore import QUrl
+            from PyQt5.QtMultimedia import QMediaContent
+
+            self.media_player.setMedia(QMediaContent(QUrl.fromLocalFile(video_path)))
+            self.add_log(f"🎬 已加载视频: {video_name}")
+
+        except Exception as e:
+            self.add_log(f"⚠️ 加载视频失败: {str(e)}")
+
+    def play_video_in_display(self, video_path):
+        """在显示区域播放视频"""
+        try:
+            # 切换到视频播放Tab
+            self.result_tabs.setCurrentIndex(1)
+
+            # 设置并播放视频
+            self.current_video_path = video_path
+            self.current_video_label.setText(f"正在播放: {os.path.basename(video_path)}")
+
+            # 启用播放控制按钮
+            self.play_btn.setEnabled(True)
+            self.stop_btn.setEnabled(True)
+
+            # 加载并播放视频
+            from PyQt5.QtCore import QUrl
+            from PyQt5.QtMultimedia import QMediaContent
+
+            self.media_player.setMedia(QMediaContent(QUrl.fromLocalFile(video_path)))
+            self.media_player.play()
+
+            # 更新播放按钮文本
+            self.play_btn.setText("⏸️ 暂停")
+
+        except Exception as e:
+            self.add_log(f"⚠️ 播放视频失败: {str(e)}")
+
+    def toggle_playback(self):
+        """切换播放/暂停"""
+        if self.media_player.state() == self.media_player.PlayingState:
+            self.media_player.pause()
+            self.play_btn.setText("▶️ 播放")
+        else:
+            self.media_player.play()
+            self.play_btn.setText("⏸️ 暂停")
+
+    def stop_playback(self):
+        """停止播放"""
+        self.media_player.stop()
+        self.play_btn.setText("▶️ 播放")
+
 # 视频参数设置对话框
 class VideoSettingsDialog(QDialog):
     """视频参数设置对话框"""
@@ -1975,6 +2239,80 @@ class APISettingsDialog(QDialog):
         else:
             self.accept()
 
+# 视频下载工作线程
+class VideoDownloadWorker(QThread):
+    """视频下载工作线程"""
+    progress_updated = pyqtSignal(int, str)  # progress, message
+    download_finished = pyqtSignal(bool, str, str)  # success, message, local_path
+    log_updated = pyqtSignal(str)  # 日志更新信号
+
+    def __init__(self, video_url, filename):
+        super().__init__()
+        self.video_url = video_url
+        self.filename = filename
+        self.is_cancelled = False
+
+    def run(self):
+        """下载视频"""
+        try:
+            # 确保output目录存在
+            import os
+            output_dir = "output"
+            if not os.path.exists(output_dir):
+                os.makedirs(output_dir)
+
+            local_path = os.path.join(output_dir, self.filename)
+
+            self.progress_updated.emit(10, "开始下载视频...")
+            self.log_updated.emit(f"🎬 开始下载视频: {self.filename}")
+            self.log_updated.emit(f"📥 远程URL: {self.video_url}")
+
+            # 使用requests下载文件
+            response = requests.get(self.video_url, stream=True, timeout=300)
+            response.raise_for_status()
+
+            total_size = int(response.headers.get('content-length', 0))
+            downloaded_size = 0
+
+            self.progress_updated.emit(20, f"准备写入本地文件: {local_path}")
+
+            with open(local_path, 'wb') as f:
+                for chunk in response.iter_content(chunk_size=8192):
+                    if self.is_cancelled:
+                        if os.path.exists(local_path):
+                            os.remove(local_path)
+                        self.download_finished.emit(False, "下载已取消", "")
+                        return
+
+                    f.write(chunk)
+                    downloaded_size += len(chunk)
+
+                    if total_size > 0:
+                        progress = min(90, int((downloaded_size / total_size) * 70) + 20)
+                        self.progress_updated.emit(progress, f"下载中... {downloaded_size}/{total_size} 字节")
+
+            self.progress_updated.emit(95, "下载完成，验证文件...")
+
+            # 验证文件是否下载成功
+            if os.path.exists(local_path) and os.path.getsize(local_path) > 0:
+                file_size = os.path.getsize(local_path)
+                self.progress_updated.emit(100, "下载完成！")
+                self.log_updated.emit(f"✅ 视频下载完成: {local_path} ({file_size} 字节)")
+                self.download_finished.emit(True, "下载完成", local_path)
+            else:
+                self.download_finished.emit(False, "下载失败：文件不完整", "")
+
+        except requests.exceptions.RequestException as e:
+            self.download_finished.emit(False, f"网络错误: {str(e)}", "")
+            self.log_updated.emit(f"❌ 下载失败: {str(e)}")
+        except Exception as e:
+            self.download_finished.emit(False, f"下载异常: {str(e)}", "")
+            self.log_updated.emit(f"💥 下载异常: {str(e)}")
+
+    def cancel(self):
+        """取消下载"""
+        self.is_cancelled = True
+
 # 视频结果卡片
 class VideoResultCard(QWidget):
     """视频结果展示卡片（支持进度显示）"""
@@ -1985,6 +2323,8 @@ class VideoResultCard(QWidget):
         self.start_time = None
         self.progress_timer = None
         self.task_id = None  # 用于标识任务
+        self.local_video_path = None  # 本地视频文件路径
+        self.download_worker = None  # 下载工作线程
         self.init_ui()
 
     def init_ui(self):
@@ -2180,8 +2520,72 @@ class VideoResultCard(QWidget):
             self.download_btn.show()
             self.copy_url_btn.show()
 
+            # 自动下载视频到本地
+            self.auto_download_video(video_url)
+
         # 隐藏取消按钮
         self.cancel_btn.hide()
+
+    def auto_download_video(self, video_url):
+        """自动下载视频到output文件夹"""
+        try:
+            # 生成文件名
+            task_name = self.video_data.get('task_name', 'video')
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = f"{task_name}_{timestamp}.mp4"
+
+            # 清理文件名中的特殊字符
+            import re
+            filename = re.sub(r'[^\w\-_.]', '_', filename)
+
+            self.status_label.setText("正在下载...")
+            self.status_label.setStyleSheet("color: #f39c12; font-size: 12px; font-weight: bold;")
+
+            # 创建下载工作线程
+            self.download_worker = VideoDownloadWorker(video_url, filename)
+            self.download_worker.progress_updated.connect(self.on_download_progress)
+            self.download_worker.download_finished.connect(self.on_download_finished)
+            self.download_worker.log_updated.connect(self.on_download_log)
+
+            # 如果父组件有日志功能，连接它
+            if hasattr(self.parent(), 'add_log'):
+                self.download_worker.log_updated.connect(self.parent().add_log)
+
+            self.download_worker.start()
+
+        except Exception as e:
+            self.status_label.setText("下载失败")
+            self.status_label.setStyleSheet("color: #dc3545; font-size: 12px; font-weight: bold;")
+            print(f"自动下载启动失败: {str(e)}")
+
+    def on_download_progress(self, progress, message):
+        """下载进度更新"""
+        self.progress_info_label.setText(f"下载: {message}")
+
+    def on_download_finished(self, success, message, local_path):
+        """下载完成回调"""
+        if success and local_path:
+            self.local_video_path = local_path
+            self.status_label.setText("下载完成")
+            self.status_label.setStyleSheet("color: #28a745; font-size: 12px; font-weight: bold;")
+
+            # 更新按钮文本
+            self.view_btn.setText("本地播放")
+
+            # 通知父组件添加到视频展示区域
+            if hasattr(self.parent(), 'add_video_to_display'):
+                self.parent().add_video_to_display(local_path, self.video_data.get('task_name', '未命名'))
+
+            self.progress_info_label.setText(f"✅ 已保存到: {os.path.basename(local_path)}")
+        else:
+            self.status_label.setText("下载失败")
+            self.status_label.setStyleSheet("color: #dc3545; font-size: 12px; font-weight: bold;")
+            self.progress_info_label.setText(f"❌ {message}")
+
+    def on_download_log(self, message):
+        """下载日志"""
+        # 这个方法会被父组件的add_log方法处理
+        pass
 
     def error_progress(self, error_msg=""):
         """显示错误状态"""
@@ -2218,13 +2622,40 @@ class VideoResultCard(QWidget):
 
     def view_video(self):
         """查看视频"""
-        video_url = self.video_data.get('video_url', '')
-        if video_url:
+        # 优先播放本地文件
+        if self.local_video_path and os.path.exists(self.local_video_path):
+            self.play_local_video(self.local_video_path)
+        else:
+            # 如果没有本地文件，播放远程URL
+            video_url = self.video_data.get('video_url', '')
+            if video_url:
+                self.play_remote_video(video_url)
+            else:
+                QMessageBox.warning(self, "警告", "视频不可用")
+
+    def play_local_video(self, local_path):
+        """播放本地视频文件"""
+        try:
+            # 通知父组件播放本地视频
+            if hasattr(self.parent(), 'play_video_in_display'):
+                self.parent().play_video_in_display(local_path)
+            else:
+                # 如果父组件没有播放功能，使用系统默认播放器
+                from PyQt5.QtCore import QUrl
+                from PyQt5.QtGui import QDesktopServices
+                QDesktopServices.openUrl(QUrl.fromLocalFile(local_path))
+        except Exception as e:
+            QMessageBox.warning(self, "错误", f"播放失败: {str(e)}")
+
+    def play_remote_video(self, video_url):
+        """播放远程视频URL"""
+        try:
+            # 优先使用系统默认播放器播放远程URL
             from PyQt5.QtCore import QUrl
             from PyQt5.QtGui import QDesktopServices
             QDesktopServices.openUrl(QUrl(video_url))
-        else:
-            QMessageBox.warning(self, "警告", "视频URL不可用")
+        except Exception as e:
+            QMessageBox.warning(self, "错误", f"播放失败: {str(e)}")
 
     def download_video(self):
         """下载视频"""
