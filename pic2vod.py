@@ -860,6 +860,10 @@ class VideoGenerationWidget(QWidget):
         image_group = self.create_image_input_group()
         scroll_layout.addWidget(image_group)
 
+        scroll_layout.addStretch()
+        scroll.setWidget(scroll_widget)
+        layout.addWidget(scroll)
+
         # 批量任务组
         batch_group = self.create_batch_group()
         scroll_layout.addWidget(batch_group)
@@ -868,35 +872,13 @@ class VideoGenerationWidget(QWidget):
         actions_group = self.create_actions_group()
         scroll_layout.addWidget(actions_group)
 
-        scroll_layout.addStretch()
-        scroll.setWidget(scroll_widget)
-        layout.addWidget(scroll)
-
         return panel
 
     def create_image_input_group(self):
         """创建图片输入组（深色主题）"""
-        group = QGroupBox("📸 图片输入")
-        group.setStyleSheet("""
-            QGroupBox {
-                font-weight: bold;
-                border: 1px solid #404040;
-                border-radius: 8px;
-                margin-top: 8px;
-                padding-top: 8px;
-                background-color: #2a2a2a;
-                color: #ffffff;
-            }
-            QGroupBox::title {
-                subcontrol-origin: margin;
-                left: 12px;
-                padding: 0 8px 0 8px;
-                color: #ffffff;
-                font-size: 14px;
-            }
-        """)
+        group = QGroupBox("") #图片输入
         layout = QVBoxLayout(group)
-        layout.setSpacing(10)
+        layout.setSpacing(0)
 
         # 输入方式选择（简化，一行显示）
         self.input_type_combo = ComboBox()
@@ -974,37 +956,29 @@ class VideoGenerationWidget(QWidget):
 
     def create_batch_group(self):
         """创建批量任务组（深色主题）"""
-        group = QGroupBox("📋 批量任务管理")
-        group.setStyleSheet("""
-            QGroupBox {
-                font-weight: bold;
-                border: 1px solid #404040;
-                border-radius: 8px;
-                margin-top: 8px;
-                padding-top: 8px;
-                background-color: #2a2a2a;
-                color: #ffffff;
-            }
-            QGroupBox::title {
-                subcontrol-origin: margin;
-                left: 12px;
-                padding: 0 8px 0 8px;
-                color: #ffffff;
-                font-size: 14px;
-            }
-        """)
+        group = QGroupBox("") #批量任务管理
         layout = QVBoxLayout(group)
-        layout.setSpacing(10)
+        layout.setSpacing(0)
 
         # 任务列表
         self.task_list_widget = QWidget()
         self.task_list_layout = QVBoxLayout(self.task_list_widget)
-        self.task_list_layout.setSpacing(10)
+        self.task_list_layout.setSpacing(0)
+        self.task_list_layout.setStyleSheet("""
+            QGroupBox{
+                margin-top:-120px;
+            }
+        """)
 
         # 创建滚动区域用于任务列表
         self.task_scroll = QScrollArea()
         self.task_scroll.setWidgetResizable(True)
         self.task_scroll.setFixedHeight(160)
+        self.task_scroll.setStyleSheet("""
+            QGroupBox{
+                margin-top:-120px;
+            }
+        """)
         self.task_scroll.setWidget(self.task_list_widget)
 
         layout.addWidget(QLabel("")) #待处理任务:
@@ -1140,36 +1114,22 @@ class VideoGenerationWidget(QWidget):
 
     def create_actions_group(self):
         """创建操作按钮组（深色主题）"""
-        group = QGroupBox("操作")  # 移除图标，简化标题
-        group.setStyleSheet("""
-            QGroupBox {
-                font-weight: bold;
-                border: 1px solid #404040;
-                border-radius: 8px;
-                background-color: #2a2a2a;
-                color: #ffffff;
-            }
-            QGroupBox::title {
-                subcontrol-origin: margin;
-                left: 12px;
-                padding: 0 8px 0 8px;
-                color: #ffffff;
-                font-size: 14px;
-            }
-        """)
+        group = QGroupBox("")  # 操作
         layout = QVBoxLayout(group)
-        layout.setSpacing(12)  # 增加间距
+        layout.setSpacing(0)  # 增加间距
 
         # 提示词输入（增高）
         self.prompt_edit = QTextEdit()
         self.prompt_edit.setPlaceholderText("输入视频生成的提示词，例如：美女跳舞、风景变化等...")
-        self.prompt_edit.setFixedHeight(200)  # 增加高度
+        self.prompt_edit.setFixedHeight(250)  # 增加高度
         self.prompt_edit.setStyleSheet("""
             QTextEdit {
-                font-size: 15px;
+                font-size: 18px;
                 font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
                 border: 1px solid #404040;
                 border-radius: 6px;
+                margin-top:-120px;
+                margin-bottom:20px;
                 padding: 12px;
                 background-color: #333333;
                 color: #ffffff;
@@ -1544,7 +1504,7 @@ class VideoGenerationWidget(QWidget):
         name_label.setStyleSheet("font-weight: bold;")
         info_layout.addWidget(name_label)
 
-        prompt_label = QLabel(f"提示词: {task['prompt'][:100]}...")
+        prompt_label = QLabel(f"提示词: {task['prompt'][:80]}...")
         prompt_label.setStyleSheet("color: #666; font-size: 12px;")
         info_layout.addWidget(prompt_label)
 
@@ -2573,9 +2533,9 @@ class VideoResultCard(QWidget):
         # 提示词预览 - 去掉多余背景色
         prompt = self.video_data.get('prompt', '')
         if prompt:
-            prompt_preview = prompt[:80] + "..." if len(prompt) > 80 else prompt  # 增加字符数
+            prompt_preview = prompt[:300] + "..." if len(prompt) > 300 else prompt  # 增加字符数
             self.prompt_label = QLabel(f"提示词: {prompt_preview}")
-            self.prompt_label.setStyleSheet("color: #888888; font-size: 11px; margin: 2px 0;")
+            self.prompt_label.setStyleSheet("color: #888888; font-size: 12px; margin: 2px 0;")
             self.prompt_label.setWordWrap(True)
             layout.addWidget(self.prompt_label)
 
