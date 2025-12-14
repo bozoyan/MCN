@@ -2450,6 +2450,20 @@ class MainWindow(FluentWindow):
             NavigationItemPosition.TOP
         )
 
+        # 添加视频生成页面
+        try:
+            from pic2vod import VideoGenerationWidget
+            self.video_generation_page = VideoGenerationWidget()
+            self.video_generation_page.setObjectName("video_generation_page")
+            self.addSubInterface(
+                self.video_generation_page,
+                FluentIcon.MEDIA,
+                "视频生成",
+                NavigationItemPosition.TOP
+            )
+        except ImportError as e:
+            print(f"无法导入视频生成模块: {e}")
+
         self.addSubInterface(
             self.create_settings_page(),
             FluentIcon.SETTING,
