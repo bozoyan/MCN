@@ -495,6 +495,7 @@ class TemplateManagerDialog(QDialog):
 
         self.template_type_combo = ComboBox()
         self.template_type_combo.setFixedHeight(32)
+        self.template_type_combo.setFont(QFont("font/Light.otf", 18))  # 增大字体
         self.template_type_combo.addItem("故事标题模板 (story_title)", "story_title")
         self.template_type_combo.addItem("故事描述模板 (story_summary)", "story_summary")
         self.template_type_combo.addItem("AI绘图提示词模板 (image_prompt)", "image_prompt")
@@ -511,6 +512,7 @@ class TemplateManagerDialog(QDialog):
 
         self.template_combo = ComboBox()
         self.template_combo.setFixedHeight(32)
+        self.template_combo.setFont(QFont("font/Light.otf", 18))  # 增大字体
         self.template_combo.addItem("-- 选择要编辑的模板 --", None)
         self.template_combo.currentIndexChanged.connect(self.on_template_name_changed)
         template_layout.addWidget(QLabel("选择要编辑的模板:"))
@@ -531,12 +533,14 @@ class TemplateManagerDialog(QDialog):
         self.template_name_edit = LineEdit()
         self.template_name_edit.setPlaceholderText("输入模板名称")
         self.template_name_edit.setFixedHeight(32)
+        self.template_name_edit.setFont(QFont("font/Light.otf", 18))  # 增大字体
         edit_layout.addWidget(QLabel("模板名称:"))
         edit_layout.addWidget(self.template_name_edit)
 
         self.template_content_edit = QTextEdit()
         self.template_content_edit.setPlaceholderText("输入模板内容...")
         self.template_content_edit.setMinimumHeight(200)
+        self.template_content_edit.setFont(QFont("font/Light.otf", 18))  # 增大字体
         edit_layout.addWidget(QLabel("模板内容:"))
         edit_layout.addWidget(self.template_content_edit)
 
@@ -614,8 +618,12 @@ class TemplateManagerDialog(QDialog):
 
         templates = config_manager.get('prompt_templates', {})
 
-        # 只显示指定类型的模板
-        type_templates = {k: v for k, v in templates.items() if k.startswith(current_type)}
+        # 显示指定类型的模板（支持两种格式：完全匹配或前缀匹配）
+        type_templates = {}
+        for k, v in templates.items():
+            # 支持完全匹配（如 'story_title'）和前缀匹配（如 'story_title_custom'）
+            if k == current_type or k.startswith(f"{current_type}_"):
+                type_templates[k] = v
 
         if type_templates:
             # 按名称排序显示
@@ -663,10 +671,19 @@ class TemplateManagerDialog(QDialog):
             template_key = self.current_template_key
             action = "更新"
         else:
-            # 新建模板，根据类型生成key
-            base_name = template_name.replace(' ', '_').lower()
-            template_key = f"{current_type}_{base_name}"
-            action = "保存"
+            # 新建模板，检查是否为默认模板的覆盖
+            templates = config_manager.get('prompt_templates', {})
+            default_key = current_type  # 如 'story_title'
+
+            if default_key in templates and templates[default_key].get('name') == template_name:
+                # 覆盖默认模板
+                template_key = default_key
+                action = "更新默认"
+            else:
+                # 创建新的自定义模板
+                base_name = template_name.replace(' ', '_').lower()
+                template_key = f"{current_type}_{base_name}"
+                action = "保存"
 
         template_data = {
             'name': template_name,
@@ -683,6 +700,7 @@ class TemplateManagerDialog(QDialog):
                 for i in range(self.template_combo.count()):
                     if self.template_combo.itemData(i) == template_key:
                         self.template_combo.setCurrentIndex(i)
+                        self.on_template_name_changed(i)  # 更新编辑状态
                         break
         else:
             QMessageBox.critical(self, "错误", "模板保存失败")
@@ -1135,6 +1153,7 @@ class BaseTextPage(QScrollArea):
         # 模板选择下拉框
         self.template_combo = ComboBox()
         self.template_combo.setFixedHeight(32)
+        self.template_combo.setFont(QFont("", 15))  # 增大字体
         self.template_combo.addItem("使用默认模板", None)
 
         # 加载对应类型的模板
@@ -1157,7 +1176,12 @@ class BaseTextPage(QScrollArea):
             return
 
         templates = config_manager.get('prompt_templates', {})
-        type_templates = {k: v for k, v in templates.items() if k.startswith(self.template_type)}
+
+        # 支持两种格式：完全匹配（如 'story_title'）和前缀匹配（如 'story_title_custom'）
+        type_templates = {}
+        for k, v in templates.items():
+            if k == self.template_type or k.startswith(f"{self.template_type}_"):
+                type_templates[k] = v
 
         # 清空现有选项（保留第一个默认选项）
         while self.template_combo.count() > 1:
@@ -1219,26 +1243,32 @@ class StoryboardPage(SmoothScrollArea):
         self.top_control_bar.export_images_requested.connect(self.export_all_images)
         
         self.init_ui()
-        self.init_image_widgets() 
-        self.adjust_font_size(13) # 调整字体大小
+        self.init_image_widgets()
+        self.adjust_font_size(16) # 调整字体大小
 
     def init_text_widgets(self):
         """初始化所有文本编辑框和按钮"""
         # 故事内容
         self.content_edit = QTextEdit()
         self.content_edit.setPlaceholderText("请输入您的故事内容或创意描述...")
+        self.content_edit.setFont(QFont("font/Light.otf", 18))
         
         # 分镜标题
         self.title_output_edit = QTextEdit()
         self.title_output_edit.setPlaceholderText("生成的分镜标题将显示在这里...")
+        self.title_output_edit.setFont(QFont("font/Light.otf", 18))
+        self.title_output_edit.setFixedHeight(500)
+        
         
         # 分镜描述
         self.summary_output_edit = QTextEdit()
         self.summary_output_edit.setPlaceholderText("生成的分镜描述将显示在这里...")
+        self.summary_output_edit.setFont(QFont("font/Light.otf", 18))
         
         # 绘图提示词
         self.generated_prompts_edit = QTextEdit()
         self.generated_prompts_edit.setPlaceholderText("这里将显示生成的绘图提示词，您可以编辑修改...")
+        self.generated_prompts_edit.setFont(QFont("font/Light.otf", 18))
 
         # 进度条和按钮 (原 left_panel 按钮)
         self.generate_title_btn = PrimaryPushButton(FluentIcon.ADD, "生成分镜标题")
@@ -1259,6 +1289,17 @@ class StoryboardPage(SmoothScrollArea):
         self.title_output_edit.setFont(font)
         self.summary_output_edit.setFont(font)
         self.generated_prompts_edit.setFont(font)
+
+        # 调整模板名称下拉框的字体大小
+        if hasattr(self, 'title_page') and self.title_page:
+            combo_font = QFont("", size - 1)
+            self.title_page.template_combo.setFont(combo_font)
+        if hasattr(self, 'summary_page') and self.summary_page:
+            combo_font = QFont("", size - 1)
+            self.summary_page.template_combo.setFont(combo_font)
+        if hasattr(self, 'prompt_page') and self.prompt_page:
+            combo_font = QFont("", size - 1)
+            self.prompt_page.template_combo.setFont(combo_font)
 
     def init_ui(self):
         widget = QWidget()
@@ -1375,7 +1416,7 @@ class StoryboardPage(SmoothScrollArea):
         progress_layout.addWidget(self.image_status_label)
 
         # 添加运行时间显示标签
-        self.image_time_label = QLabel("运行时间: --")
+        self.image_time_label = QLabel("运行时间: 0.0秒")
         self.image_time_label.setAlignment(Qt.AlignCenter)
         self.image_time_label.setStyleSheet("color: #666; font-size: 12px; margin-top: 5px;")
         progress_layout.addWidget(self.image_time_label)
@@ -1496,7 +1537,7 @@ class StoryboardPage(SmoothScrollArea):
         # self.all_generation_step = 0
         self.image_progress.setValue(0)
         self.image_status_label.setText("准备就绪")
-        self.image_time_label.setText("运行时间: --")
+        self.image_time_label.setText("运行时间: 0.0秒")
 
         self.init_image_widgets()
         # self.top_control_bar.set_generate_enabled(True)
@@ -1917,7 +1958,7 @@ class StoryboardPage(SmoothScrollArea):
         self.generated_prompts_edit.clear()
         self.image_progress.setValue(0)
         self.image_status_label.setText("准备就绪")
-        self.image_time_label.setText("运行时间: --")
+        self.image_time_label.setText("运行时间: 0.0秒")
         self.init_image_widgets()
 
         # 1. 生成标题
@@ -2086,7 +2127,7 @@ class MainWindow(FluentWindow):
         layout.setSpacing(20)
 
         title = SubtitleLabel("⚙️ 设置")
-        title.setFont(QFont("", 16, QFont.Bold))
+        title.setFont(QFont("font/Light.otf", 18, QFont.Bold))
         layout.addWidget(title)
 
         # API设置
@@ -2281,7 +2322,7 @@ def main():
     app.setStyleSheet("""
         QGroupBox {
             font-weight: bold;
-            border: 2px solid #cccccc;
+            /* border: 2px solid #cccccc; */
             border-radius: 8px;
             margin-top: 1ex;
             padding-top: 10px;
@@ -2299,7 +2340,7 @@ def main():
         }
         QTabWidget::pane {
              /* 增加 Tab Pane 边距，优化分隔线 */
-             border: 1px solid #cccccc;
+             /* border: 1px solid #cccccc; */
              border-top: none;
         }
         QTabWidget::tab-bar {
@@ -2313,7 +2354,7 @@ def main():
         }
         QToolButton#swap_size_btn {
              /* 调整互换按钮的尺寸和样式 */
-             border: 1px solid #ccc;
+             /* border: 1px solid #ccc; */
              border-radius: 4px;
              padding: 4px;
              width: 30px;
@@ -2323,7 +2364,7 @@ def main():
         }
         ComboBox, LineEdit, SpinBox, DoubleSpinBox {
             padding: 5px;
-            border: 1px solid #cccccc;
+            /* border: 1px solid #cccccc; */
             border-radius: 4px;
             background: white;
         }
@@ -2339,7 +2380,7 @@ def main():
         }
         /* 统一 QTextEdit/QScrollArea 内部的 QTextEdit 样式 */
         QTextEdit {
-            border: 1px solid #cccccc;
+            /* border: 1px solid #cccccc; */
             border-radius: 4px;
             padding: 10px;
             min-height: 250px; /* 确保最小高度 */
