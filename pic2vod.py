@@ -209,8 +209,7 @@ class BatchVideoGenerationWorker(QThread):
         self.task_list = task_list
         self.api_manager = APIKeyManager()
         self.start_time = None
-        self.timer = QTimer()
-        self.timer.timeout.connect(self.update_elapsed_time)
+        # 移除QTimer，在工作线程中使用会导致跨线程问题
         self.is_cancelled = False
 
         # 创建日志目录
@@ -218,16 +217,7 @@ class BatchVideoGenerationWorker(QThread):
         if not os.path.exists(self.log_dir):
             os.makedirs(self.log_dir)
 
-    def update_elapsed_time(self):
-        """更新运行时间"""
-        if self.start_time:
-            elapsed = time.time() - self.start_time
-            hours = int(elapsed // 3600)
-            minutes = int((elapsed % 3600) // 60)
-            seconds = int(elapsed % 60)
-            time_str = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
-            self.log_updated.emit(f"⏱️ 运行时间: {time_str}")
-
+    
     def log_message(self, message):
         """记录日志消息"""
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -251,7 +241,6 @@ class BatchVideoGenerationWorker(QThread):
         """运行批量视频生成"""
         try:
             self.start_time = time.time()
-            self.timer.start(1000)  # 每秒更新一次时间
 
             self.log_message(f"🚀 开始批量生成视频，共 {len(self.task_list)} 个任务")
             self.batch_progress.emit(0, len(self.task_list))
@@ -264,6 +253,15 @@ class BatchVideoGenerationWorker(QThread):
             for i, task in enumerate(self.task_list):
                 if self.is_cancelled:
                     break
+
+                # 计算并显示运行时间
+                if self.start_time:
+                    elapsed = time.time() - self.start_time
+                    hours = int(elapsed // 3600)
+                    minutes = int((elapsed % 3600) // 60)
+                    seconds = int(elapsed % 60)
+                    time_str = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+                    self.log_message(f"⏱️ 运行时间: {time_str}")
 
                 self.log_message(f"📝 处理任务 {i+1}/{len(self.task_list)}: {task.get('name', '未命名')}")
                 self.batch_progress.emit(i, len(self.task_list))
@@ -280,8 +278,6 @@ class BatchVideoGenerationWorker(QThread):
 
         except Exception as e:
             self.log_message(f"❌ 批量生成失败: {str(e)}")
-        finally:
-            self.timer.stop()
 
     def process_single_task(self, task, task_id):
         """处理单个视频生成任务"""
@@ -302,6 +298,13 @@ class BatchVideoGenerationWorker(QThread):
 
             self.progress_updated.emit(10, "准备请求数据...", task_id)
 
+            # 优化参数：如果图片过大或帧数过多，给出警告
+            if isinstance(image_input, str) and len(image_input) > 1000000:  # 1MB base64
+                self.log_message(f"⚠️ 警告: 图片较大({len(image_input)}字符)，可能影响处理速度")
+
+            if num_frames > 129:  # 超过8秒
+                self.log_message(f"⚠️ 警告: 帧数较多({num_frames}帧)，可能增加处理时间")
+
             base_url = 'https://api.bizyair.cn/w/v1/webapp/task/openapi/create'
             headers = {
                 "Authorization": f"Bearer {api_key}",
@@ -318,7 +321,7 @@ class BatchVideoGenerationWorker(QThread):
 
             request_data = {
                 "web_app_id": self.api_manager.web_app_id,
-                "suppress_preview_output": True,
+                "suppress_preview_output": False,  # 修复：改为False，与标准API一致
                 "input_values": input_values
             }
 
@@ -327,11 +330,29 @@ class BatchVideoGenerationWorker(QThread):
             # 开始请求计时
             request_start_time = time.time()
 
+            # 优化超时设置：改为300秒，给足够时间但不会太长
+            self.log_message(f"📤 发送API请求: {prompt[:100]}...")
+
+            # 创建日志友好的请求数据（隐藏base64图片数据）
+            log_request_data = request_data.copy()
+            if "input_values" in log_request_data and "67:LoadImage.image" in log_request_data["input_values"]:
+                image_data = log_request_data["input_values"]["67:LoadImage.image"]
+                if len(image_data) > 100:  # 如果是base64数据，显示摘要
+                    log_request_data["input_values"]["67:LoadImage.image"] = f"[Base64数据，长度: {len(image_data)}字符]"
+                else:
+                    log_request_data["input_values"]["67:LoadImage.image"] = image_data
+
+            self.log_message(f"📋 请求数据: {json.dumps(log_request_data, ensure_ascii=False, indent=2)}")
+
+            # 使用更短的超时设置，避免长时间等待
+            # (连接超时, 读取超时) - 优化超时设置
+            self.log_message(f"🌐 连接服务器，超时设置: 连接300s，读取600s")
+
             response = requests.post(
                 base_url,
                 headers=headers,
                 json=request_data,
-                timeout=600  # 10分钟超时
+                timeout=(300, 600)  # 连接300秒超时，读取600秒超时
             )
 
             if self.is_cancelled:
@@ -341,9 +362,24 @@ class BatchVideoGenerationWorker(QThread):
             request_time = time.time() - request_start_time
             self.progress_updated.emit(60, f"API请求完成({request_time:.1f}s)，处理响应...", task_id)
 
+            # 详细记录响应信息
+            self.log_message(f"📥 响应状态码: {response.status_code}")
+            self.log_message(f"📄 响应头: {dict(response.headers)}")
+
             if response.status_code == 200:
                 self.progress_updated.emit(80, "解析API响应...", task_id)
                 result = response.json()
+
+                # 创建日志友好的响应数据（隐藏过长的base64数据）
+                log_result = result.copy()
+                if "outputs" in log_result and isinstance(log_result["outputs"], list):
+                    for output in log_result["outputs"]:
+                        if isinstance(output, dict) and "object_url" in output:
+                            url = output["object_url"]
+                            if len(url) > 200:  # 如果URL很长，可能是base64数据
+                                output["object_url"] = f"[数据URL，长度: {len(url)}字符]"
+
+                self.log_message(f"📋 API响应: {json.dumps(log_result, ensure_ascii=False, indent=2)}")
 
                 if result.get("status") == "Success" and result.get("outputs"):
                     self.progress_updated.emit(90, "提取视频URL...", task_id)
@@ -353,6 +389,8 @@ class BatchVideoGenerationWorker(QThread):
                         video_url = video_output.get("object_url", "")
 
                         if video_url:
+                            self.log_message(f"✅ 视频生成成功: {video_url}")
+
                             result_data = {
                                 "video_url": video_url,
                                 "input_image": image_input,
@@ -367,24 +405,49 @@ class BatchVideoGenerationWorker(QThread):
                             self.progress_updated.emit(100, "视频生成完成!", task_id)
                             self.task_finished.emit(True, "视频生成成功!", result_data, task_id)
                             return True
+                        else:
+                            error_msg = "响应中未找到视频URL"
+                            self.log_message(f"❌ {error_msg}")
+                    else:
+                        error_msg = "响应中outputs为空"
+                        self.log_message(f"❌ {error_msg}")
+                else:
+                    status = result.get("status", "未知")
+                    error_msg = f"API返回状态: {status}"
+                    self.log_message(f"❌ {error_msg}")
+            else:
+                error_msg = f"HTTP错误 {response.status_code}: {response.text}"
+                self.log_message(f"❌ {error_msg}")
 
-            error_msg = f"生成失败: {result.get('message', '未知错误') if 'result' in locals() else 'API请求失败'}"
             self.progress_updated.emit(0, error_msg, task_id)
             self.task_finished.emit(False, error_msg, {}, task_id)
             return False
 
-        except requests.exceptions.Timeout:
-            error_msg = "API请求超时"
+        except requests.exceptions.Timeout as e:
+            error_msg = f"API请求超时(连接300s/读取600s): {str(e)}"
+            self.log_message(f"⏰ {error_msg}")
+            self.log_message(f"💡 建议: 1) 检查网络连接 2) 尝试更小的图片 3) 缩短视频时长 4) 稍后重试")
             self.progress_updated.emit(0, error_msg, task_id)
             self.task_finished.emit(False, error_msg, {}, task_id)
             return False
-        except requests.exceptions.ConnectionError:
-            error_msg = "网络连接错误"
+        except requests.exceptions.ConnectionError as e:
+            error_msg = f"网络连接错误: {str(e)}"
+            self.log_message(f"🔌 {error_msg}")
+            self.log_message(f"💡 建议: 1) 检查网络连接 2) 确认API服务器可访问 3) 检查防火墙设置")
+            self.progress_updated.emit(0, error_msg, task_id)
+            self.task_finished.emit(False, error_msg, {}, task_id)
+            return False
+        except json.JSONDecodeError as e:
+            error_msg = f"响应解析错误: {str(e)}"
+            self.log_message(f"📄 {error_msg}")
             self.progress_updated.emit(0, error_msg, task_id)
             self.task_finished.emit(False, error_msg, {}, task_id)
             return False
         except Exception as e:
             error_msg = f"生成异常: {str(e)}"
+            self.log_message(f"💥 {error_msg}")
+            import traceback
+            self.log_message(f"📋 详细错误堆栈: {traceback.format_exc()}")
             self.progress_updated.emit(0, error_msg, task_id)
             self.task_finished.emit(False, error_msg, {}, task_id)
             return False
@@ -706,7 +769,7 @@ class VideoGenerationWidget(QWidget):
         # 创建滚动区域用于任务列表
         self.task_scroll = QScrollArea()
         self.task_scroll.setWidgetResizable(True)
-        self.task_scroll.setFixedHeight(120)
+        self.task_scroll.setFixedHeight(160)
         self.task_scroll.setWidget(self.task_list_widget)
 
         layout.addWidget(QLabel("")) #待处理任务:
@@ -763,7 +826,7 @@ class VideoGenerationWidget(QWidget):
         return group
 
     def create_params_group(self):
-        """创建视频参数组（深色主题）"""
+        """创建视频参数按钮（深色主题）"""
         group = QGroupBox("⚙️ 视频参数")
         group.setStyleSheet("""
             QGroupBox {
@@ -783,132 +846,106 @@ class VideoGenerationWidget(QWidget):
                 font-size: 14px;
             }
         """)
-        layout = QGridLayout(group)
+        layout = QVBoxLayout(group)
         layout.setSpacing(10)
 
-        # 预设分辨率
-        layout.addWidget(QLabel("预设分辨率:"), 0, 0)
+        # 视频参数设置按钮
+        self.video_settings_btn = PrimaryPushButton("视频参数设置")
+        self.video_settings_btn.setFixedHeight(40)
+        self.video_settings_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #17a2b8;
+                border: none;
+                border-radius: 8px;
+                color: #ffffff;
+                font-size: 14px;
+                font-weight: 500;
+                padding: 8px 16px;
+            }
+            QPushButton:hover {
+                background-color: #138496;
+            }
+            QPushButton:pressed {
+                background-color: #117a8b;
+            }
+        """)
+        self.video_settings_btn.clicked.connect(self.show_video_settings_dialog)
+        layout.addWidget(self.video_settings_btn)
+
+        # 当前参数显示
+        params_layout = QHBoxLayout()
+
+        self.current_params_label = QLabel("当前: 480×854, 5秒, 81帧")
+        self.current_params_label.setStyleSheet("""
+            QLabel {
+                color: #cccccc;
+                font-size: 12px;
+                padding: 8px 12px;
+                background-color: #333333;
+                border-radius: 6px;
+                border: 1px solid #404040;
+            }
+        """)
+        params_layout.addWidget(self.current_params_label)
+
+        params_layout.addStretch()
+
+        layout.addLayout(params_layout)
+
+        # 初始化隐藏的控件（供对话框使用）
+        self.init_hidden_params_controls()
+
+        return group
+
+    def init_hidden_params_controls(self):
+        """初始化隐藏的参数控件（供对话框使用）"""
+        # 预设分辨率（隐藏）
         self.resolution_combo = ComboBox()
         self.resolution_combo.addItems([
             "自定义",
             "480p - 16:9 (854×480)",
             "480p - 9:16 (480×854)",
             "720p - 16:9 (1280×720)",
-            "720p - 9:16 (720×1280)"
+            "720p - 9:16 (720×1280)",
+            "1080p - 16:9 (1920×1080)",
+            "1080p - 9:16 (1080×1920)"
         ])
-        self.resolution_combo.setFixedHeight(32)
-        self.resolution_combo.setStyleSheet("""
-            QComboBox {
-                background-color: #333333;
-                border: 1px solid #404040;
-                border-radius: 6px;
-                padding: 4px 8px;
-                color: #ffffff;
-                font-size: 13px;
-            }
-            QComboBox::drop-down {
-                border: none;
-                width: 20px;
-            }
-            QComboBox::down-arrow {
-                image: url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAA4AAAAOCAYAAAAfSC3RAAAABHNCSVQICAgIfAhkiAAAAAlwSFlzAAAA7AAAAOwBeShxvQAAABl0RVh0U29mdHdhcmUAd3d3Lmlua3NjYXBlLm9yZ5vuPBoAAAEFSURBVCiRldKxSgNBEMbxH0QZ0CuEF2CiEwJCgKESFuwBLhAT8AFyEO7wELsAC7AQX4CNxgU0cG6+dCZmZn8ZzYwXJJW8k8/fnOeOA8gw/r9fSEECGNFIAiCRZSROJIKJVmQygJMFQYGIFFsCgnhBaiBiOIEFEZgYhBRRGYGGYBFJp9uQRZZYcS1Lb5EA/ghggCVBJEARRyESOhKhszEMDQDdICB9ALRxZUeCcOPPMi5F+T8SX6FMaVvUIFxAIsgYgsI6IEHEhgUYEagIYRGAqPwiwAEYQmAqBQbY4QhBiBoZfn+/fXfjPMO4KdYvKEnKcTb1ncNcIrr8AyVcOlH9Zc1wAAAAASUVORK5CYII=);
-                width: 12px;
-                height: 12px;
-            }
-            QComboBox QAbstractItemView {
-                background-color: #333333;
-                border: 1px solid #404040;
-                selection-background-color: #4a90e2;
-                color: #ffffff;
-            }
-        """)
         self.resolution_combo.currentIndexChanged.connect(self.on_resolution_changed)
-        layout.addWidget(self.resolution_combo, 0, 1, 1, 2)
 
-        # 自定义尺寸
-        layout.addWidget(QLabel("宽度:"), 1, 0)
+        # 自定义尺寸（隐藏）
         self.width_spin = QSpinBox()
-        self.width_spin.setRange(256, 2048)
+        self.width_spin.setRange(256, 4096)
         self.width_spin.setValue(480)
         self.width_spin.setSingleStep(64)
-        self.width_spin.setFixedHeight(32)
-        self.width_spin.setStyleSheet("""
-            QSpinBox {
-                background-color: #333333;
-                border: 1px solid #404040;
-                border-radius: 6px;
-                padding: 4px 8px;
-                color: #ffffff;
-                font-size: 13px;
-            }
-            QSpinBox:focus {
-                border: 1px solid #4a90e2;
-            }
-        """)
-        layout.addWidget(self.width_spin, 1, 1)
 
-        layout.addWidget(QLabel("高度:"), 1, 2)
         self.height_spin = QSpinBox()
-        self.height_spin.setRange(256, 2048)
+        self.height_spin.setRange(256, 4096)
         self.height_spin.setValue(854)
         self.height_spin.setSingleStep(64)
-        self.height_spin.setFixedHeight(32)
-        self.height_spin.setStyleSheet("""
-            QSpinBox {
-                background-color: #333333;
-                border: 1px solid #404040;
-                border-radius: 6px;
-                padding: 4px 8px;
-                color: #ffffff;
-                font-size: 13px;
-            }
-            QSpinBox:focus {
-                border: 1px solid #4a90e2;
-            }
-        """)
-        layout.addWidget(self.height_spin, 1, 3)
 
-        # 视频时长
-        layout.addWidget(QLabel("视频时长(秒):"), 2, 0)
+        # 视频时长（隐藏）
         self.duration_spin = QSpinBox()
         self.duration_spin.setRange(1, 30)
         self.duration_spin.setValue(5)
         self.duration_spin.setSingleStep(1)
-        self.duration_spin.setFixedHeight(32)
-        self.duration_spin.setStyleSheet("""
-            QSpinBox {
-                background-color: #333333;
-                border: 1px solid #404040;
-                border-radius: 6px;
-                padding: 4px 8px;
-                color: #ffffff;
-                font-size: 13px;
-            }
-            QSpinBox:focus {
-                border: 1px solid #4a90e2;
-            }
-        """)
         self.duration_spin.valueChanged.connect(self.update_frames)
-        layout.addWidget(self.duration_spin, 2, 1)
 
-        # 帧数显示
-        layout.addWidget(QLabel("总帧数:"), 2, 2)
+        # 帧数显示（隐藏）
         self.frames_label = QLabel("81")
-        self.frames_label.setStyleSheet("""
-            QLabel {
-                font-weight: bold;
-                color: #4a90e2;
-                font-size: 14px;
-            }
-        """)
-        layout.addWidget(self.frames_label, 2, 3)
 
-        # 帧数说明
-        frames_note = QLabel("注：16帧 = 1秒，含封面帧")
-        frames_note.setStyleSheet("color: #888888; font-size: 12px;")
-        layout.addWidget(frames_note, 3, 0, 1, 4)
+    def show_video_settings_dialog(self):
+        """显示视频参数设置对话框"""
+        dialog = VideoSettingsDialog(self)
+        if dialog.exec_() == QDialog.Accepted:
+            self.update_current_params_display()
 
-        return group
+    def update_current_params_display(self):
+        """更新当前参数显示"""
+        width = self.width_spin.value()
+        height = self.height_spin.value()
+        duration = self.duration_spin.value()
+        frames = self.frames_label.text()
+        self.current_params_label.setText(f"当前: {width}×{height}, {duration}秒, {frames}")
 
     def create_actions_group(self):
         """创建操作按钮组（深色主题）"""
@@ -1226,7 +1263,7 @@ class VideoGenerationWidget(QWidget):
         name_label.setStyleSheet("font-weight: bold;")
         info_layout.addWidget(name_label)
 
-        prompt_label = QLabel(f"提示词: {task['prompt'][:30]}...")
+        prompt_label = QLabel(f"提示词: {task['prompt'][:100]}...")
         prompt_label.setStyleSheet("color: #666; font-size: 12px;")
         info_layout.addWidget(prompt_label)
 
@@ -1473,6 +1510,304 @@ class VideoGenerationWidget(QWidget):
         except Exception as e:
             self.add_log(f"保存设置失败: {e}")
 
+# 视频参数设置对话框
+class VideoSettingsDialog(QDialog):
+    """视频参数设置对话框"""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("视频参数设置")
+        self.setMinimumSize(500, 400)
+        self.init_ui()
+        self.load_current_settings()
+
+    def init_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setSpacing(20)
+        layout.setContentsMargins(25, 25, 25, 25)
+
+        # 标题
+        title_label = QLabel("视频参数配置")
+        title_label.setStyleSheet("font-size: 18px; font-weight: bold; color: #ffffff; margin-bottom: 10px;")
+        layout.addWidget(title_label)
+
+        # 预设分辨率
+        resolution_group = QGroupBox("预设分辨率")
+        resolution_layout = QVBoxLayout(resolution_group)
+
+        self.resolution_combo = ComboBox()
+        self.resolution_combo.addItems([
+            "自定义",
+            "480p - 16:9 (854×480)",
+            "480p - 9:16 (480×854)",
+            "720p - 16:9 (1280×720)",
+            "720p - 9:16 (720×1280)",
+            "1080p - 16:9 (1920×1080)",
+            "1080p - 9:16 (1080×1920)"
+        ])
+        self.resolution_combo.setFixedHeight(36)
+        self.resolution_combo.setStyleSheet("""
+            QComboBox {
+                background-color: #cccccc;
+                border: 2px solid #e9ecef;
+                border-radius: 8px;
+                padding: 8px 12px;
+                font-size: 14px;
+                color: #2c3e50;
+            }
+            QComboBox:focus {
+                border: 2px solid #3498db;
+            }
+            QComboBox::drop-down {
+                border: none;
+                width: 20px;
+            }
+            QComboBox QAbstractItemView {
+                background-color: #cccccc;
+                border: 1px solid #dee2e6;
+                selection-background-color: #cccccc;
+                color: #2c3e50;
+            }
+        """)
+        self.resolution_combo.currentIndexChanged.connect(self.on_resolution_changed)
+        resolution_layout.addWidget(QLabel("选择预设:"))
+        resolution_layout.addWidget(self.resolution_combo)
+        layout.addWidget(resolution_group)
+
+        # 自定义尺寸
+        size_group = QGroupBox("自定义尺寸")
+        size_layout = QGridLayout(size_group)
+
+        # 宽度
+        size_layout.addWidget(QLabel("宽度 (px):"), 0, 0)
+        self.width_spin = QSpinBox()
+        self.width_spin.setRange(256, 4096)
+        self.width_spin.setSingleStep(64)
+        self.width_spin.setValue(480)
+        self.width_spin.setFixedHeight(36)
+        self.width_spin.setStyleSheet("""
+            QSpinBox {
+                background-color: #cccccc;
+                border: 2px solid #e9ecef;
+                border-radius: 8px;
+                padding: 8px;
+                font-size: 14px;
+                color: #2c3e50;
+            }
+            QSpinBox:focus {
+                border: 2px solid #3498db;
+            }
+        """)
+        size_layout.addWidget(self.width_spin, 0, 1)
+
+        # 互换按钮
+        self.swap_btn = PushButton("🔄")
+        self.swap_btn.setFixedSize(40, 36)
+        self.swap_btn.clicked.connect(self.swap_dimensions)
+        self.swap_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #e9ecef;
+                border: none;
+                border-radius: 8px;
+                font-size: 16px;
+            }
+            QPushButton:hover {
+                background-color: #dee2e6;
+            }
+        """)
+        size_layout.addWidget(self.swap_btn, 0, 2)
+
+        # 高度
+        size_layout.addWidget(QLabel("高度 (px):"), 1, 0)
+        self.height_spin = QSpinBox()
+        self.height_spin.setRange(256, 4096)
+        self.height_spin.setSingleStep(64)
+        self.height_spin.setValue(854)
+        self.height_spin.setFixedHeight(36)
+        self.height_spin.setStyleSheet("""
+            QSpinBox {
+                background-color: #cccccc;
+                border: 2px solid #e9ecef;
+                border-radius: 8px;
+                padding: 8px;
+                font-size: 14px;
+                color: #2c3e50;
+            }
+            QSpinBox:focus {
+                border: 2px solid #3498db;
+            }
+        """)
+        size_layout.addWidget(self.height_spin, 1, 1)
+
+        layout.addWidget(size_group)
+
+        # 视频时长
+        duration_group = QGroupBox("视频时长")
+        duration_layout = QHBoxLayout(duration_group)
+
+        duration_layout.addWidget(QLabel("时长(秒):"))
+        self.duration_spin = QSpinBox()
+        self.duration_spin.setRange(1, 30)
+        self.duration_spin.setValue(5)
+        self.duration_spin.setSingleStep(1)
+        self.duration_spin.setFixedHeight(36)
+        self.duration_spin.setStyleSheet("""
+            QSpinBox {
+                background-color: #cccccc;
+                border: 2px solid #e9ecef;
+                border-radius: 8px;
+                padding: 8px;
+                font-size: 14px;
+                color: #2c3e50;
+            }
+            QSpinBox:focus {
+                border: 2px solid #3498db;
+            }
+        """)
+        self.duration_spin.valueChanged.connect(self.update_frames)
+        duration_layout.addWidget(self.duration_spin)
+
+        layout.addWidget(duration_group)
+
+        # 帧数信息
+        info_group = QGroupBox("帧数信息")
+        info_layout = QVBoxLayout(info_group)
+
+        self.frames_label = QLabel("总帧数: 81")
+        self.frames_label.setStyleSheet("""
+            QLabel {
+                font-weight: bold;
+                color: #3498db;
+                font-size: 16px;
+                padding: 10px;
+                background-color: #e8f4fd;
+                border-radius: 8px;
+                border: 1px solid #bee5eb;
+            }
+        """)
+        info_layout.addWidget(self.frames_label)
+
+        frames_note = QLabel("📝 注：16帧 = 1秒，总帧数 = (时长 × 16) + 1")
+        frames_note.setStyleSheet("color: #6c757d; font-size: 12px;")
+        info_layout.addWidget(frames_note)
+
+        layout.addWidget(info_group)
+
+        # 按钮区域
+        button_layout = QHBoxLayout()
+
+        self.reset_btn = PushButton("重置默认")
+        self.reset_btn.clicked.connect(self.reset_defaults)
+        self.reset_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #6c757d;
+                color: white;
+                border: none;
+                border-radius: 8px;
+                padding: 10px 20px;
+                font-size: 14px;
+                font-weight: 500;
+            }
+            QPushButton:hover {
+                background-color: #5a6268;
+            }
+        """)
+        button_layout.addWidget(self.reset_btn)
+
+        button_layout.addStretch()
+
+        cancel_btn = PushButton("取消")
+        cancel_btn.clicked.connect(self.reject)
+        cancel_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #dc3545;
+                color: white;
+                border: none;
+                border-radius: 8px;
+                padding: 10px 20px;
+                font-size: 14px;
+                font-weight: 500;
+            }
+            QPushButton:hover {
+                background-color: #c82333;
+            }
+        """)
+        button_layout.addWidget(cancel_btn)
+
+        save_btn = PrimaryPushButton("确定")
+        save_btn.clicked.connect(self.accept_settings)
+        save_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #28a745;
+                color: white;
+                border: none;
+                border-radius: 8px;
+                padding: 10px 20px;
+                font-size: 14px;
+                font-weight: 500;
+            }
+            QPushButton:hover {
+                background-color: #218838;
+            }
+        """)
+        button_layout.addWidget(save_btn)
+
+        layout.addLayout(button_layout)
+
+    def load_current_settings(self):
+        """从主界面加载当前设置"""
+        if hasattr(self.parent(), 'width_spin') and hasattr(self.parent(), 'height_spin'):
+            self.width_spin.setValue(self.parent().width_spin.value())
+            self.height_spin.setValue(self.parent().height_spin.value())
+            self.duration_spin.setValue(self.parent().duration_spin.value())
+            self.update_frames()
+
+    def on_resolution_changed(self, index):
+        """预设分辨率改变"""
+        resolutions = {
+            1: (854, 480),   # 480p - 16:9
+            2: (480, 854),   # 480p - 9:16
+            3: (1280, 720),  # 720p - 16:9
+            4: (720, 1280),  # 720p - 9:16
+            5: (1920, 1080), # 1080p - 16:9
+            6: (1080, 1920)  # 1080p - 9:16
+        }
+
+        if index in resolutions:
+            width, height = resolutions[index]
+            self.width_spin.setValue(width)
+            self.height_spin.setValue(height)
+
+    def update_frames(self):
+        """根据秒数更新帧数"""
+        seconds = self.duration_spin.value()
+        total_frames = seconds * 16 + 1
+        self.frames_label.setText(f"总帧数: {total_frames}")
+
+    def swap_dimensions(self):
+        """互换宽度和高度"""
+        width = self.width_spin.value()
+        height = self.height_spin.value()
+        self.width_spin.setValue(height)
+        self.height_spin.setValue(width)
+
+    def reset_defaults(self):
+        """重置为默认值"""
+        self.width_spin.setValue(480)
+        self.height_spin.setValue(854)
+        self.duration_spin.setValue(5)
+        self.resolution_combo.setCurrentIndex(0)  # 自定义
+        self.update_frames()
+
+    def accept_settings(self):
+        """应用设置并关闭"""
+        if hasattr(self.parent(), 'width_spin') and hasattr(self.parent(), 'height_spin'):
+            self.parent().width_spin.setValue(self.width_spin.value())
+            self.parent().height_spin.setValue(self.height_spin.value())
+            self.parent().duration_spin.setValue(self.duration_spin.value())
+            self.parent().update_frames()
+        self.accept()
+
 # API设置对话框
 class APISettingsDialog(QDialog):
     """API设置对话框"""
@@ -1583,7 +1918,7 @@ class APISettingsDialog(QDialog):
             self.accept()
 
 # 视频结果卡片
-class VideoResultCard(CardWidget):
+class VideoResultCard(QWidget):
     """视频结果展示卡片（支持进度显示）"""
 
     def __init__(self, video_data, parent=None):
@@ -1595,9 +1930,15 @@ class VideoResultCard(CardWidget):
         self.init_ui()
 
     def init_ui(self):
+        # 去掉底色背景，使用透明背景
+        self.setStyleSheet("QWidget { background-color: transparent; }")
+
         layout = QVBoxLayout(self)
-        layout.setSpacing(10)
-        layout.setContentsMargins(15, 15, 15, 15)
+        layout.setSpacing(6)  # 减小间距
+        layout.setContentsMargins(10, 8, 10, 8)  # 减小边距
+
+        # 标题和状态行
+        header_layout = QHBoxLayout()
 
         # 标题
         title = self.video_data.get('task_name', '未命名视频')
@@ -1610,16 +1951,20 @@ class VideoResultCard(CardWidget):
 
         self.title_label = QLabel(title)
         self.title_label.setStyleSheet("font-weight: bold; color: #ffffff; font-size: 14px;")
-        layout.addWidget(self.title_label)
+        header_layout.addWidget(self.title_label)
+
+        header_layout.addStretch()
 
         # 状态显示
         self.status_label = QLabel("准备中...")
         self.status_label.setStyleSheet("color: #4a90e2; font-size: 12px; font-weight: bold;")
-        layout.addWidget(self.status_label)
+        header_layout.addWidget(self.status_label)
+
+        layout.addLayout(header_layout)
 
         # 进度条
         self.progress_bar = ProgressBar()
-        self.progress_bar.setFixedHeight(20)
+        self.progress_bar.setFixedHeight(12)  # 减小高度
         self.progress_bar.setValue(0)
         layout.addWidget(self.progress_bar)
 
@@ -1628,25 +1973,37 @@ class VideoResultCard(CardWidget):
         self.progress_info_label.setStyleSheet("color: #cccccc; font-size: 11px;")
         layout.addWidget(self.progress_info_label)
 
-        # 视频信息
+        # 视频信息 - 单行显示，更紧凑
+        info_layout = QHBoxLayout()
+
         info_text = f"尺寸: {self.video_data.get('width', 'N/A')}×{self.video_data.get('height', 'N/A')}"
-        info_text += f"\n帧数: {self.video_data.get('num_frames', 'N/A')}"
         self.info_label = QLabel(info_text)
         self.info_label.setStyleSheet("color: #cccccc; font-size: 12px;")
-        layout.addWidget(self.info_label)
+        info_layout.addWidget(self.info_label)
 
-        # 提示词预览
+        info_layout.addSpacing(15)
+
+        frames_text = f"帧数: {self.video_data.get('num_frames', 'N/A')}"
+        self.frames_label = QLabel(frames_text)
+        self.frames_label.setStyleSheet("color: #cccccc; font-size: 12px;")
+        info_layout.addWidget(self.frames_label)
+
+        info_layout.addStretch()
+        layout.addLayout(info_layout)
+
+        # 提示词预览 - 去掉多余背景色
         prompt = self.video_data.get('prompt', '')
         if prompt:
-            prompt_preview = prompt[:50] + "..." if len(prompt) > 50 else prompt
+            prompt_preview = prompt[:80] + "..." if len(prompt) > 80 else prompt  # 增加字符数
             self.prompt_label = QLabel(f"提示词: {prompt_preview}")
-            self.prompt_label.setStyleSheet("color: #888888; font-size: 11px;")
+            self.prompt_label.setStyleSheet("color: #888888; font-size: 11px; margin: 2px 0;")
             self.prompt_label.setWordWrap(True)
             layout.addWidget(self.prompt_label)
 
         # 视频URL显示（初始隐藏）
         self.url_container = QWidget()
         self.url_layout = QVBoxLayout(self.url_container)
+        self.url_layout.setContentsMargins(0, 0, 0, 0)
 
         url_label = QLabel("视频URL:")
         url_label.setStyleSheet("color: #ffffff; font-size: 12px; font-weight: bold;")
@@ -1657,7 +2014,7 @@ class VideoResultCard(CardWidget):
         self.url_edit.setStyleSheet("""
             LineEdit {
                 font-size: 11px;
-                padding: 5px;
+                padding: 4px;
                 background-color: #333333;
                 border: 1px solid #404040;
                 color: #ffffff;
@@ -1668,7 +2025,7 @@ class VideoResultCard(CardWidget):
         self.url_container.hide()  # 初始隐藏
         layout.addWidget(self.url_container)
 
-        # 按钮（初始隐藏URL相关按钮）
+        # 按钮区域
         button_layout = QHBoxLayout()
 
         self.view_btn = PushButton("播放")
@@ -1686,15 +2043,19 @@ class VideoResultCard(CardWidget):
         self.copy_url_btn.hide()  # 初始隐藏
         button_layout.addWidget(self.copy_url_btn)
 
-        # 取消按钮（进行中显示）
+        layout.addLayout(button_layout)
+
+        # 取消按钮单独放在最下方
         self.cancel_btn = PushButton("取消")
+        self.cancel_btn.setFixedHeight(28)  # 固定较小高度
         self.cancel_btn.setStyleSheet("""
             QPushButton {
                 background-color: #dc3545;
                 color: #ffffff;
                 border: none;
                 border-radius: 6px;
-                padding: 6px 12px;
+                padding: 4px 12px;
+                font-size: 12px;
             }
             QPushButton:hover {
                 background-color: #e74c3c;
@@ -1702,9 +2063,7 @@ class VideoResultCard(CardWidget):
         """)
         self.cancel_btn.hide()  # 初始隐藏
         self.cancel_btn.clicked.connect(self.cancel_clicked)
-        button_layout.addWidget(self.cancel_btn)
-
-        layout.addLayout(button_layout)
+        layout.addWidget(self.cancel_btn)
 
     def start_progress(self):
         """开始进度显示"""
