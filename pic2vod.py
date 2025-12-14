@@ -371,53 +371,110 @@ class SingleVideoGenerationWorker(QThread):
 
             self.progress_updated.emit(30, "发送API请求...", self.task_id)
 
-            # 发送API请求
+            # 发送API请求 - 使用正确的BizyAir API格式
             headers = {
-                "Authorization": f"Bearer {self.api_key}",
-                "Content-Type": "application/json"
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {self.api_key}"
             }
 
-            self.log_message(f"📤 发送API请求: {width}x{height}, {num_frames}帧")
+            # 构建BizyAir API请求数据格式 - 使用节点ID格式
+            bizyair_request_data = {
+                "web_app_id": 41082,  # 正确的Web App ID
+                "suppress_preview_output": False,
+                "input_values": {
+                    "67:LoadImage.image": self.task['image_input'],
+                    "68:ImageResizeKJv2.width": width,
+                    "68:ImageResizeKJv2.height": height,
+                    "16:WanVideoTextEncode.positive_prompt": prompt,
+                    "89:WanVideoImageToVideoEncode.num_frames": num_frames
+                }
+            }
+
+            self.log_message(f"📤 发送BizyAir API请求: {width}x{height}, {num_frames}帧")
+            self.log_message(f"🔑 API密钥: {self.api_key[:10]}...")
+            self.log_message(f"📝 请求URL: https://api.bizyair.cn/w/v1/webapp/task/openapi/create")
+
+            # 先尝试简单的API调用进行测试
+            try:
+                test_response = requests.get(
+                    "https://api.bizyair.cn/w/v1/webapp/app/list",
+                    headers=headers,
+                    timeout=10
+                )
+                self.log_message(f"🔍 API连接测试: {test_response.status_code}")
+            except Exception as e:
+                self.log_message(f"⚠️ API连接测试失败: {str(e)}")
 
             response = requests.post(
-                "https://api.bizyair.com/v1/inferences",
+                "https://api.bizyair.cn/w/v1/webapp/task/openapi/create",
                 headers=headers,
-                json=request_data,
+                json=bizyair_request_data,
                 timeout=600  # 10分钟超时
             )
 
+            self.log_message(f"📡 API响应状态: {response.status_code}")
+
             if response.status_code == 200:
                 result_data = response.json()
-                self.log_message(f"✅ API请求成功，任务ID: {result_data.get('id', 'N/A')}")
+                self.log_message(f"✅ API请求成功，请求ID: {result_data.get('request_id', 'N/A')}")
 
-                video_id = result_data.get('id')
-                if not video_id:
-                    self.task_finished.emit(False, "API响应格式错误：缺少任务ID", {}, self.task_id)
-                    return
+                # 对于BizyAir，直接等待任务完成并获取结果
+                if result_data.get('status') == 'Success' and 'outputs' in result_data:
+                    # 任务已经完成
+                    outputs = result_data['outputs']
+                    if outputs and len(outputs) > 0:
+                        video_url = outputs[0].get('object_url', '')
+                        if video_url:
+                            self.progress_updated.emit(90, "获取视频URL成功", self.task_id)
 
-                self.progress_updated.emit(50, "查询视频生成状态...", self.task_id)
+                            result = {
+                                'id': result_data.get('request_id', ''),
+                                'url': video_url,
+                                'width': width,
+                                'height': height,
+                                'num_frames': num_frames,
+                                'prompt': prompt,
+                                'task_name': task_name,
+                                'timestamp': datetime.now().isoformat()
+                            }
 
-                # 查询视频生成状态
-                video_url = self.check_video_status(video_id)
-
-                if video_url:
-                    self.progress_updated.emit(90, "获取视频URL成功", self.task_id)
-
-                    result = {
-                        'id': video_id,
-                        'url': video_url,
-                        'width': width,
-                        'height': height,
-                        'num_frames': num_frames,
-                        'prompt': prompt,
-                        'task_name': task_name,
-                        'timestamp': datetime.now().isoformat()
-                    }
-
-                    self.progress_updated.emit(100, "任务完成！", self.task_id)
-                    self.task_finished.emit(True, "视频生成成功", result, self.task_id)
+                            self.progress_updated.emit(100, "任务完成！", self.task_id)
+                            self.task_finished.emit(True, "视频生成成功", result, self.task_id)
+                            return
+                        else:
+                            self.task_finished.emit(False, "视频生成成功但未获取到URL", {}, self.task_id)
+                            return
+                    else:
+                        self.task_finished.emit(False, "视频生成成功但无输出结果", {}, self.task_id)
+                        return
                 else:
-                    self.task_finished.emit(False, "视频生成失败或超时", {}, self.task_id)
+                    # 任务可能还在处理中，需要查询状态
+                    request_id = result_data.get('request_id')
+                    if request_id:
+                        self.progress_updated.emit(50, "查询任务状态...", self.task_id)
+                        video_url = self.check_video_status_bizyair(request_id)
+
+                        if video_url:
+                            self.progress_updated.emit(90, "获取视频URL成功", self.task_id)
+
+                            result = {
+                                'id': request_id,
+                                'url': video_url,
+                                'width': width,
+                                'height': height,
+                                'num_frames': num_frames,
+                                'prompt': prompt,
+                                'task_name': task_name,
+                                'timestamp': datetime.now().isoformat()
+                            }
+
+                            self.progress_updated.emit(100, "任务完成！", self.task_id)
+                            self.task_finished.emit(True, "视频生成成功", result, self.task_id)
+                        else:
+                            self.task_finished.emit(False, "视频生成失败或超时", {}, self.task_id)
+                    else:
+                        self.task_finished.emit(False, "API响应格式错误：缺少request_id", {}, self.task_id)
+                        return
             else:
                 error_msg = f"API请求失败: HTTP {response.status_code}"
                 try:
@@ -440,6 +497,68 @@ class SingleVideoGenerationWorker(QThread):
             self.task_finished.emit(False, f"任务执行异常: {str(e)}", {}, self.task_id)
         finally:
             self.timer.stop()  # 停止计时
+
+    def check_video_status_bizyair(self, request_id):
+        """查询BizyAir任务状态"""
+        max_attempts = 120  # 最大尝试次数（10分钟）
+        check_interval = 5  # 检查间隔5秒
+
+        for attempt in range(max_attempts):
+            if self.is_cancelled:
+                self.log_message("⏹️ 任务已取消")
+                return None
+
+            try:
+                headers = {
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {self.api_key}"
+                }
+
+                # BizyAir查询任务状态的API端点
+                response = requests.get(
+                    f"https://api.bizyair.cn/w/v1/webapp/task/openapi/query?request_id={request_id}",
+                    headers=headers,
+                    timeout=30
+                )
+
+                if response.status_code == 200:
+                    data = response.json()
+                    status = data.get('status', '')
+
+                    self.progress_updated.emit(
+                        min(80, 50 + (attempt * 30 // max_attempts)),
+                        f"检查进度... ({status})",
+                        self.task_id
+                    )
+
+                    if status == 'Success' and 'outputs' in data:
+                        outputs = data['outputs']
+                        if outputs and len(outputs) > 0:
+                            video_url = outputs[0].get('object_url', '')
+                            if video_url:
+                                self.log_message(f"🎉 视频生成完成: {video_url}")
+                                return video_url
+
+                    elif status == 'failed':
+                        error_info = data.get('error', '生成失败')
+                        self.log_message(f"❌ 视频生成失败: {error_info}")
+                        return None
+
+                    else:
+                        self.log_message(f"⏳ 视频生成中... ({status}) - 第{attempt+1}次检查")
+
+                else:
+                    self.log_message(f"⚠️ 状态查询失败: HTTP {response.status_code}")
+
+            except Exception as e:
+                self.log_message(f"⚠️ 状态查询异常: {str(e)}")
+
+            # 如果不是最后一次尝试，等待后继续
+            if attempt < max_attempts - 1:
+                time.sleep(check_interval)
+
+        self.log_message(f"⏰ 视频生成超时 ({max_attempts * check_interval}秒)")
+        return None
 
     def check_video_status(self, video_id):
         """检查视频生成状态"""
