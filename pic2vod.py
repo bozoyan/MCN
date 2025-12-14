@@ -652,6 +652,10 @@ class VideoGenerationWidget(QWidget):
         self.current_batch_worker = None
         self.batch_tasks = []
         self.api_manager = APIKeyManager()
+
+        # 先初始化隐藏的参数控件
+        self.init_hidden_params_controls()
+
         self.init_ui()
         self.load_settings()
 
@@ -763,12 +767,56 @@ class VideoGenerationWidget(QWidget):
                 border: none;
                 background-color: transparent;
                 border-radius: 4px;
+                color: #ffffff;
             }
             QPushButton:hover {
                 background-color: #3a3a3a;
             }
         """)
         layout.addWidget(self.settings_btn)
+
+        # 分隔线
+        separator = QLabel("|")
+        separator.setStyleSheet("color: #666666; font-size: 14px; margin: 0 8px;")
+        layout.addWidget(separator)
+
+        # 视频参数设置按钮（顶部版本）
+        self.video_settings_top_btn = PrimaryPushButton("视频参数")
+        self.video_settings_top_btn.setFixedHeight(32)
+        self.video_settings_top_btn.clicked.connect(self.show_video_settings_dialog)
+        self.video_settings_top_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #17a2b8;
+                border: none;
+                border-radius: 6px;
+                color: #ffffff;
+                font-size: 13px;
+                font-weight: 500;
+                padding: 6px 12px;
+            }
+            QPushButton:hover {
+                background-color: #138496;
+            }
+            QPushButton:pressed {
+                background-color: #117a8b;
+            }
+        """)
+        layout.addWidget(self.video_settings_top_btn)
+
+        # 当前参数显示（顶部版本）
+        self.current_params_top_label = QLabel("当前: 480×854, 5秒, 81帧")
+        self.current_params_top_label.setStyleSheet("""
+            QLabel {
+                color: #cccccc;
+                font-size: 11px;
+                padding: 6px 10px;
+                background-color: #333333;
+                border-radius: 6px;
+                border: 1px solid #404040;
+                max-width: 200px;
+            }
+        """)
+        layout.addWidget(self.current_params_top_label)
 
         return bar
 
@@ -815,10 +863,6 @@ class VideoGenerationWidget(QWidget):
         # 批量任务组
         batch_group = self.create_batch_group()
         scroll_layout.addWidget(batch_group)
-
-        # 视频参数组
-        params_group = self.create_params_group()
-        scroll_layout.addWidget(params_group)
 
         # 操作按钮组
         actions_group = self.create_actions_group()
@@ -1017,76 +1061,14 @@ class VideoGenerationWidget(QWidget):
         return group
 
     def create_params_group(self):
-        """创建视频参数按钮（深色主题）"""
-        group = QGroupBox("⚙️ 视频参数")
-        group.setStyleSheet("""
-            QGroupBox {
-                font-weight: bold;
-                border: 1px solid #404040;
-                border-radius: 8px;
-                margin-top: 8px;
-                padding-top: 8px;
-                background-color: #2a2a2a;
-                color: #ffffff;
-            }
-            QGroupBox::title {
-                subcontrol-origin: margin;
-                left: 12px;
-                padding: 0 8px 0 8px;
-                color: #ffffff;
-                font-size: 14px;
-            }
-        """)
-        layout = QVBoxLayout(group)
-        layout.setSpacing(10)
-
-        # 视频参数设置按钮
-        self.video_settings_btn = PrimaryPushButton("视频参数设置")
-        self.video_settings_btn.setFixedHeight(40)
-        self.video_settings_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #17a2b8;
-                border: none;
-                border-radius: 8px;
-                color: #ffffff;
-                font-size: 14px;
-                font-weight: 500;
-                padding: 8px 16px;
-            }
-            QPushButton:hover {
-                background-color: #138496;
-            }
-            QPushButton:pressed {
-                background-color: #117a8b;
-            }
-        """)
-        self.video_settings_btn.clicked.connect(self.show_video_settings_dialog)
-        layout.addWidget(self.video_settings_btn)
-
-        # 当前参数显示
-        params_layout = QHBoxLayout()
-
-        self.current_params_label = QLabel("当前: 480×854, 5秒, 81帧")
-        self.current_params_label.setStyleSheet("""
-            QLabel {
-                color: #cccccc;
-                font-size: 12px;
-                padding: 8px 12px;
-                background-color: #333333;
-                border-radius: 6px;
-                border: 1px solid #404040;
-            }
-        """)
-        params_layout.addWidget(self.current_params_label)
-
-        params_layout.addStretch()
-
-        layout.addLayout(params_layout)
-
+        """创建空的视频参数组（隐藏，只保留控件初始化）"""
         # 初始化隐藏的控件（供对话框使用）
         self.init_hidden_params_controls()
 
-        return group
+        # 返回空的QWidget，不显示任何内容
+        empty_widget = QWidget()
+        empty_widget.setFixedHeight(0)  # 高度为0，完全隐藏
+        return empty_widget
 
     def init_hidden_params_controls(self):
         """初始化隐藏的参数控件（供对话框使用）"""
@@ -1132,15 +1114,33 @@ class VideoGenerationWidget(QWidget):
 
     def update_current_params_display(self):
         """更新当前参数显示"""
-        width = self.width_spin.value()
-        height = self.height_spin.value()
-        duration = self.duration_spin.value()
-        frames = self.frames_label.text()
-        self.current_params_label.setText(f"当前: {width}×{height}, {duration}秒, {frames}")
+        try:
+            width = self.width_spin.value()
+            height = self.height_spin.value()
+            duration = self.duration_spin.value()
+            frames = self.frames_label.text()
+
+            # 更新两个位置的显示
+            params_text = f"当前: {width}×{height}, {duration}秒, {frames}帧"
+
+            # 更新左侧面板中的显示
+            if hasattr(self, 'current_params_label'):
+                self.current_params_label.setText(params_text)
+
+            # 更新顶部导航栏中的显示
+            if hasattr(self, 'current_params_top_label'):
+                self.current_params_top_label.setText(params_text)
+        except AttributeError as e:
+            # 如果控件不存在，使用默认值
+            default_params = "当前: 480×854, 5秒, 81帧"
+            if hasattr(self, 'current_params_top_label'):
+                self.current_params_top_label.setText(default_params)
+            if hasattr(self, 'current_params_label'):
+                self.current_params_label.setText(default_params)
 
     def create_actions_group(self):
         """创建操作按钮组（深色主题）"""
-        group = QGroupBox("🚀 操作")
+        group = QGroupBox("操作")  # 移除图标，简化标题
         group.setStyleSheet("""
             QGroupBox {
                 font-weight: bold;
@@ -1158,20 +1158,19 @@ class VideoGenerationWidget(QWidget):
             }
         """)
         layout = QVBoxLayout(group)
-        layout.setSpacing(8)  # 减小间距
+        layout.setSpacing(12)  # 增加间距
 
-        # 提示词输入（深色主题，增大字体）
+        # 提示词输入（增高）
         self.prompt_edit = QTextEdit()
         self.prompt_edit.setPlaceholderText("输入视频生成的提示词，例如：美女跳舞、风景变化等...")
-        self.prompt_edit.setFixedHeight(140)  # 减小高度
+        self.prompt_edit.setFixedHeight(200)  # 增加高度
         self.prompt_edit.setStyleSheet("""
             QTextEdit {
-                margin-top:-120px;
-                font-size: 20px;
+                font-size: 15px;
                 font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
                 border: 1px solid #404040;
                 border-radius: 6px;
-                padding: 8px;
+                padding: 12px;
                 background-color: #333333;
                 color: #ffffff;
                 selection-background-color: #4a90e2;
@@ -1182,12 +1181,15 @@ class VideoGenerationWidget(QWidget):
         """)
         layout.addWidget(self.prompt_edit)
 
-        # 生成按钮（深色主题，移除图标）
-        button_layout = QHBoxLayout()
-        button_layout.setSpacing(10)  # 按钮间距
+        # 添加弹性空间
+        layout.addStretch()
 
-        self.single_generate_btn = PrimaryPushButton("单个生成")  # 移除图标
-        self.single_generate_btn.setFixedHeight(36)  # 稍微减小高度
+        # 生成按钮放在底部左对齐
+        button_layout = QHBoxLayout()
+        button_layout.setSpacing(10)
+
+        self.single_generate_btn = PrimaryPushButton("单个生成")
+        self.single_generate_btn.setFixedSize(120, 36)
         self.single_generate_btn.setStyleSheet("""
             QPushButton {
                 background-color: #4a90e2;
@@ -1207,8 +1209,8 @@ class VideoGenerationWidget(QWidget):
         self.single_generate_btn.clicked.connect(self.generate_single_video)
         button_layout.addWidget(self.single_generate_btn)
 
-        self.batch_generate_btn = PrimaryPushButton("批量生成")  # 移除图标
-        self.batch_generate_btn.setFixedHeight(36)  # 稍微减小高度
+        self.batch_generate_btn = PrimaryPushButton("批量生成")
+        self.batch_generate_btn.setFixedSize(120, 36)
         self.batch_generate_btn.setStyleSheet("""
             QPushButton {
                 background-color: #28a745;
@@ -1227,6 +1229,9 @@ class VideoGenerationWidget(QWidget):
         """)
         self.batch_generate_btn.clicked.connect(self.generate_batch_videos)
         button_layout.addWidget(self.batch_generate_btn)
+
+        # 添加弹性空间到右侧
+        button_layout.addStretch()
 
         layout.addLayout(button_layout)
 
@@ -1270,11 +1275,13 @@ class VideoGenerationWidget(QWidget):
             }
         """)
 
-        # 视频列表Tab
+        # 视频列表Tab（整合播放功能）
         self.video_list_widget = QWidget()
         video_list_layout = QVBoxLayout(self.video_list_widget)
         video_list_layout.setContentsMargins(10, 10, 10, 10)
+        video_list_layout.setSpacing(10)
 
+        # 上部分：批量进度和生成结果
         # 批量进度
         self.batch_progress_bar = ProgressBar()
         self.batch_progress_bar.setFixedHeight(15)
@@ -1282,28 +1289,45 @@ class VideoGenerationWidget(QWidget):
         video_list_layout.addWidget(self.batch_progress_label)
         video_list_layout.addWidget(self.batch_progress_bar)
 
-        # 视频列表滚动区域
+        # 视频列表标题
+        list_title = QLabel("📋 生成结果:")
+        list_title.setStyleSheet("font-size: 14px; font-weight: bold; color: #ffffff; margin-bottom: 5px;")
+        video_list_layout.addWidget(list_title)
+
+        # 视频列表滚动区域（限制高度）
         self.video_scroll = SmoothScrollArea()
         self.video_scroll_widget = QWidget()
         self.video_scroll_layout = QVBoxLayout(self.video_scroll_widget)
         self.video_scroll_layout.setSpacing(10)
         self.video_scroll.setWidget(self.video_scroll_widget)
         self.video_scroll.setWidgetResizable(True)
-
-        video_list_layout.addWidget(QLabel("生成结果:"))
+        self.video_scroll.setFixedHeight(300)  # 限制高度，为播放器留空间
         video_list_layout.addWidget(self.video_scroll)
 
-        self.result_tabs.addTab(self.video_list_widget, "视频列表")
-
-        # 视频播放Tab
-        self.video_display_widget = QWidget()
-        video_display_layout = QVBoxLayout(self.video_display_widget)
-        video_display_layout.setContentsMargins(10, 10, 10, 10)
+        # 下部分：视频播放区域
+        # 分隔线
+        separator = QFrame()
+        separator.setFrameShape(QFrame.HLine)
+        separator.setStyleSheet("color: #404040;")
+        video_list_layout.addWidget(separator)
 
         # 视频播放区域标题
-        video_title = QLabel("🎬 视频播放区域")
-        video_title.setStyleSheet("font-size: 16px; font-weight: bold; color: #ffffff; margin-bottom: 10px;")
-        video_display_layout.addWidget(video_title)
+        player_title = QLabel("🎬 视频播放器")
+        player_title.setStyleSheet("font-size: 14px; font-weight: bold; color: #ffffff; margin: 10px 0 5px 0;")
+        video_list_layout.addWidget(player_title)
+
+        # 视频播放器容器
+        player_container = QFrame()
+        player_container.setStyleSheet("""
+            QFrame {
+                background-color: #1a1a1a;
+                border: 1px solid #404040;
+                border-radius: 8px;
+                padding: 10px;
+            }
+        """)
+        player_layout = QVBoxLayout(player_container)
+        player_layout.setSpacing(8)
 
         # 视频播放器
         from PyQt5.QtMultimediaWidgets import QVideoWidget
@@ -1314,11 +1338,11 @@ class VideoGenerationWidget(QWidget):
             QVideoWidget {
                 background-color: #000000;
                 border: 2px solid #404040;
-                border-radius: 8px;
-                min-height: 400px;
+                border-radius: 6px;
+                min-height: 250px;
             }
         """)
-        video_display_layout.addWidget(self.video_player)
+        player_layout.addWidget(self.video_player)
 
         # 媒体播放器
         self.media_player = QMediaPlayer()
@@ -1328,13 +1352,13 @@ class VideoGenerationWidget(QWidget):
         playback_controls = QHBoxLayout()
 
         self.play_btn = PushButton("▶️ 播放")
-        self.play_btn.setFixedHeight(32)
+        self.play_btn.setFixedHeight(30)
         self.play_btn.clicked.connect(self.toggle_playback)
         self.play_btn.setEnabled(False)
         playback_controls.addWidget(self.play_btn)
 
         self.stop_btn = PushButton("⏹️ 停止")
-        self.stop_btn.setFixedHeight(32)
+        self.stop_btn.setFixedHeight(30)
         self.stop_btn.clicked.connect(self.stop_playback)
         self.stop_btn.setEnabled(False)
         playback_controls.addWidget(self.stop_btn)
@@ -1344,10 +1368,10 @@ class VideoGenerationWidget(QWidget):
         self.current_video_label.setStyleSheet("""
             QLabel {
                 color: #cccccc;
-                font-size: 12px;
-                padding: 8px 12px;
+                font-size: 11px;
+                padding: 6px 10px;
                 background-color: #333333;
-                border-radius: 6px;
+                border-radius: 4px;
                 border: 1px solid #404040;
             }
         """)
@@ -1355,9 +1379,10 @@ class VideoGenerationWidget(QWidget):
 
         playback_controls.addStretch()
 
-        video_display_layout.addLayout(playback_controls)
+        player_layout.addLayout(playback_controls)
+        video_list_layout.addWidget(player_container)
 
-        self.result_tabs.addTab(self.video_display_widget, "视频播放")
+        self.result_tabs.addTab(self.video_list_widget, "视频列表")
 
         # 日志Tab
         self.log_widget = QWidget()
@@ -1751,8 +1776,20 @@ class VideoGenerationWidget(QWidget):
                     self.key_file_path = settings['key_file']
 
                 self.update_key_status()
+
+                # 初始化参数显示
+                self.update_current_params_display()
         except Exception as e:
             self.add_log(f"加载设置失败: {e}")
+
+            # 即使加载失败也要初始化参数显示
+            try:
+                self.update_current_params_display()
+            except AttributeError as e:
+                self.add_log(f"参数显示初始化失败: {str(e)}")
+                # 手动设置默认参数显示
+                if hasattr(self, 'current_params_top_label'):
+                    self.current_params_top_label.setText("当前: 480×854, 5秒, 81帧")
 
     def save_settings(self):
         """保存设置"""
@@ -1770,8 +1807,8 @@ class VideoGenerationWidget(QWidget):
     def add_video_to_display(self, video_path, video_name):
         """添加视频到播放区域"""
         try:
-            # 切换到视频播放Tab
-            self.result_tabs.setCurrentIndex(1)  # 索引1是视频播放Tab
+            # 确保在视频列表Tab（索引0）
+            self.result_tabs.setCurrentIndex(0)
 
             # 设置当前播放的视频
             self.current_video_path = video_path
@@ -1794,8 +1831,8 @@ class VideoGenerationWidget(QWidget):
     def play_video_in_display(self, video_path):
         """在显示区域播放视频"""
         try:
-            # 切换到视频播放Tab
-            self.result_tabs.setCurrentIndex(1)
+            # 确保在视频列表Tab（索引0）
+            self.result_tabs.setCurrentIndex(0)
 
             # 设置并播放视频
             self.current_video_path = video_path
@@ -1840,6 +1877,15 @@ class VideoSettingsDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("视频参数设置")
         self.setMinimumSize(500, 400)
+
+        # 设置深色主题样式
+        self.setStyleSheet("""
+            QDialog {
+                background-color: #1e1e1e;
+                color: #ffffff;
+            }
+        """)
+
         self.init_ui()
         self.load_current_settings()
 
@@ -1855,6 +1901,24 @@ class VideoSettingsDialog(QDialog):
 
         # 预设分辨率
         resolution_group = QGroupBox("预设分辨率")
+        resolution_group.setStyleSheet("""
+            QGroupBox {
+                font-weight: bold;
+                border: 1px solid #404040;
+                border-radius: 8px;
+                margin-top: 8px;
+                padding-top: 8px;
+                background-color: #2a2a2a;
+                color: #ffffff;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 12px;
+                padding: 0 8px 0 8px;
+                color: #ffffff;
+                font-size: 14px;
+            }
+        """)
         resolution_layout = QVBoxLayout(resolution_group)
 
         self.resolution_combo = ComboBox()
@@ -1870,38 +1934,94 @@ class VideoSettingsDialog(QDialog):
         self.resolution_combo.setFixedHeight(36)
         self.resolution_combo.setStyleSheet("""
             QComboBox {
-                background-color: #cccccc;
-                border: 2px solid #e9ecef;
+                background-color: #1a1a1a;
+                border: 2px solid #404040;
                 border-radius: 8px;
                 padding: 8px 12px;
                 font-size: 14px;
-                color: #2c3e50;
+                color: #ffffff;
             }
             QComboBox:focus {
-                border: 2px solid #3498db;
+                border: 2px solid #4a90e2;
+            }
+            QComboBox:hover {
+                border: 2px solid #5a5a5a;
+                background-color: #222222;
             }
             QComboBox::drop-down {
                 border: none;
                 width: 20px;
+                background-color: #2a2a2a;
+                border-top-right-radius: 6px;
+                border-bottom-right-radius: 6px;
+            }
+            QComboBox::down-arrow {
+                image: url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAA4AAAAOCAYAAAAfSC3RAAAABHNCSVQICAgIfAhkiAAAAAlwSFlzAAAA7AAAAOwBeShxvQAAABl0RVh0U29mdHdhcmUAd3d3Lmlua3NjYXBlLm9yZ5vuPBoAAAEFSURBVCiRldKxSgNBEMbxH0QZ0CuEF2CiEwJCgKESFuwBLhAT8AFyEO7wELsAC7AQX4CNxgU0cG6+dCZmZn8ZzYwXJJW8k8/fnOeOA8gw/r9fSEECGNFIAiCRZSROJIKJVmQygJMFQYGIFFsCgnhBaiBiOIEFEZgYhBRRGYGGYBFJp9uQRZZYcS1Lb5EA/ghggCVBJEARRyESOhKhszEMDQDdICB9ALRxZUeCcOPPMi5F+T8SX6FMaVvUIFxAIsgYgsI6IEHEhgUYEagIYRGAqPwiwAEYQmAqBQbY4QhBiBoZfn+/fXfjPMO4KdYvKEnKcTb1ncNcIrr8AyVcOlH9Zc1wAAAAASUVORK5CYII=);
+                width: 12px;
+                height: 12px;
             }
             QComboBox QAbstractItemView {
-                background-color: #cccccc;
-                border: 1px solid #dee2e6;
-                selection-background-color: #cccccc;
-                color: #2c3e50;
+                background-color: #1a1a1a;
+                border: 1px solid #404040;
+                selection-background-color: #4a90e2;
+                color: #ffffff;
+                selection-color: #ffffff;
+                padding: 4px 0px;
+            }
+            QComboBox QAbstractItemView::item {
+                padding: 8px 12px;
+                border-bottom: 1px solid #404040;
+                background-color: #1a1a1a;
+            }
+            QComboBox QAbstractItemView::item:selected {
+                background-color: #4a90e2;
+                color: #ffffff;
+            }
+            QComboBox QAbstractItemView::item:hover {
+                background-color: #2a2a2a;
             }
         """)
         self.resolution_combo.currentIndexChanged.connect(self.on_resolution_changed)
-        resolution_layout.addWidget(QLabel("选择预设:"))
+        # 选择预设标签
+        preset_label = QLabel("选择预设:")
+        preset_label.setStyleSheet("""
+            QLabel {
+                color: #ffffff;
+                font-size: 14px;
+                font-weight: 500;
+                margin-bottom: 5px;
+            }
+        """)
+        resolution_layout.addWidget(preset_label)
         resolution_layout.addWidget(self.resolution_combo)
         layout.addWidget(resolution_group)
 
         # 自定义尺寸
         size_group = QGroupBox("自定义尺寸")
+        size_group.setStyleSheet("""
+            QGroupBox {
+                font-weight: bold;
+                border: 1px solid #404040;
+                border-radius: 8px;
+                margin-top: 8px;
+                padding-top: 8px;
+                background-color: #2a2a2a;
+                color: #ffffff;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 12px;
+                padding: 0 8px 0 8px;
+                color: #ffffff;
+                font-size: 14px;
+            }
+        """)
         size_layout = QGridLayout(size_group)
 
         # 宽度
-        size_layout.addWidget(QLabel("宽度 (px):"), 0, 0)
+        width_label = QLabel("宽度 (px):")
+        width_label.setStyleSheet("color: #ffffff; font-size: 14px;")
+        size_layout.addWidget(width_label, 0, 0)
         self.width_spin = QSpinBox()
         self.width_spin.setRange(256, 4096)
         self.width_spin.setSingleStep(64)
@@ -1909,15 +2029,18 @@ class VideoSettingsDialog(QDialog):
         self.width_spin.setFixedHeight(36)
         self.width_spin.setStyleSheet("""
             QSpinBox {
-                background-color: #cccccc;
-                border: 2px solid #e9ecef;
+                background-color: #1a1a1a;
+                border: 2px solid #404040;
                 border-radius: 8px;
                 padding: 8px;
                 font-size: 14px;
-                color: #2c3e50;
+                color: #ffffff;
             }
             QSpinBox:focus {
-                border: 2px solid #3498db;
+                border: 2px solid #4a90e2;
+            }
+            QSpinBox:hover {
+                border: 2px solid #5a5a5a;
             }
         """)
         size_layout.addWidget(self.width_spin, 0, 1)
@@ -1928,19 +2051,26 @@ class VideoSettingsDialog(QDialog):
         self.swap_btn.clicked.connect(self.swap_dimensions)
         self.swap_btn.setStyleSheet("""
             QPushButton {
-                background-color: #e9ecef;
-                border: none;
+                background-color: #3a3a3a;
+                border: 1px solid #404040;
                 border-radius: 8px;
                 font-size: 16px;
+                color: #ffffff;
             }
             QPushButton:hover {
-                background-color: #dee2e6;
+                background-color: #4a4a4a;
+                border: 1px solid #5a5a5a;
+            }
+            QPushButton:pressed {
+                background-color: #2a2a2a;
             }
         """)
         size_layout.addWidget(self.swap_btn, 0, 2)
 
         # 高度
-        size_layout.addWidget(QLabel("高度 (px):"), 1, 0)
+        height_label = QLabel("高度 (px):")
+        height_label.setStyleSheet("color: #ffffff; font-size: 14px;")
+        size_layout.addWidget(height_label, 1, 0)
         self.height_spin = QSpinBox()
         self.height_spin.setRange(256, 4096)
         self.height_spin.setSingleStep(64)
@@ -1948,15 +2078,18 @@ class VideoSettingsDialog(QDialog):
         self.height_spin.setFixedHeight(36)
         self.height_spin.setStyleSheet("""
             QSpinBox {
-                background-color: #cccccc;
-                border: 2px solid #e9ecef;
+                background-color: #1a1a1a;
+                border: 2px solid #404040;
                 border-radius: 8px;
                 padding: 8px;
                 font-size: 14px;
-                color: #2c3e50;
+                color: #ffffff;
             }
             QSpinBox:focus {
-                border: 2px solid #3498db;
+                border: 2px solid #4a90e2;
+            }
+            QSpinBox:hover {
+                border: 2px solid #5a5a5a;
             }
         """)
         size_layout.addWidget(self.height_spin, 1, 1)
@@ -1965,9 +2098,29 @@ class VideoSettingsDialog(QDialog):
 
         # 视频时长
         duration_group = QGroupBox("视频时长")
+        duration_group.setStyleSheet("""
+            QGroupBox {
+                font-weight: bold;
+                border: 1px solid #404040;
+                border-radius: 8px;
+                margin-top: 8px;
+                padding-top: 8px;
+                background-color: #2a2a2a;
+                color: #ffffff;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 12px;
+                padding: 0 8px 0 8px;
+                color: #ffffff;
+                font-size: 14px;
+            }
+        """)
         duration_layout = QHBoxLayout(duration_group)
 
-        duration_layout.addWidget(QLabel("时长(秒):"))
+        duration_label = QLabel("时长(秒):")
+        duration_label.setStyleSheet("color: #ffffff; font-size: 14px;")
+        duration_layout.addWidget(duration_label)
         self.duration_spin = QSpinBox()
         self.duration_spin.setRange(1, 30)
         self.duration_spin.setValue(5)
@@ -1975,15 +2128,18 @@ class VideoSettingsDialog(QDialog):
         self.duration_spin.setFixedHeight(36)
         self.duration_spin.setStyleSheet("""
             QSpinBox {
-                background-color: #cccccc;
-                border: 2px solid #e9ecef;
+                background-color: #1a1a1a;
+                border: 2px solid #404040;
                 border-radius: 8px;
                 padding: 8px;
                 font-size: 14px;
-                color: #2c3e50;
+                color: #ffffff;
             }
             QSpinBox:focus {
-                border: 2px solid #3498db;
+                border: 2px solid #4a90e2;
+            }
+            QSpinBox:hover {
+                border: 2px solid #5a5a5a;
             }
         """)
         self.duration_spin.valueChanged.connect(self.update_frames)
@@ -1993,24 +2149,42 @@ class VideoSettingsDialog(QDialog):
 
         # 帧数信息
         info_group = QGroupBox("帧数信息")
+        info_group.setStyleSheet("""
+            QGroupBox {
+                font-weight: bold;
+                border: 1px solid #404040;
+                border-radius: 8px;
+                margin-top: 8px;
+                padding-top: 8px;
+                background-color: #2a2a2a;
+                color: #ffffff;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 12px;
+                padding: 0 8px 0 8px;
+                color: #ffffff;
+                font-size: 14px;
+            }
+        """)
         info_layout = QVBoxLayout(info_group)
 
         self.frames_label = QLabel("总帧数: 81")
         self.frames_label.setStyleSheet("""
             QLabel {
                 font-weight: bold;
-                color: #3498db;
+                color: #4a90e2;
                 font-size: 16px;
                 padding: 10px;
-                background-color: #e8f4fd;
+                background-color: #1a3a4e;
                 border-radius: 8px;
-                border: 1px solid #bee5eb;
+                border: 1px solid #4a90e2;
             }
         """)
         info_layout.addWidget(self.frames_label)
 
         frames_note = QLabel("📝 注：16帧 = 1秒，总帧数 = (时长 × 16) + 1")
-        frames_note.setStyleSheet("color: #6c757d; font-size: 12px;")
+        frames_note.setStyleSheet("color: #cccccc; font-size: 12px;")
         info_layout.addWidget(frames_note)
 
         layout.addWidget(info_group)
@@ -2123,11 +2297,18 @@ class VideoSettingsDialog(QDialog):
 
     def accept_settings(self):
         """应用设置并关闭"""
-        if hasattr(self.parent(), 'width_spin') and hasattr(self.parent(), 'height_spin'):
-            self.parent().width_spin.setValue(self.width_spin.value())
-            self.parent().height_spin.setValue(self.height_spin.value())
-            self.parent().duration_spin.setValue(self.duration_spin.value())
-            self.parent().update_frames()
+        try:
+            if hasattr(self.parent(), 'width_spin') and hasattr(self.parent(), 'height_spin'):
+                # 更新父控件的参数值
+                self.parent().width_spin.setValue(self.width_spin.value())
+                self.parent().height_spin.setValue(self.height_spin.value())
+                self.parent().duration_spin.setValue(self.duration_spin.value())
+                self.parent().update_frames()
+
+                # 更新参数显示
+                self.parent().update_current_params_display()
+        except Exception as e:
+            print(f"应用设置时出错: {str(e)}")
         self.accept()
 
 # API设置对话框
