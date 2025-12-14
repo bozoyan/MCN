@@ -2,9 +2,11 @@
 __pycache__/
 *.py[codz]
 *$py.class
-
+MCN
 temp
 output
+speech
+SRT
 
 storyboard_config.json
 buttons.json
