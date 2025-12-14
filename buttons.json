@@ -50,8 +50,8 @@
   {
     "title": "查询SSH密钥",
     "env": null,
-    "cmd": "open -a /Applications/Sublime\\ Text.app ~/.ssh/id_rsa.pub",
-    "cwd": "."
+    "cwd": ".",
+    "cmd": "open -a '/Applications/Sublime Text.app' ~/.ssh/id_rsa.pub"
   },
   {
     "title": "查询本地IP",
