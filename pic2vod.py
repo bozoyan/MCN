@@ -188,7 +188,8 @@ class VideoSettingsManager:
             },
             "api_settings": {
                 "key_file": "",
-                "web_app_id": 41082  # 正确的WebApp ID
+                "web_app_id": 41082,
+                "api_url": "https://api.bizyair.cn/w/v1/webapp/task/openapi/create"
             },
             "ui_settings": {
                 "last_export_dir": "output"
@@ -245,12 +246,18 @@ class VideoSettingsManager:
         settings = self.load_settings()
         return settings.get("api_settings", self.default_settings["api_settings"])
 
-    def set_api_settings(self, key_file, web_app_id=41082):
+    def set_api_settings(self, key_file, web_app_id=41082, api_url=None):
         """设置API参数"""
         settings = self.load_settings()
+        
+        current_api_url = settings.get("api_settings", {}).get("api_url", "https://api.bizyair.cn/w/v1/webapp/task/openapi/create")
+        if api_url is None:
+            api_url = current_api_url
+            
         settings["api_settings"] = {
             "key_file": key_file,
-            "web_app_id": web_app_id
+            "web_app_id": web_app_id,
+            "api_url": api_url
         }
         return self.save_settings(settings)
 
@@ -414,14 +421,12 @@ class SingleVideoGenerationWorker(QThread):
             output_dir = "output"
             if not os.path.exists(output_dir):
                 os.makedirs(output_dir)
-                
-            base_filename = f"task_{self.task_id}_{int(time.time())}"
-            image_save_path = ""
-
-            # 图像格式检查和转换（优化并统一处理本地文件和纯base64）
-            image_value = image_input
             
-             # 尝试提取文件名作为基础名
+            # 统一文件名生成逻辑：[原文件名]_[时间戳]
+            timestamp_str = datetime.now().strftime("%H%M%S")
+            base_filename = f"task_{self.task_id}_{timestamp_str}"
+            
+            # 尝试提取文件名作为基础名
             if isinstance(image_input, str):
                 if image_input.startswith('http'):
                      try:
@@ -430,7 +435,8 @@ class SingleVideoGenerationWorker(QThread):
                         name_without_ext = os.path.splitext(name)[0]
                         if name_without_ext:
                             # 过滤非法字符
-                            base_filename = re.sub(r'[^\w\-_]', '_', name_without_ext)
+                            clean_name = re.sub(r'[^\w\-_]', '_', name_without_ext)
+                            base_filename = f"{clean_name}_{timestamp_str}"
                      except:
                         pass
                 elif not image_input.startswith('data:'):
@@ -439,7 +445,13 @@ class SingleVideoGenerationWorker(QThread):
                     if image_path:
                         name = os.path.basename(image_path)
                         name_without_ext = os.path.splitext(name)[0]
-                        base_filename = re.sub(r'[^\w\-_]', '_', name_without_ext)
+                        clean_name = re.sub(r'[^\w\-_]', '_', name_without_ext)
+                        base_filename = f"{clean_name}_{timestamp_str}"
+
+            image_save_path = ""
+            
+            # 图像格式检查和转换（优化并统一处理本地文件和纯base64）
+            image_value = image_input
             image_data = None
 
             if isinstance(image_input, str):
@@ -559,16 +571,26 @@ class SingleVideoGenerationWorker(QThread):
                 "Authorization": f"Bearer {self.api_key}"
             }
             
-            base_url = "https://api.bizyair.cn/w/v1/webapp/task/openapi/create"
+            # 获取配置的 API URL，如果未配置则使用默认值
+            default_api_url = "https://api.bizyair.cn/w/v1/webapp/task/openapi/create"
+            api_url = default_api_url
+            if hasattr(self.api_manager, 'api_url') and self.api_manager.api_url:
+                api_url = self.api_manager.api_url
+            
+            base_url = api_url
             self.log_message(f"📤 发送BizyAir API请求: {base_url}")
             
             # --- API请求和错误处理统一 ---
             try:
+                # 禁用代理设置，确保国内API免受全局代理影响
+                proxies = {"http": None, "https": None}
+                
                 response = requests.post(
                     base_url,
                     headers=headers,
                     json=bizyair_request_data,
-                    timeout=(300, 600)  # 5分钟连接超时，10分钟读取超时
+                    timeout=(300, 600),  # 5分钟连接超时，10分钟读取超时
+                    proxies=proxies
                 )
                 
                 self.log_message(f"📡 API响应状态: {response.status_code}")
@@ -616,7 +638,7 @@ class SingleVideoGenerationWorker(QThread):
                         'prompt': prompt,
                         'task_name': task_name,
                         'timestamp': datetime.now().isoformat(),
-                        'base_filename': base_filename,
+                        'base_filename': base_filename,  # 传递统一的基础文件名
                         'thumbnail_path': image_save_path
                     }
 
@@ -670,7 +692,8 @@ class SingleVideoGenerationWorker(QThread):
                 response = requests.get(
                     f"https://api.bizyair.cn/w/v1/webapp/task/openapi/query?request_id={request_id}",
                     headers=headers,
-                    timeout=30
+                    timeout=30,
+                    proxies={"http": None, "https": None}  # 禁用代理
                 )
                 
                 response.raise_for_status() # 抛出 HTTPError 4xx/5xx
@@ -1261,7 +1284,7 @@ class VideoResultCard(CardWidget):
         base_filename = self.video_data.get('base_filename', '')
         
         if base_filename:
-            filename = f"{base_filename}_vod.mp4"
+            filename = f"{base_filename}.mp4" # 直接使用基础名，不加 _vod
         else:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             filename = re.sub(r'[^\w\-_.]', '_', f"{task_name}_{timestamp}.mp4")
@@ -1355,8 +1378,8 @@ class VideoDownloadWorker(QThread):
             self.progress_updated.emit(10, "开始下载视频...")
             self.log_updated.emit(f"🎬 开始下载视频: {self.filename}")
 
-            # 使用requests下载文件
-            response = requests.get(self.video_url, stream=True, timeout=300)
+            # 使用requests下载文件 (禁用代理)
+            response = requests.get(self.video_url, stream=True, timeout=300, proxies={"http": None, "https": None})
             response.raise_for_status()
 
             total_size = int(response.headers.get('content-length', 0))
@@ -1408,6 +1431,11 @@ class VideoGenerationWidget(QWidget):
         self.batch_tasks = []
         self.api_manager = APIKeyManager()
         self.settings_manager = VideoSettingsManager()
+        
+        # 加载 API URL 配置
+        api_settings = self.settings_manager.get_api_settings()
+        self.api_manager.api_url = api_settings.get("api_url", "https://api.bizyair.cn/w/v1/webapp/task/openapi/create")
+        
         self.is_generating = False
         self.key_file_path = None # 用于存储密钥文件路径
 
@@ -2739,6 +2767,16 @@ class APISettingsDialog(QDialog):
         self.webapp_id_spin.setValue(self.api_manager.web_app_id)
         webapp_layout.addWidget(QLabel("Web App ID:"))
         webapp_layout.addWidget(self.webapp_id_spin)
+        
+        # API URL 设置
+        self.api_url_edit = LineEdit()
+        # 获取当前配置的 URL，已在 APIKeyManager 或 SettingsManager 中
+        current_url = getattr(self.api_manager, 'api_url', "https://api.bizyair.cn/w/v1/webapp/task/openapi/create")
+        self.api_url_edit.setText(current_url)
+        self.api_url_edit.setPlaceholderText("API 请求地址，默认: https://api.bizyair.cn/w/v1/webapp/task/openapi/create")
+        webapp_layout.addWidget(QLabel("API 请求地址:"))
+        webapp_layout.addWidget(self.api_url_edit)
+        
         layout.addWidget(webapp_group)
 
         key_group = QGroupBox("API密钥设置")
@@ -2862,8 +2900,10 @@ class APISettingsDialog(QDialog):
     def save_settings(self):
         """保存设置"""
         self.api_manager.web_app_id = self.webapp_id_spin.value()
-        self.parent().api_manager.web_app_id = self.webapp_id_spin.value() # 更新父级
-
+        self.api_manager.api_url = self.api_url_edit.text().strip() # 保存 API URL
+        self.parent().api_manager.web_app_id = self.webapp_id_spin.value()
+        self.parent().api_manager.api_url = self.api_manager.api_url # 更新父级
+        
         is_file_source = self.file_radio.isChecked()
         key_file_to_save = ""
 
@@ -2880,7 +2920,11 @@ class APISettingsDialog(QDialog):
                 key_file_to_save = file_path
 
                 if hasattr(self.parent(), 'settings_manager'):
-                    self.parent().settings_manager.set_api_settings(key_file_to_save, self.webapp_id_spin.value())
+                    self.parent().settings_manager.set_api_settings(
+                        key_file_to_save, 
+                        self.webapp_id_spin.value(),
+                        self.api_manager.api_url
+                    )
                     if hasattr(self.parent(), 'add_log'):
                         self.parent().add_log(f"✅ API密钥设置已保存 (文件密钥)")
 
@@ -2898,7 +2942,11 @@ class APISettingsDialog(QDialog):
             key_file_to_save = ""
 
             if hasattr(self.parent(), 'settings_manager'):
-                self.parent().settings_manager.set_api_settings(key_file_to_save, self.webapp_id_spin.value())
+                self.parent().settings_manager.set_api_settings(
+                    key_file_to_save, 
+                    self.webapp_id_spin.value(),
+                    self.api_manager.api_url
+                )
                 if hasattr(self.parent(), 'add_log'):
                     self.parent().add_log(f"✅ API密钥设置已保存 (系统变量)")
 
@@ -2912,9 +2960,12 @@ class APISettingsDialog(QDialog):
 
                 key_file = api_settings.get('key_file', '')
                 webapp_id = api_settings.get('web_app_id', 41082)
+                api_url = api_settings.get('api_url', 'https://api.bizyair.cn/w/v1/webapp/task/openapi/create')
 
                 self.webapp_id_spin.setValue(webapp_id)
+                self.api_url_edit.setText(api_url) # 加载 API URL
                 self.api_manager.web_app_id = webapp_id
+                self.api_manager.api_url = api_url
                 
                 # 判断当前配置是文件还是环境变量
                 env_key = os.getenv('SiliconCloud_API_KEY')
