@@ -4309,10 +4309,10 @@ class VideoResultCard(QWidget):
                 # 生成滚动效果的文本
                 dots = "." * ((elapsed % 3) + 1)  # 1到3个点循环变化
                 scroll_text = f"· 正在生成视频{dots}请耐心等待 ·"
-                self.progress_info_label.setText(f"进度: {current_progress}% - 已用时: {time_str} {scroll_text}")
+                self.progress_info_label.setText(f"{scroll_text} 用时: {time_str}")
             else:
-                # 其他情况
-                self.progress_info_label.setText(f"进度: {current_progress}% - 已用时: {time_str}")
+                # 其他情况也保持时间更新
+                self.progress_info_label.setText(f"用时: {time_str}")
 
     def update_time(self, time_string):
         """从外部更新计时器显示"""
@@ -4335,6 +4335,10 @@ class VideoResultCard(QWidget):
             seconds = elapsed % 60
             time_str = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
             self.progress_info_label.setText(f"任务完成! 总用时: {time_str}")
+            
+            # 更新状态标签文本和样式
+            self.status_label.setText("任务完成")
+            self.status_label.setStyleSheet("color: #4CAF50; font-weight: bold;")  # 绿色样式
 
         if video_url:
             self.url_edit.setText(video_url)
@@ -4344,6 +4348,25 @@ class VideoResultCard(QWidget):
             self.view_btn.show()
             self.download_btn.show()
             self.copy_url_btn.show()
+            
+            # 显示URL文本展示区域
+            if not hasattr(self, 'url_display_label'):
+                self.url_display_label = QLabel()
+                self.url_display_label.setStyleSheet("""
+                    QLabel {
+                        background-color: #1e1e1e;
+                        color: #cccccc;
+                        font-family: 'Courier New', Courier, monospace;
+                        padding: 5px;
+                        border-radius: 4px;
+                        min-height: 20px;
+                        max-width: 300px;
+                    }
+                """)
+                self.url_layout.addWidget(self.url_display_label)
+            
+            self.url_display_label.setText(video_url)
+            self.url_display_label.show()
 
             # 自动下载视频到本地
             self.auto_download_video(video_url)
@@ -4538,6 +4561,7 @@ class VideoResultCard(QWidget):
         if not video_url:
             QMessageBox.warning(self, "警告", "视频URL不可用")
             return
+        
 
         file_path, _ = QFileDialog.getSaveFileName(
             self,
@@ -4677,8 +4701,9 @@ class VideoResultCard(CardWidget):
                 self.view_btn.setEnabled(False)
                 self.view_btn.setText("下载中...")
 
+                timestamp = time.strftime("%Y%m%d%H%M%S", time.localtime())
                 # 创建下载工作线程
-                self.download_worker = VideoDownloadWorker(video_url, f"video_{self.task_id}.mp4")
+                self.download_worker = VideoDownloadWorker(video_url, f"video_{self.task_id}_{timestamp}.mp4")
                 self.download_worker.download_finished.connect(self.on_play_download_finished)
                 self.download_worker.start()
             else:
