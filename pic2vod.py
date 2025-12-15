@@ -13,6 +13,118 @@ import threading
 import requests
 import base64
 from datetime import datetime
+
+# 视频设置配置管理
+class VideoSettingsManager:
+    """视频设置配置管理器"""
+
+    def __init__(self, config_file="video_settings.json"):
+        self.config_file = config_file
+        self.default_settings = {
+            "video_params": {
+                "width": 480,
+                "height": 854,
+                "duration": 5,
+                "num_frames": 81
+            },
+            "api_settings": {
+                "key_file": "",
+                "web_app_id": 41082
+            },
+            "ui_settings": {
+                "last_export_dir": "output"
+            }
+        }
+
+    def load_settings(self):
+        """加载配置文件"""
+        try:
+            if os.path.exists(self.config_file):
+                with open(self.config_file, 'r', encoding='utf-8') as f:
+                    settings = json.load(f)
+                # 合并默认设置，确保所有必要的键都存在
+                return self._merge_settings(self.default_settings, settings)
+            else:
+                return self.default_settings.copy()
+        except Exception as e:
+            print(f"加载视频设置失败: {e}")
+            return self.default_settings.copy()
+
+    def save_settings(self, settings):
+        """保存配置文件"""
+        try:
+            # 创建备份
+            if os.path.exists(self.config_file):
+                backup_file = f"{self.config_file}.backup"
+                with open(self.config_file, 'r', encoding='utf-8') as f:
+                    with open(backup_file, 'w', encoding='utf-8') as backup:
+                        backup.write(f.read())
+
+            with open(self.config_file, 'w', encoding='utf-8') as f:
+                json.dump(settings, f, ensure_ascii=False, indent=2)
+            return True
+        except Exception as e:
+            print(f"保存视频设置失败: {e}")
+            return False
+
+    def get_video_params(self):
+        """获取视频参数"""
+        settings = self.load_settings()
+        return settings.get("video_params", self.default_settings["video_params"])
+
+    def set_video_params(self, width, height, duration, num_frames=None):
+        """设置视频参数"""
+        settings = self.load_settings()
+        if num_frames is None:
+            num_frames = duration * 16 + 1  # 自动计算帧数
+
+        settings["video_params"] = {
+            "width": width,
+            "height": height,
+            "duration": duration,
+            "num_frames": num_frames
+        }
+
+        return self.save_settings(settings)
+
+    def get_api_settings(self):
+        """获取API设置"""
+        settings = self.load_settings()
+        return settings.get("api_settings", self.default_settings["api_settings"])
+
+    def set_api_settings(self, key_file, web_app_id=41082):
+        """设置API参数"""
+        settings = self.load_settings()
+        settings["api_settings"] = {
+            "key_file": key_file,
+            "web_app_id": web_app_id
+        }
+        return self.save_settings(settings)
+
+    def get_ui_settings(self):
+        """获取UI设置"""
+        settings = self.load_settings()
+        return settings.get("ui_settings", self.default_settings["ui_settings"])
+
+    def set_ui_settings(self, last_export_dir=None):
+        """设置UI参数"""
+        settings = self.load_settings()
+        if last_export_dir:
+            settings["ui_settings"]["last_export_dir"] = last_export_dir
+        return self.save_settings(settings)
+
+    def _merge_settings(self, defaults, loaded):
+        """合并配置，确保所有必要字段都存在"""
+        result = defaults.copy()
+        for key, value in loaded.items():
+            if key in result:
+                if isinstance(value, dict) and isinstance(result[key], dict):
+                    result[key] = {**result[key], **value}
+                else:
+                    result[key] = value
+            else:
+                result[key] = value
+        return result
 from PyQt5.QtCore import QThread, pyqtSignal, QTimer, Qt, QMimeData, QUrl, QObject
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
                             QLineEdit, QTextEdit, QPushButton, QComboBox,
@@ -20,6 +132,35 @@ from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
                             QGroupBox, QTabWidget, QSplitter, QFrame,
                             QGridLayout, QScrollArea, QSlider, QCheckBox, QDialog)
 from PyQt5.QtGui import QPixmap, QDragEnterEvent, QDropEvent, QPalette
+
+# 尝试导入多媒体组件
+try:
+    from PyQt5.QtMultimediaWidgets import QVideoWidget
+    from PyQt5.QtMultimedia import QMediaPlayer, QMediaContent
+    MULTIMEDIA_AVAILABLE = True
+except ImportError:
+    MULTIMEDIA_AVAILABLE = False
+    print("警告: PyQt5多媒体组件不可用，视频播放功能将被禁用")
+    # 创建占位符类以避免导入错误
+    class QVideoWidget:
+        def __init__(self):
+            pass
+    class QMediaPlayer:
+        def __init__(self):
+            pass
+        def setVideoOutput(self, widget):
+            pass
+        def setMedia(self, content):
+            pass
+        def play(self):
+            pass
+        def stop(self):
+            pass
+        def pause(self):
+            pass
+    class QMediaContent:
+        def __init__(self, url):
+            pass
 import qfluentwidgets as qf
 from qfluentwidgets import (FluentIcon, CardWidget, ElevatedCardWidget,
                           SmoothScrollArea, SubtitleLabel, BodyLabel,
@@ -744,6 +885,10 @@ class ConcurrentBatchManager(QObject):
         # 移除已完成的工作线程
         if task_id in self.workers:
             worker = self.workers.pop(task_id)
+            # 等待线程完全结束
+            if worker.isRunning():
+                worker.quit()
+                worker.wait(3000)  # 等待最多3秒
             worker.deleteLater()
 
         # 检查是否所有任务都已完成
@@ -757,9 +902,17 @@ class ConcurrentBatchManager(QObject):
 
     def cancel_all_tasks(self):
         """取消所有任务"""
+        # 先取消所有任务
         for worker in self.workers.values():
             worker.cancel()
-            worker.wait()  # 等待线程结束
+
+        # 等待所有线程结束
+        for worker in self.workers.values():
+            if worker.isRunning():
+                worker.quit()
+                worker.wait(5000)  # 等待最多5秒
+
+        # 清空工作线程列表
         self.workers.clear()
 
 
@@ -1221,6 +1374,9 @@ class VideoGenerationWidget(QWidget):
         self.batch_tasks = []
         self.api_manager = APIKeyManager()
 
+        # 初始化配置管理器
+        self.settings_manager = VideoSettingsManager()
+
         # 先初始化隐藏的参数控件
         self.init_hidden_params_controls()
 
@@ -1655,8 +1811,11 @@ class VideoGenerationWidget(QWidget):
         # 帧数显示（隐藏）
         self.frames_label = QLabel("81")
 
-    def update_frames(self, seconds):
+    def update_frames(self, seconds=None):
         """根据秒数更新帧数显示"""
+        if seconds is None:
+            seconds = self.duration_spin.value()
+
         # BizyAir API的帧数计算：16帧/秒 + 1帧封面
         frames = seconds * 16 + 1
         self.frames_label.setText(str(frames))
@@ -1850,142 +2009,125 @@ class VideoGenerationWidget(QWidget):
         self.video_scroll.setFixedHeight(300)  # 限制高度，为播放器留空间
         video_list_layout.addWidget(self.video_scroll)
 
-        # 下部分：视频播放区域
-        # 分隔线
-        separator = QFrame()
-        separator.setFrameShape(QFrame.HLine)
-        separator.setStyleSheet("color: #404040;")
-        video_list_layout.addWidget(separator)
-
-        # 视频播放区域标题
-        player_title = QLabel("🎬 视频播放器")
-        player_title.setStyleSheet("font-size: 14px; font-weight: bold; color: #ffffff; margin: 10px 0 5px 0;")
-        video_list_layout.addWidget(player_title)
-
-        # 视频播放器容器
-        player_container = QFrame()
-        player_container.setStyleSheet("""
-            QFrame {
-                background-color: #1a1a1a;
-                border: 1px solid #404040;
-                border-radius: 8px;
-                padding: 10px;
-            }
-        """)
+        # 下部分：任务视频播放区域
+        # 视频播放器容器 - 简洁大气设计
+        player_container = QWidget()
+        player_container.setStyleSheet("QWidget { background-color: #1e1e1e; }")
         player_layout = QVBoxLayout(player_container)
-        player_layout.setSpacing(8)
+        player_layout.setContentsMargins(0, 0, 0, 0)
+        player_layout.setSpacing(0)
 
-        # 分割器：播放器和本地视频列表
-        player_splitter = QSplitter(Qt.Horizontal)
-        player_layout.addWidget(player_splitter)
-
-        # 左侧：播放器区域
-        player_left = QWidget()
-        player_left_layout = QVBoxLayout(player_left)
-        player_left_layout.setSpacing(8)
-
-        # 视频播放器
-        from PyQt5.QtMultimediaWidgets import QVideoWidget
-        from PyQt5.QtMultimedia import QMediaPlayer, QMediaContent
-
-        self.video_player = QVideoWidget()
-        self.video_player.setStyleSheet("""
-            QVideoWidget {
-                background-color: #000000;
-                border: 2px solid #404040;
-                border-radius: 6px;
-                min-height: 250px;
+        # 简洁的控制栏
+        control_bar = QWidget()
+        control_bar.setFixedHeight(50)
+        control_bar.setStyleSheet("""
+            QWidget {
+                background-color: #2a2a2a;
+                border-top: 1px solid #404040;
             }
         """)
-        player_left_layout.addWidget(self.video_player)
+        control_layout = QHBoxLayout(control_bar)
+        control_layout.setContentsMargins(15, 8, 15, 8)
 
-        # 媒体播放器
-        self.media_player = QMediaPlayer()
-        self.media_player.setVideoOutput(self.video_player)
+        # 刷新按钮
+        self.refresh_videos_btn = PushButton("刷新")
+        self.refresh_videos_btn.setFixedSize(80, 34)
+        self.refresh_videos_btn.clicked.connect(self.refresh_task_videos)
+        self.refresh_videos_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #444444;
+                border: none;
+                border-radius: 4px;
+                color: white;
+                font-size: 13px;
+                font-weight: 500;
+            }
+            QPushButton:hover {
+                background-color: #555555;
+            }
+        """)
+        control_layout.addWidget(self.refresh_videos_btn)
 
-        # 播放控制区域
-        playback_controls = QHBoxLayout()
-
-        self.play_btn = PushButton("▶️ 播放")
-        self.play_btn.setFixedHeight(30)
-        self.play_btn.clicked.connect(self.toggle_playback)
-        self.play_btn.setEnabled(False)
-        playback_controls.addWidget(self.play_btn)
-
-        self.stop_btn = PushButton("⏹️ 停止")
-        self.stop_btn.setFixedHeight(30)
-        self.stop_btn.clicked.connect(self.stop_playback)
-        self.stop_btn.setEnabled(False)
-        playback_controls.addWidget(self.stop_btn)
-
-        # 刷新本地视频列表按钮
-        self.refresh_videos_btn = PushButton("🔄")
-        self.refresh_videos_btn.setFixedHeight(30)
-        self.refresh_videos_btn.setFixedWidth(30)
-        self.refresh_videos_btn.clicked.connect(self.refresh_local_videos)
-        self.refresh_videos_btn.setToolTip("刷新本地视频列表")
-        playback_controls.addWidget(self.refresh_videos_btn)
+        # 打开output文件夹按钮
+        self.open_output_btn = PushButton("打开文件夹")
+        self.open_output_btn.setFixedSize(100, 34)
+        self.open_output_btn.clicked.connect(self.open_output_folder)
+        self.open_output_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #17a2b8;
+                border: none;
+                border-radius: 4px;
+                color: white;
+                font-size: 13px;
+                font-weight: 500;
+            }
+            QPushButton:hover {
+                background-color: #138496;
+            }
+        """)
+        control_layout.addWidget(self.open_output_btn)
 
         # 当前播放信息
-        self.current_video_label = QLabel("未选择视频")
+        self.current_video_label = QLabel("点击下方视频缩略图使用本地播放器打开")
         self.current_video_label.setStyleSheet("""
             QLabel {
                 color: #cccccc;
-                font-size: 11px;
-                padding: 6px 10px;
+                font-size: 12px;
+                padding: 6px 12px;
                 background-color: #333333;
                 border-radius: 4px;
-                border: 1px solid #404040;
+                margin-left: 10px;
             }
         """)
-        playback_controls.addWidget(self.current_video_label)
+        control_layout.addWidget(self.current_video_label)
 
-        playback_controls.addStretch()
+        control_layout.addStretch()
 
-        player_left_layout.addLayout(playback_controls)
-        player_splitter.addWidget(player_left)
+        player_layout.addWidget(control_bar)
 
-        # 右侧：本地视频列表
-        player_right = QWidget()
-        player_right_layout = QVBoxLayout(player_right)
-        player_right_layout.setSpacing(5)
-
-        # 本地视频列表标题
-        local_videos_title = QLabel("📁 本地视频")
-        local_videos_title.setStyleSheet("font-size: 14px; font-weight: bold; color: #ffffff; margin-bottom: 5px;")
-        player_right_layout.addWidget(local_videos_title)
-
-        # 本地视频列表区域
-        self.local_videos_scroll = QScrollArea()
-        self.local_videos_scroll.setWidgetResizable(True)
-        self.local_videos_scroll.setStyleSheet("""
-            QScrollArea {
-                background-color: #2a2a2a;
-                border: 1px solid #404040;
-                border-radius: 6px;
+        # 任务视频缩略图区域 - 替换本地视频列表
+        thumbnail_container = QWidget()
+        thumbnail_container.setFixedHeight(120)
+        thumbnail_container.setStyleSheet("""
+            QWidget {
+                background-color: #1a1a1a;
+                border-top: 1px solid #404040;
             }
-            QScrollBar:vertical {
+        """)
+        thumbnail_layout = QHBoxLayout(thumbnail_container)
+        thumbnail_layout.setContentsMargins(10, 8, 10, 8)
+        thumbnail_layout.setSpacing(10)
+
+        # 缩略图滚动区域
+        self.task_thumbnail_scroll = QScrollArea()
+        self.task_thumbnail_scroll.setWidgetResizable(True)
+        self.task_thumbnail_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.task_thumbnail_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.task_thumbnail_scroll.setStyleSheet("""
+            QScrollArea {
+                background-color: transparent;
+                border: none;
+            }
+            QScrollBar:horizontal {
                 background-color: #2a2a2a;
-                width: 6px;
+                height: 6px;
                 border-radius: 3px;
             }
-            QScrollBar::handle:vertical {
+            QScrollBar::handle:horizontal {
                 background-color: #4a4a4a;
                 border-radius: 3px;
-                min-height: 15px;
+                min-width: 20px;
             }
         """)
 
-        self.local_videos_widget = QWidget()
-        self.local_videos_layout = QVBoxLayout(self.local_videos_widget)
-        self.local_videos_layout.setSpacing(3)
-        self.local_videos_scroll.setWidget(self.local_videos_widget)
-        player_right_layout.addWidget(self.local_videos_scroll)
+        self.task_thumbnails_widget = QWidget()
+        self.task_thumbnails_layout = QHBoxLayout(self.task_thumbnails_widget)
+        self.task_thumbnails_layout.setSpacing(10)
+        self.task_thumbnails_layout.setContentsMargins(0, 0, 0, 0)
+        self.task_thumbnail_scroll.setWidget(self.task_thumbnails_widget)
+        thumbnail_layout.addWidget(self.task_thumbnail_scroll)
 
-        player_splitter.addWidget(player_right)
-
-        # 设置分割比例（播放器:本地列表 = 3:1）
-        player_splitter.setSizes([450, 150])
+        player_layout.addWidget(thumbnail_container)
 
         video_list_layout.addWidget(player_container)
 
@@ -2309,6 +2451,9 @@ class VideoGenerationWidget(QWidget):
                     worker = self.concurrent_batch_manager.workers.get(task_id)
                     if worker and hasattr(worker, 'time_update_active'):
                         worker.time_update_active = False
+
+                # 刷新任务视频列表，显示新生成的视频
+                self.refresh_task_videos()
         else:
             self.add_log(f"❌ [{task_id}] {message}")
             # 更新对应卡片为错误状态
@@ -2333,7 +2478,12 @@ class VideoGenerationWidget(QWidget):
 
         # 清理管理器
         if self.concurrent_batch_manager:
+            # 确保所有线程都正确清理
+            self.concurrent_batch_manager.cancel_all_tasks()
             self.concurrent_batch_manager = None
+
+        # 刷新任务视频列表
+        self.refresh_task_videos()
 
     def update_batch_progress(self, current, total):
         """更新批量进度"""
@@ -2415,12 +2565,12 @@ class VideoGenerationWidget(QWidget):
             except Exception as e:
                 QMessageBox.critical(self, "错误", f"保存失败: {str(e)}")
 
-    def refresh_local_videos(self):
-        """刷新本地视频列表"""
+    def refresh_task_videos(self):
+        """刷新任务视频缩略图列表"""
         try:
-            # 清空现有列表
-            while self.local_videos_layout.count():
-                item = self.local_videos_layout.takeAt(0)
+            # 清空现有缩略图
+            while self.task_thumbnails_layout.count():
+                item = self.task_thumbnails_layout.takeAt(0)
                 if item.widget():
                     item.widget().deleteLater()
 
@@ -2428,47 +2578,152 @@ class VideoGenerationWidget(QWidget):
             output_dir = "output"
             if not os.path.exists(output_dir):
                 os.makedirs(output_dir)
-                self.local_videos_layout.addWidget(QLabel("📁 output文件夹为空"))
+                # 显示空状态提示
+                empty_label = QLabel("本次任务暂无生成的视频")
+                empty_label.setStyleSheet("color: #888888; font-size: 12px;")
+                self.task_thumbnails_layout.addWidget(empty_label)
                 return
 
-            # 支持的视频格式
-            video_extensions = ['.mp4', '.avi', '.mov', '.mkv', '.flv', '.wmv', '.webm']
+            # 支持的视频格式 - 只显示本次会话生成的视频
+            video_extensions = ['.mp4']
             video_files = []
 
-            # 扫描视频文件
+            # 扫描视频文件，按创建时间过滤
+            current_time = time.time()
+            session_start = current_time - 3600  # 最近1小时的文件
+
             for file in os.listdir(output_dir):
                 if any(file.lower().endswith(ext) for ext in video_extensions):
                     file_path = os.path.join(output_dir, file)
                     if os.path.isfile(file_path):
-                        # 获取文件信息
+                        # 获取文件创建时间
                         stat = os.stat(file_path)
-                        size_mb = stat.st_size / (1024 * 1024)
-                        mtime = datetime.fromtimestamp(stat.st_mtime).strftime("%Y-%m-%d %H:%M")
+                        create_time = stat.st_ctime
 
-                        video_files.append({
-                            'name': file,
-                            'path': file_path,
-                            'size_mb': size_mb,
-                            'mtime': mtime
-                        })
+                        # 只显示最近创建的视频
+                        if create_time >= session_start:
+                            size_mb = stat.st_size / (1024 * 1024)
 
-            # 按修改时间排序（最新的在前）
-            video_files.sort(key=lambda x: x['mtime'], reverse=True)
+                            video_files.append({
+                                'name': file,
+                                'path': file_path,
+                                'size_mb': size_mb,
+                                'create_time': create_time
+                            })
+
+            # 按创建时间排序（最新的在前）
+            video_files.sort(key=lambda x: x['create_time'], reverse=True)
 
             if not video_files:
-                self.local_videos_layout.addWidget(QLabel("📁 没有找到视频文件"))
+                # 显示空状态提示
+                empty_label = QLabel("本次任务暂无生成的视频")
+                empty_label.setStyleSheet("color: #888888; font-size: 12px;")
+                self.task_thumbnails_layout.addWidget(empty_label)
                 return
 
-            # 添加视频文件到列表
+            # 添加视频缩略图
             for video_info in video_files:
-                video_item = self.create_local_video_item(video_info)
-                self.local_videos_layout.addWidget(video_item)
+                thumbnail_item = self.create_video_thumbnail(video_info)
+                self.task_thumbnails_layout.addWidget(thumbnail_item)
 
-            self.add_log(f"📁 已刷新本地视频列表，共{len(video_files)}个文件")
+            self.add_log(f"📹 已刷新任务视频列表，共{len(video_files)}个文件")
 
         except Exception as e:
-            self.add_log(f"⚠️ 刷新本地视频列表失败: {str(e)}")
-            self.local_videos_layout.addWidget(QLabel("❌ 加载失败"))
+            self.add_log(f"⚠️ 刷新任务视频失败: {str(e)}")
+            # 显示错误提示
+            error_label = QLabel("加载视频列表失败")
+            error_label.setStyleSheet("color: #ff6b6b; font-size: 12px;")
+            self.task_thumbnails_layout.addWidget(error_label)
+
+    def create_video_thumbnail(self, video_info):
+        """创建视频缩略图项目"""
+        widget = QWidget()
+        widget.setFixedSize(140, 100)
+        widget.setCursor(Qt.PointingHandCursor)
+
+        layout = QVBoxLayout(widget)
+        layout.setSpacing(4)
+        layout.setContentsMargins(4, 4, 4, 4)
+
+        # 缩略图区域
+        thumbnail = QLabel()
+        thumbnail.setFixedSize(132, 74)
+        thumbnail.setStyleSheet("""
+            QLabel {
+                background-color: #2a2a2a;
+                border: 1px solid #404040;
+                border-radius: 4px;
+            }
+            QLabel:hover {
+                border: 2px solid #4a90e2;
+            }
+        """)
+        thumbnail.setAlignment(Qt.AlignCenter)
+
+        # 显示文件名前几个字符作为缩略图标识
+        name_short = video_info['name'][:8] + "..." if len(video_info['name']) > 8 else video_info['name']
+        thumbnail.setText(f"📹\n{name_short}")
+        thumbnail.setStyleSheet(thumbnail.styleSheet() + """
+            QLabel {
+                color: #cccccc;
+                font-size: 10px;
+            }
+        """)
+        layout.addWidget(thumbnail)
+
+        # 文件名
+        name_label = QLabel(video_info['name'][:12] + "..." if len(video_info['name']) > 12 else video_info['name'])
+        name_label.setStyleSheet("color: #ffffff; font-size: 10px;")
+        name_label.setAlignment(Qt.AlignCenter)
+        layout.addWidget(name_label)
+
+        # 点击播放
+        widget.mousePressEvent = lambda event: self.play_task_video(video_info['path'], video_info['name'])
+
+        return widget
+
+    def open_output_folder(self):
+        """打开output文件夹"""
+        try:
+            import subprocess
+            import platform
+
+            output_dir = "output"
+            if not os.path.exists(output_dir):
+                os.makedirs(output_dir)
+
+            # 根据操作系统打开文件夹
+            system = platform.system()
+            if system == "Windows":
+                os.startfile(output_dir)
+            elif system == "Darwin":  # macOS
+                subprocess.run(["open", output_dir])
+            else:  # Linux
+                subprocess.run(["xdg-open", output_dir])
+
+            self.add_log(f"📁 已打开output文件夹")
+
+        except Exception as e:
+            self.add_log(f"❌ 打开文件夹失败: {str(e)}")
+
+    def play_task_video(self, file_path, file_name):
+        """使用本地播放器播放视频"""
+        try:
+            if not os.path.exists(file_path):
+                self.add_log(f"⚠️ 视频文件不存在: {file_path}")
+                return
+
+            # 直接使用系统默认播放器打开视频文件
+            from PyQt5.QtGui import QDesktopServices
+            from PyQt5.QtCore import QUrl
+            QDesktopServices.openUrl(QUrl.fromLocalFile(file_path))
+
+            # 更新状态显示
+            self.current_video_label.setText(f"已使用本地播放器打开: {file_name}")
+            self.add_log(f"🎬 使用本地播放器打开视频: {file_name}")
+
+        except Exception as e:
+            self.add_log(f"❌ 打开视频失败: {str(e)}")
 
     def create_local_video_item(self, video_info):
         """创建本地视频列表项"""
@@ -2587,8 +2842,6 @@ class VideoGenerationWidget(QWidget):
 
             # 加载视频到播放器
             from PyQt5.QtCore import QUrl
-            from PyQt5.QtMultimedia import QMediaContent
-
             self.media_player.setMedia(QMediaContent(QUrl.fromLocalFile(file_path)))
             self.media_player.play()
 
@@ -2602,27 +2855,40 @@ class VideoGenerationWidget(QWidget):
             QMessageBox.warning(self, "错误", f"播放失败: {str(e)}")
 
     def load_settings(self):
-        """加载设置"""
+        """加载设置 - 使用配置管理器"""
         try:
-            settings_file = "video_settings.json"
-            if os.path.exists(settings_file):
-                with open(settings_file, 'r', encoding='utf-8') as f:
-                    settings = json.load(f)
+            # 加载所有设置
+            video_params = self.settings_manager.get_video_params()
+            api_settings = self.settings_manager.get_api_settings()
 
-                # 加载密钥文件路径
-                if 'key_file' in settings:
-                    self.api_manager.load_keys_from_file(settings['key_file'])
-                    self.key_file_path = settings['key_file']
+            # 应用视频参数到控件
+            if hasattr(self, 'width_spin'):
+                self.width_spin.setValue(video_params.get('width', 480))
+            if hasattr(self, 'height_spin'):
+                self.height_spin.setValue(video_params.get('height', 854))
+            if hasattr(self, 'duration_spin'):
+                self.duration_spin.setValue(video_params.get('duration', 5))
+            if hasattr(self, 'frames_label'):
+                self.frames_label.setText(str(video_params.get('num_frames', 81)))
 
-                self.update_key_status()
+            # 加载API密钥文件
+            key_file = api_settings.get('key_file', '')
+            if key_file and os.path.exists(key_file):
+                self.api_manager.load_keys_from_file(key_file)
+                self.key_file_path = key_file
 
-                # 初始化参数显示
-                self.update_current_params_display()
+            self.update_key_status()
 
-                # 初始化本地视频列表
-                self.refresh_local_videos()
+            # 初始化参数显示
+            self.update_current_params_display()
+
+            # 初始化任务视频列表
+            self.refresh_task_videos()
+
+            self.add_log(f"✅ 已加载视频设置配置")
+
         except Exception as e:
-            self.add_log(f"加载设置失败: {e}")
+            self.add_log(f"❌ 加载设置失败: {e}")
 
             # 即使加载失败也要初始化参数显示
             try:
@@ -2634,83 +2900,44 @@ class VideoGenerationWidget(QWidget):
                     self.current_params_top_label.setText("当前: 480×854, 5秒, 81帧")
 
     def save_settings(self):
-        """保存设置"""
+        """保存设置 - 使用配置管理器"""
         try:
-            settings = {}
-            if hasattr(self, 'key_file_path') and self.key_file_path:
-                settings['key_file'] = self.key_file_path
+            # 获取当前参数值
+            if hasattr(self, 'width_spin') and self.width_spin:
+                width = self.width_spin.value()
+            else:
+                width = 480
 
-            settings_file = "video_settings.json"
-            with open(settings_file, 'w', encoding='utf-8') as f:
-                json.dump(settings, f, ensure_ascii=False, indent=2)
-        except Exception as e:
-            self.add_log(f"保存设置失败: {e}")
+            if hasattr(self, 'height_spin') and self.height_spin:
+                height = self.height_spin.value()
+            else:
+                height = 854
 
-    def add_video_to_display(self, video_path, video_name):
-        """添加视频到播放区域"""
-        try:
-            # 确保在视频列表Tab（索引0）
-            self.result_tabs.setCurrentIndex(0)
+            if hasattr(self, 'duration_spin') and self.duration_spin:
+                duration = self.duration_spin.value()
+            else:
+                duration = 5
 
-            # 设置当前播放的视频
-            self.current_video_path = video_path
-            self.current_video_label.setText(f"当前: {os.path.basename(video_path)}")
+            # 保存视频参数
+            success1 = self.settings_manager.set_video_params(width, height, duration)
 
-            # 启用播放控制按钮
-            self.play_btn.setEnabled(True)
-            self.stop_btn.setEnabled(True)
+            # 保存API密钥文件路径
+            key_file_path = getattr(self, 'key_file_path', '')
+            if key_file_path:
+                success2 = self.settings_manager.set_api_settings(key_file_path, self.api_manager.web_app_id)
+            else:
+                success2 = True  # 没有密钥文件也算成功
 
-            # 加载视频到播放器
-            from PyQt5.QtCore import QUrl
-            from PyQt5.QtMultimedia import QMediaContent
-
-            self.media_player.setMedia(QMediaContent(QUrl.fromLocalFile(video_path)))
-            self.add_log(f"🎬 已加载视频: {video_name}")
-
-        except Exception as e:
-            self.add_log(f"⚠️ 加载视频失败: {str(e)}")
-
-    def play_video_in_display(self, video_path):
-        """在显示区域播放视频"""
-        try:
-            # 确保在视频列表Tab（索引0）
-            self.result_tabs.setCurrentIndex(0)
-
-            # 设置并播放视频
-            self.current_video_path = video_path
-            self.current_video_label.setText(f"正在播放: {os.path.basename(video_path)}")
-
-            # 启用播放控制按钮
-            self.play_btn.setEnabled(True)
-            self.stop_btn.setEnabled(True)
-
-            # 加载并播放视频
-            from PyQt5.QtCore import QUrl
-            from PyQt5.QtMultimedia import QMediaContent
-
-            self.media_player.setMedia(QMediaContent(QUrl.fromLocalFile(video_path)))
-            self.media_player.play()
-
-            # 更新播放按钮文本
-            self.play_btn.setText("⏸️ 暂停")
+            if success1 and success2:
+                self.add_log(f"✅ 视频设置已保存")
+            else:
+                self.add_log(f"⚠️ 部分设置保存失败")
 
         except Exception as e:
-            self.add_log(f"⚠️ 播放视频失败: {str(e)}")
+            self.add_log(f"❌ 保存设置失败: {e}")
 
-    def toggle_playback(self):
-        """切换播放/暂停"""
-        if self.media_player.state() == self.media_player.PlayingState:
-            self.media_player.pause()
-            self.play_btn.setText("▶️ 播放")
-        else:
-            self.media_player.play()
-            self.play_btn.setText("⏸️ 暂停")
-
-    def stop_playback(self):
-        """停止播放"""
-        self.media_player.stop()
-        self.play_btn.setText("▶️ 播放")
-
+    
+    
 # 视频参数设置对话框
 class VideoSettingsDialog(QDialog):
     """视频参数设置对话框"""
@@ -2984,7 +3211,7 @@ class VideoSettingsDialog(QDialog):
                 border: 2px solid #5a5a5a;
             }
         """)
-        self.duration_spin.valueChanged.connect(lambda: self.update_frames())
+        self.duration_spin.valueChanged.connect(lambda value: self.update_frames(value))
         duration_layout.addWidget(self.duration_spin)
 
         layout.addWidget(duration_group)
@@ -3093,12 +3320,39 @@ class VideoSettingsDialog(QDialog):
         layout.addLayout(button_layout)
 
     def load_current_settings(self):
-        """从主界面加载当前设置"""
-        if hasattr(self.parent(), 'width_spin') and hasattr(self.parent(), 'height_spin'):
-            self.width_spin.setValue(self.parent().width_spin.value())
-            self.height_spin.setValue(self.parent().height_spin.value())
-            self.duration_spin.setValue(self.parent().duration_spin.value())
-            self.update_frames()
+        """从配置文件加载当前设置，优先使用JSON配置"""
+        try:
+            # 优先从配置文件加载
+            if hasattr(self.parent(), 'settings_manager'):
+                video_params = self.parent().settings_manager.get_video_params()
+
+                self.width_spin.setValue(video_params.get('width', 480))
+                self.height_spin.setValue(video_params.get('height', 854))
+                self.duration_spin.setValue(video_params.get('duration', 5))
+                self.update_frames(video_params.get('duration', 5))
+
+                # 更新父控件的值（如果存在）
+                if hasattr(self.parent(), 'width_spin'):
+                    self.parent().width_spin.setValue(video_params.get('width', 480))
+                if hasattr(self.parent(), 'height_spin'):
+                    self.parent().height_spin.setValue(video_params.get('height', 854))
+                if hasattr(self.parent(), 'duration_spin'):
+                    self.parent().duration_spin.setValue(video_params.get('duration', 5))
+
+            # 如果没有配置管理器，则从父控件加载
+            elif hasattr(self.parent(), 'width_spin') and hasattr(self.parent(), 'height_spin'):
+                self.width_spin.setValue(self.parent().width_spin.value())
+                self.height_spin.setValue(self.parent().height_spin.value())
+                self.duration_spin.setValue(self.parent().duration_spin.value())
+                self.update_frames(self.duration_spin.value())
+
+        except Exception as e:
+            print(f"加载视频设置失败: {e}")
+            # 使用默认值
+            self.width_spin.setValue(480)
+            self.height_spin.setValue(854)
+            self.duration_spin.setValue(5)
+            self.update_frames(5)
 
     def on_resolution_changed(self, index):
         """预设分辨率改变"""
@@ -3116,9 +3370,10 @@ class VideoSettingsDialog(QDialog):
             self.width_spin.setValue(width)
             self.height_spin.setValue(height)
 
-    def update_frames(self):
+    def update_frames(self, seconds=None):
         """根据秒数更新帧数"""
-        seconds = self.duration_spin.value()
+        if seconds is None:
+            seconds = self.duration_spin.value()
         total_frames = seconds * 16 + 1
         self.frames_label.setText(f"总帧数: {total_frames}")
 
@@ -3135,7 +3390,7 @@ class VideoSettingsDialog(QDialog):
         self.height_spin.setValue(854)
         self.duration_spin.setValue(5)
         self.resolution_combo.setCurrentIndex(0)  # 自定义
-        self.update_frames()
+        self.update_frames(5)
 
     def accept_settings(self):
         """应用设置并关闭"""
@@ -3145,12 +3400,29 @@ class VideoSettingsDialog(QDialog):
                 self.parent().width_spin.setValue(self.width_spin.value())
                 self.parent().height_spin.setValue(self.height_spin.value())
                 self.parent().duration_spin.setValue(self.duration_spin.value())
-                self.parent().update_frames()
+                # 传递当前时长参数给update_frames方法
+                self.parent().update_frames(self.duration_spin.value())
 
                 # 更新参数显示
                 self.parent().update_current_params_display()
+
+                # 直接保存到JSON配置文件
+                if hasattr(self.parent(), 'settings_manager'):
+                    width = self.width_spin.value()
+                    height = self.height_spin.value()
+                    duration = self.duration_spin.value()
+                    success = self.parent().settings_manager.set_video_params(width, height, duration)
+                    if success:
+                        self.parent().add_log(f"✅ 视频参数设置已保存到JSON配置文件")
+                    else:
+                        self.parent().add_log(f"⚠️ 视频参数保存到JSON文件失败")
+
+                # 显示成功提示
+                self.parent().add_log(f"✅ 视频参数设置已应用")
         except Exception as e:
             print(f"应用设置时出错: {str(e)}")
+            if hasattr(self.parent(), 'add_log'):
+                self.parent().add_log(f"❌ 应用设置失败: {str(e)}")
         self.accept()
 
 # API设置对话框
@@ -3163,6 +3435,7 @@ class APISettingsDialog(QDialog):
         self.setWindowTitle("API密钥设置")
         self.setMinimumSize(500, 400)
         self.init_ui()
+        self.load_current_settings()
 
     def init_ui(self):
         layout = QVBoxLayout(self)
@@ -3256,11 +3529,39 @@ class APISettingsDialog(QDialog):
         if file_path and os.path.exists(file_path):
             if self.api_manager.load_keys_from_file(file_path):
                 self.parent().key_file_path = file_path
+
+                # 保存API设置到JSON配置文件
+                if hasattr(self.parent(), 'settings_manager'):
+                    self.parent().settings_manager.set_api_settings(file_path, self.webapp_id_spin.value())
+                    if hasattr(self.parent(), 'add_log'):
+                        self.parent().add_log(f"✅ API密钥设置已保存")
+
                 self.accept()
             else:
-                QMessageBox.warning(self, "警告", "密钥文件保存失败")
+                QMessageBox.warning(self, "警告", "密钥文件加载失败")
         else:
+            # 保存WebApp ID设置（即使没有密钥文件）
+            if hasattr(self.parent(), 'settings_manager'):
+                self.parent().settings_manager.set_api_settings("", self.webapp_id_spin.value())
             self.accept()
+
+    def load_current_settings(self):
+        """从配置文件加载当前设置"""
+        try:
+            if hasattr(self.parent(), 'settings_manager'):
+                api_settings = self.parent().settings_manager.get_api_settings()
+
+                # 加载密钥文件路径
+                key_file = api_settings.get('key_file', '')
+                if key_file:
+                    self.key_file_edit.setText(key_file)
+
+                # 加载WebApp ID
+                webapp_id = api_settings.get('web_app_id', 41082)
+                self.webapp_id_spin.setValue(webapp_id)
+                self.api_manager.web_app_id = webapp_id
+        except Exception as e:
+            print(f"加载API设置失败: {e}")
 
 # 视频下载工作线程
 class VideoDownloadWorker(QThread):
