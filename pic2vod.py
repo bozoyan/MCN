@@ -131,7 +131,7 @@ class Utils:
                 image = background.convert('RGB')
 
             # 调整图片大小，保持宽高比
-            max_dimension = 1024
+            max_dimension = 1280
             width, height = image.size
             
             if max(width, height) > max_dimension:
@@ -2025,7 +2025,7 @@ class VideoGenerationWidget(QWidget):
         name_label.setStyleSheet("font-weight: bold; color: #ffffff; font-size: 14px;")
         info_layout.addWidget(name_label)
 
-        prompt_label = QLabel(f"提示词: {task['prompt'][:80]}...")
+        prompt_label = QLabel(f"提示词: {task['prompt'][:60]}...")
         prompt_label.setStyleSheet("color: #cccccc; font-size: 12px;")
         info_layout.addWidget(prompt_label)
 
