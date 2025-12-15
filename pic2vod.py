@@ -29,7 +29,7 @@ class VideoSettingsManager:
             },
             "api_settings": {
                 "key_file": "",
-                "web_app_id": 41082
+                "web_app_id": 41082  # 正确的WebApp ID
             },
             "ui_settings": {
                 "last_export_dir": "output"
@@ -166,7 +166,8 @@ from qfluentwidgets import (FluentIcon, CardWidget, ElevatedCardWidget,
                           SmoothScrollArea, SubtitleLabel, BodyLabel,
                           PrimaryPushButton, PushButton, LineEdit, ComboBox,
                           ProgressBar, InfoBar, InfoBarPosition,
-                          SwitchButton, InfoBadge, TeachingTip, TeachingTipTailPosition)
+                          SwitchButton, InfoBadge, TeachingTip, TeachingTipTailPosition,
+                          StrongBodyLabel, CaptionLabel)
 
 # 导入配置管理器
 try:
@@ -303,7 +304,8 @@ class APIKeyManager:
         self.api_keys = []
         self.key_file = ""
         self.current_key_index = 0
-        self.web_app_id = 41082
+        self.web_app_id = 41082  # 正确的WebApp ID
+        self.key_source = "file"  # "file" 或 "env"
 
     def load_keys_from_file(self, file_path):
         """从文件加载API密钥"""
@@ -343,10 +345,27 @@ class APIKeyManager:
 
     def get_all_keys(self):
         """获取所有可用的API密钥"""
-        if self.api_keys:
-            return self.api_keys
-        env_key = os.getenv('SiliconCloud_API_KEY')
-        return [env_key] if env_key else []
+        if self.key_source == "env":
+            env_key = os.getenv('SiliconCloud_API_KEY')
+            return [env_key] if env_key else []
+        else:
+            return self.api_keys if self.api_keys else []
+
+    def set_key_source(self, source):
+        """设置密钥源"""
+        self.key_source = source
+        self.current_key_index = 0  # 重置索引
+
+    def get_key_source(self):
+        """获取当前密钥源"""
+        return self.key_source
+
+    def get_key_source_display(self):
+        """获取密钥源显示文本"""
+        if self.key_source == "env":
+            return "系统变量"
+        else:
+            return "文件密钥"
 
 # 独立任务视频生成工作线程
 class SingleVideoGenerationWorker(QThread):
@@ -537,25 +556,24 @@ class SingleVideoGenerationWorker(QThread):
                 "Authorization": f"Bearer {self.api_key}"
             }
 
-            # 构建BizyAir API请求数据格式 - 根据示例文档使用URL格式
-            # 检查图片输入类型并转换为适当格式
+            # 构建BizyAir API请求数据格式 - 参考老版本，支持本地上传
             image_input = self.task['image_input']
+
+            # 处理图片输入格式 - 支持本地上传（参考老版本）
             if image_input.startswith('http'):
-                # 已经是URL格式，直接使用
-                final_image_input = image_input
-                self.log_message(f"🖼️ 使用图片URL: {image_input}")
+                # 网络URL，直接使用
+                image_value = image_input
+                self.log_message(f"🌐 使用网络图片URL: {image_input}")
             else:
-                # 本地文件需要上传到可访问的URL，这里先使用一个示例URL进行测试
-                # 根据文档示例，使用BizyAir的示例图片URL
-                final_image_input = "https://bizyair-prod.oss-cn-shanghai.aliyuncs.com/inputs/20251111/iFTgLtreJQ53dXMsVxKv6mtwJcKpgH9g.png"
-                self.log_message(f"⚠️ 本地文件暂不支持，使用示例图片URL进行测试")
-                # TODO: 实现本地文件上传到可访问的URL服务
+                # 本地文件，转换为data URL格式（参考老版本）
+                image_value = f"data:image/jpeg;base64,{image_input}"
+                self.log_message(f"📁 使用本地图片文件 (data URL格式)")
 
             bizyair_request_data = {
-                "web_app_id": self.api_manager.web_app_id,  # 使用管理器中的Web App ID
-                "suppress_preview_output": False,
+                "web_app_id": self.api_manager.web_app_id,  # 41082
+                "suppress_preview_output": False,  # 参考老版本使用False
                 "input_values": {
-                    "67:LoadImage.image": final_image_input,
+                    "67:LoadImage.image": image_value,
                     "68:ImageResizeKJv2.width": width,
                     "68:ImageResizeKJv2.height": height,
                     "16:WanVideoTextEncode.positive_prompt": prompt,
@@ -564,10 +582,12 @@ class SingleVideoGenerationWorker(QThread):
             }
 
             self.log_message(f"📤 发送BizyAir API请求: {width}x{height}, {num_frames}帧 (AppID: {self.api_manager.web_app_id})")
+            self.log_message(f"🔑 API密钥: {self.api_key[:10]}... (长度: {len(self.api_key)})")
 
-            # 详细检查API密钥配置和环境变量
-            env_key = os.getenv('SiliconCloud_API_KEY')
-            self.log_message(f"🔍 环境变量API密钥: {env_key[:10] if env_key else 'None'}... (存在: {'是' if env_key else '否'})")
+            # 简化的API密钥检查
+            if not self.api_key:
+                self.task_finished.emit(False, "API密钥未配置", {}, self.task_id)
+                return
 
             if self.api_key:
                 self.log_message(f"🔑 当前API密钥: {self.api_key[:15]}...{self.api_key[-5:]} (长度: {len(self.api_key)})")
@@ -597,94 +617,16 @@ class SingleVideoGenerationWorker(QThread):
             if available_keys:
                 self.log_message(f"🔧 第一个密钥示例: {available_keys[0][:15]}...{available_keys[0][-5:]} (长度: {len(available_keys[0])})")
 
-            # 使用环境变量密钥进行测试对比
-            if env_key and env_key != self.api_key:
-                self.log_message(f"🔄 尝试使用环境变量API密钥进行测试...")
-                headers_test = {
-                    "Content-Type": "application/json",
-                    "Authorization": f"Bearer {env_key}"
-                }
-
-                test_response = requests.post(
-                    "https://api.bizyair.cn/w/v1/webapp/task/openapi/create",
-                    headers=headers_test,
-                    json=test_request_data,
-                    timeout=30
-                )
-
-                self.log_message(f"🧪 环境变量密钥测试状态: {test_response.status_code}")
-                if test_response.status_code == 200:
-                    self.log_message(f"✅ 环境变量密钥测试成功！将使用环境变量密钥")
-                    headers = headers_test
-                else:
-                    try:
-                        error_result = test_response.json()
-                        self.log_message(f"❌ 环境变量密钥也失败: {error_result}")
-                    except:
-                        self.log_message(f"❌ 环境变量密钥失败: {test_response.text[:200]}")
-
+            # 直接发送API请求 - 参考老版本简化格式
             self.log_message(f"📝 请求URL: https://api.bizyair.cn/w/v1/webapp/task/openapi/create")
+            self.log_message(f"✅ 使用WebApp ID: {self.api_manager.web_app_id}")
 
-            # 先使用你示例代码中的完全相同的参数进行测试
-            self.log_message(f"🧪 使用示例代码的完全相同格式进行测试...")
-            test_request_data = {
-                "web_app_id": 41082,
-                "suppress_preview_output": False,
-                "input_values": {
-                    "67:LoadImage.image": "https://bizyair-prod.oss-cn-shanghai.aliyuncs.com/inputs/20251111/iFTgLtreJQ53dXMsVxKv6mtwJcKpgH9g.png",
-                    "68:ImageResizeKJv2.width": 480,  # 使用示例中的尺寸
-                    "68:ImageResizeKJv2.height": 720,
-                    "16:WanVideoTextEncode.positive_prompt": "美女跳舞",  # 使用示例中的提示词
-                    "89:WanVideoImageToVideoEncode.num_frames": 81
-                }
-            }
-
-            # 记录测试请求
-            self.log_message(f"📋 测试请求数据: {json.dumps(test_request_data, ensure_ascii=False, indent=2)}")
-
-            # 先发送测试请求
-            test_response = requests.post(
-                "https://api.bizyair.cn/w/v1/webapp/task/openapi/create",
-                headers=headers,
-                json=test_request_data,
-                timeout=30
-            )
-
-            self.log_message(f"🧪 测试响应状态: {test_response.status_code}")
-            try:
-                test_result = test_response.json()
-                self.log_message(f"🧪 测试响应内容: {json.dumps(test_result, ensure_ascii=False, indent=2)}")
-            except:
-                self.log_message(f"🧪 测试响应文本: {test_response.text[:500]}")
-
-            # 如果测试成功，使用实际参数
-            if test_response.status_code == 200:
-                self.log_message(f"✅ 示例格式测试成功，现在使用实际参数...")
-                bizyair_request_data = {
-                    "web_app_id": self.api_manager.web_app_id,
-                    "suppress_preview_output": False,
-                    "input_values": {
-                        "67:LoadImage.image": final_image_input,
-                        "68:ImageResizeKJv2.width": width,
-                        "68:ImageResizeKJv2.height": height,
-                        "16:WanVideoTextEncode.positive_prompt": prompt,
-                        "89:WanVideoImageToVideoEncode.num_frames": num_frames
-                    }
-                }
-                self.log_message(f"📋 实际请求数据: {json.dumps(bizyair_request_data, ensure_ascii=False, indent=2)}")
-            else:
-                self.log_message(f"❌ 示例格式测试也失败，API密钥或应用访问权限有问题")
-                self.task_finished.emit(False, f"API访问测试失败，请检查API密钥权限和应用访问权限", {}, self.task_id)
-                return
-
-            # WebApp ID 41082是正确的，直接使用
-            self.log_message(f"✅ 使用指定的WebApp ID: {self.api_manager.web_app_id}")
-
+            # 参考老版本的超时设置：(连接超时, 读取超时)
             response = requests.post(
                 "https://api.bizyair.cn/w/v1/webapp/task/openapi/create",
                 headers=headers,
                 json=bizyair_request_data,
-                timeout=600  # 10分钟超时
+                timeout=(300, 600)  # 5分钟连接超时，10分钟读取超时
             )
 
             self.log_message(f"📡 API响应状态: {response.status_code}")
@@ -999,11 +941,12 @@ class ConcurrentBatchManager(QObject):
             worker.time_updated.connect(self.task_time_updated)
             worker.log_updated.connect(self.log_updated)
 
-            # 启动任务（立即并发执行）
+            # 启动任务（错开并发执行，避免API限流）
             worker.start()
+            self.log_updated.emit(f"🚀 已启动任务 {task_id}，使用密钥 {api_key[:10]}...")
 
-            # 稍微错开启动时间，避免同时请求API
-            time.sleep(0.1)
+            # 增加错开启动时间，避免同时请求API导致限流
+            time.sleep(0.5)  # 增加到0.5秒，给API足够的缓冲时间
 
     def on_single_task_finished(self, success, message, result_data, task_id):
         """单个任务完成的回调"""
@@ -1509,6 +1452,9 @@ class VideoGenerationWidget(QWidget):
         self.batch_tasks = []
         self.api_manager = APIKeyManager()
 
+        # 任务状态卡片管理器
+        self.task_status_cards = {}  # task_id -> TaskStatusCard
+
         # 初始化配置管理器
         self.settings_manager = VideoSettingsManager()
 
@@ -1632,7 +1578,7 @@ class VideoGenerationWidget(QWidget):
         layout.addWidget(self.webapp_id_label)
 
         # 密钥设置按钮
-        self.settings_btn = PushButton("设置")  # 移除图标，添加文字
+        self.settings_btn = PushButton("API 密钥设置")  # 移除图标，添加文字
         self.settings_btn.setFixedSize(60, 32)  # 增加宽度以适应文字
         # 修复: 将 show_settings_dialog 更正为正确的 APISettingsDialog 调用方式
         self.settings_btn.clicked.connect(self.show_api_settings_dialog)
@@ -1709,28 +1655,54 @@ class VideoGenerationWidget(QWidget):
         """更新密钥状态显示"""
         try:
             available_keys = self.api_manager.get_available_keys_count()
+            key_source_display = self.api_manager.get_key_source_display()
+
             if available_keys > 0:
-                self.key_status_label.setText(f"密钥: {available_keys}个可用")
-                self.key_status_label.setStyleSheet("""
-                    color: #28a745;
-                    padding: 6px 15px;
-                    background: #e8f5e8;
-                    border-radius: 6px;
-                    border: 1px solid #28a745;
-                    font-size: 12px;
-                    min-width: 120px;
-                """)
+                if self.api_manager.get_key_source() == "env":
+                    self.key_status_label.setText(f"系统变量: 1个可用")
+                    self.key_status_label.setStyleSheet("""
+                        color: #17a2b8;
+                        padding: 6px 15px;
+                        background: #e6f7ff;
+                        border-radius: 6px;
+                        border: 1px solid #17a2b8;
+                        font-size: 12px;
+                        min-width: 120px;
+                    """)
+                else:
+                    self.key_status_label.setText(f"{key_source_display}: {available_keys}个可用")
+                    self.key_status_label.setStyleSheet("""
+                        color: #28a745;
+                        padding: 6px 15px;
+                        background: #e8f5e8;
+                        border-radius: 6px;
+                        border: 1px solid #28a745;
+                        font-size: 12px;
+                        min-width: 120px;
+                    """)
             else:
-                self.key_status_label.setText("密钥: 未配置")
-                self.key_status_label.setStyleSheet("""
-                    color: #cccccc;
-                    padding: 6px 15px;
-                    background: #333333;
-                    border-radius: 6px;
-                    border: 1px solid #404040;
-                    font-size: 12px;
-                    min-width: 120px;
-                """)
+                if self.api_manager.get_key_source() == "env":
+                    self.key_status_label.setText("系统变量: 未设置")
+                    self.key_status_label.setStyleSheet("""
+                        color: #dc3545;
+                        padding: 6px 15px;
+                        background: #ffebee;
+                        border-radius: 6px;
+                        border: 1px solid #dc3545;
+                        font-size: 12px;
+                        min-width: 120px;
+                    """)
+                else:
+                    self.key_status_label.setText("文件密钥: 未配置")
+                    self.key_status_label.setStyleSheet("""
+                        color: #cccccc;
+                        padding: 6px 15px;
+                        background: #333333;
+                        border-radius: 6px;
+                        border: 1px solid #404040;
+                        font-size: 12px;
+                        min-width: 120px;
+                    """)
         except Exception as e:
             self.add_log(f"更新密钥状态显示失败: {e}")
 
@@ -2498,7 +2470,71 @@ class VideoGenerationWidget(QWidget):
         """清空批量任务"""
         self.batch_tasks.clear()
         self.update_task_list_display()
+        # 清空任务状态卡片
+        self.clear_task_status_cards()
         self.add_log("🗑️ 已清空所有任务")
+
+    def clear_task_status_cards(self):
+        """清空任务状态卡片"""
+        for task_id, card in self.task_status_cards.items():
+            if card and hasattr(card, 'deleteLater'):
+                card.deleteLater()
+        self.task_status_cards.clear()
+
+    def create_task_status_card(self, task_id, task):
+        """创建任务状态卡片"""
+        # 清理旧卡片
+        if task_id in self.task_status_cards:
+            old_card = self.task_status_cards[task_id]
+            if hasattr(old_card, 'deleteLater'):
+                old_card.deleteLater()
+
+        # 创建任务参数
+        task_params = {
+            'width': task.get('width', 480),
+            'height': task.get('height', 854),
+            'num_frames': task.get('num_frames', 81),
+            'prompt': task.get('prompt', '')
+        }
+
+        # 创建新的状态卡片
+        card = TaskStatusCard(
+            task_id=task_id,
+            task_name=task.get('name', f'任务 {task_id}'),
+            task_params=task_params,
+            parent=self
+        )
+
+        # 设置密钥源类型
+        key_source = self.api_manager.get_key_source_display()
+        card.set_key_source(key_source)
+
+        # 添加到视频列表
+        self.video_scroll_layout.insertWidget(0, card)  # 插入到最前面
+
+        # 保存引用
+        self.task_status_cards[task_id] = card
+
+    def update_task_status_card(self, task_id, progress, message):
+        """更新任务状态卡片"""
+        if task_id in self.task_status_cards:
+            card = self.task_status_cards[task_id]
+            if card:
+                card.update_progress(progress, message)
+
+    def update_task_time_card(self, task_id, time_string):
+        """更新任务时间显示"""
+        if task_id in self.task_status_cards:
+            card = self.task_status_cards[task_id]
+            if card:
+                card.update_time(time_string)
+
+    def complete_task_status_card(self, task_id, success, message=""):
+        """完成任务状态卡片"""
+        if task_id in self.task_status_cards:
+            card = self.task_status_cards[task_id]
+            if card:
+                card.set_completed(success, message)
 
     def get_current_image_input(self):
         """获取当前图片输入"""
@@ -2625,6 +2661,12 @@ class VideoGenerationWidget(QWidget):
         # 标记生成状态，便于后续逻辑判断
         self.is_generating = True
 
+        # 为每个任务创建状态卡片
+        for i, task in enumerate(tasks):
+            task_id = f"task_{i+1}"
+            # 创建任务状态卡片
+            self.create_task_status_card(task_id, task)
+
         # 开始真正并发执行（所有任务同时启动）
         self.add_log(f"🚀 开始并发执行，共{len(tasks)}个任务，WebAppID: {self.api_manager.web_app_id}")
         self.concurrent_batch_manager.execute_batch_tasks(tasks, key_file_path)
@@ -2634,19 +2676,26 @@ class VideoGenerationWidget(QWidget):
         # 更新日志
         self.add_log(f"[{task_id}] {progress}% - {message}")
 
+        # 更新任务状态卡片
+        self.update_task_status_card(task_id, progress, message)
+
     def on_task_finished(self, success, message, result_data, task_id):
         """单个任务完成的回调"""
         if success:
             self.add_log(f"✅ [{task_id}] 任务完成: {message}")
+            # 完成任务状态卡片
+            self.complete_task_status_card(task_id, True, message)
             # 创建视频结果卡片
             self.create_video_result_card(result_data, task_id)
         else:
             self.add_log(f"❌ [{task_id}] 任务失败: {message}")
+            # 完成任务状态卡片（失败状态）
+            self.complete_task_status_card(task_id, False, message)
 
     def update_task_time(self, time_string, task_id):
         """更新任务时间显示"""
-        # 可以在界面上显示任务运行时间
-        pass
+        # 更新任务状态卡片时间
+        self.update_task_time_card(task_id, time_string)
 
     def update_batch_progress(self, completed, total):
         """更新批量进度"""
@@ -2946,11 +2995,19 @@ class VideoGenerationWidget(QWidget):
             if hasattr(self, 'frames_label'):
                 self.frames_label.setText(str(video_params.get('num_frames', 81)))
 
-            # 加载API密钥文件
+            # 加载API密钥设置
             key_file = api_settings.get('key_file', '')
             if key_file and os.path.exists(key_file):
                 self.api_manager.load_keys_from_file(key_file)
+                self.api_manager.set_key_source("file")  # 设置为文件密钥
                 self.key_file_path = key_file
+            else:
+                # 检查是否有系统变量密钥可用
+                env_key = os.getenv('SiliconCloud_API_KEY')
+                if env_key:
+                    self.api_manager.set_key_source("env")  # 设置为系统变量
+                else:
+                    self.api_manager.set_key_source("file")  # 默认文件密钥
 
             self.update_key_status()
 
@@ -3574,10 +3631,43 @@ class APISettingsDialog(QDialog):
 
         layout.addWidget(webapp_group)
 
-        # API密钥文件设置
-        key_group = QGroupBox("API密钥文件")
+        # API密钥源选择
+        key_group = QGroupBox("API密钥设置")
         key_layout = QVBoxLayout(key_group)
 
+        # 密钥源选择
+        source_layout = QHBoxLayout()
+        source_label = QLabel("密钥来源：")
+        source_label.setStyleSheet("font-weight: bold;")
+        source_layout.addWidget(source_label)
+
+        from PyQt5.QtWidgets import QRadioButton, QButtonGroup
+        self.key_source_group = QButtonGroup(self)
+
+        self.file_radio = QRadioButton("文件密钥")
+        self.file_radio.setChecked(True)  # 默认选择文件密钥
+        self.file_radio.setStyleSheet("QRadioButton { color: #ffffff; }")
+        self.key_source_group.addButton(self.file_radio, 0)
+        source_layout.addWidget(self.file_radio)
+
+        self.env_radio = QRadioButton("系统变量 (SiliconCloud_API_KEY)")
+        self.env_radio.setStyleSheet("QRadioButton { color: #ffffff; }")
+        self.key_source_group.addButton(self.env_radio, 1)
+        source_layout.addWidget(self.env_radio)
+
+        # 连接信号
+        self.file_radio.toggled.connect(self.on_key_source_changed)
+        self.env_radio.toggled.connect(self.on_key_source_changed)
+
+        key_layout.addLayout(source_layout)
+
+        # 分隔线
+        line = QFrame()
+        line.setFrameShape(QFrame.HLine)
+        line.setStyleSheet("color: #444444;")
+        key_layout.addWidget(line)
+
+        # 文件密钥设置
         file_layout = QHBoxLayout()
         self.key_file_edit = LineEdit()
         self.key_file_edit.setPlaceholderText("输入密钥文件路径...")
@@ -3589,6 +3679,14 @@ class APISettingsDialog(QDialog):
         file_layout.addWidget(self.browse_btn)
 
         key_layout.addLayout(file_layout)
+
+        # 系统变量状态显示
+        self.env_status_label = QLabel("系统变量状态：检查中...")
+        self.env_status_label.setStyleSheet("color: #cccccc; font-size: 12px; padding: 5px;")
+        key_layout.addWidget(self.env_status_label)
+
+        # 更新系统变量状态
+        self.update_env_status()
 
         # 密钥说明
         info_label = QLabel("密钥文件格式：每行一个API密钥，建议至少18个密钥用于批量处理")
@@ -3619,6 +3717,37 @@ class APISettingsDialog(QDialog):
 
         layout.addLayout(button_layout)
 
+    def on_key_source_changed(self):
+        """密钥源切换处理"""
+        is_file = self.file_radio.isChecked()
+
+        if is_file:
+            # 选择文件密钥
+            self.key_file_edit.setEnabled(True)
+            self.browse_btn.setEnabled(True)
+            self.test_btn.setEnabled(True)
+        else:
+            # 选择系统变量
+            self.key_file_edit.setEnabled(False)
+            self.browse_btn.setEnabled(False)
+            self.test_btn.setEnabled(False)
+
+        self.update_env_status()
+
+    def update_env_status(self):
+        """更新系统变量状态显示"""
+        env_key = os.getenv('SiliconCloud_API_KEY')
+        if self.env_radio.isChecked():
+            if env_key:
+                masked_key = f"{env_key[:10]}...{env_key[-5:]}"
+                self.env_status_label.setText(f"✅ 系统变量已设置: {masked_key}")
+                self.env_status_label.setStyleSheet("color: #4CAF50; font-size: 12px; padding: 5px;")
+            else:
+                self.env_status_label.setText("❌ 系统变量 SiliconCloud_API_KEY 未设置")
+                self.env_status_label.setStyleSheet("color: #f44336; font-size: 12px; padding: 5px;")
+        else:
+            self.env_status_label.setText("")
+
     def browse_key_file(self):
         """浏览密钥文件"""
         file_path, _ = QFileDialog.getOpenFileName(
@@ -3644,26 +3773,44 @@ class APISettingsDialog(QDialog):
 
     def save_settings(self):
         """保存设置"""
+        # 保存WebApp ID
         self.api_manager.web_app_id = self.webapp_id_spin.value()
 
-        file_path = self.key_file_edit.text().strip()
-        if file_path and os.path.exists(file_path):
-            if self.api_manager.load_keys_from_file(file_path):
-                self.parent().key_file_path = file_path
+        # 保存密钥源选择
+        is_file_source = self.file_radio.isChecked()
+        if is_file_source:
+            self.api_manager.set_key_source("file")
 
-                # 保存API设置到JSON配置文件
-                if hasattr(self.parent(), 'settings_manager'):
-                    self.parent().settings_manager.set_api_settings(file_path, self.webapp_id_spin.value())
-                    if hasattr(self.parent(), 'add_log'):
-                        self.parent().add_log(f"✅ API密钥设置已保存")
+            file_path = self.key_file_edit.text().strip()
+            if file_path and os.path.exists(file_path):
+                if self.api_manager.load_keys_from_file(file_path):
+                    self.parent().key_file_path = file_path
 
-                self.accept()
+                    # 保存API设置到JSON配置文件
+                    if hasattr(self.parent(), 'settings_manager'):
+                        self.parent().settings_manager.set_api_settings(file_path, self.webapp_id_spin.value())
+                        if hasattr(self.parent(), 'add_log'):
+                            self.parent().add_log(f"✅ API密钥设置已保存 (文件密钥)")
+
+                    self.accept()
+                else:
+                    QMessageBox.warning(self, "警告", "密钥文件加载失败")
             else:
-                QMessageBox.warning(self, "警告", "密钥文件加载失败")
+                QMessageBox.warning(self, "警告", "请选择有效的密钥文件")
         else:
-            # 保存WebApp ID设置（即使没有密钥文件）
+            # 选择系统变量
+            self.api_manager.set_key_source("env")
+            env_key = os.getenv('SiliconCloud_API_KEY')
+            if not env_key:
+                QMessageBox.warning(self, "警告", "系统变量 SiliconCloud_API_KEY 未设置")
+                return
+
+            # 保存WebApp ID设置（使用空字符串表示系统变量）
             if hasattr(self.parent(), 'settings_manager'):
                 self.parent().settings_manager.set_api_settings("", self.webapp_id_spin.value())
+                if hasattr(self.parent(), 'add_log'):
+                    self.parent().add_log(f"✅ API密钥设置已保存 (系统变量)")
+
             self.accept()
 
     def load_current_settings(self):
@@ -3757,6 +3904,168 @@ class VideoDownloadWorker(QThread):
     def cancel(self):
         """取消下载"""
         self.is_cancelled = True
+
+# 任务状态卡片
+class TaskStatusCard(CardWidget):
+    """任务状态展示卡片 - 简约美观大气设计"""
+
+    def __init__(self, task_id, task_name, task_params, parent=None):
+        super().__init__(parent)
+        self.task_id = task_id
+        self.task_name = task_name
+        self.task_params = task_params
+        self.progress = 0
+        self.time_string = "00:00:00"
+        self.status = "等待开始"
+        self.key_source = "文件密钥"
+        self.init_ui()
+
+    def init_ui(self):
+        """初始化UI"""
+        self.setFixedHeight(120)  # 设置固定高度
+        self.setStyleSheet("""
+            CardWidget {
+                background-color: #2a2a2a;
+                border: 1px solid #404040;
+                border-radius: 8px;
+                margin: 2px;
+            }
+            CardWidget:hover {
+                border: 1px solid #4a90e2;
+            }
+        """)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(15, 12, 15, 12)
+        layout.setSpacing(8)
+
+        # 第一行：任务名称和状态
+        top_layout = QHBoxLayout()
+
+        # 任务名称
+        self.name_label = StrongBodyLabel(self.task_name)
+        self.name_label.setStyleSheet("color: #ffffff; font-size: 14px; font-weight: 600;")
+        top_layout.addWidget(self.name_label)
+
+        # 弹性空间
+        top_layout.addStretch()
+
+        # 状态标签
+        self.status_label = CaptionLabel(self.status)
+        self.status_label.setStyleSheet("color: #cccccc; font-size: 11px; padding: 4px 8px; background: #333333; border-radius: 4px;")
+        top_layout.addWidget(self.status_label)
+
+        layout.addLayout(top_layout)
+
+        # 第二行：任务参数
+        params_layout = QHBoxLayout()
+
+        # 帧数、尺寸信息
+        width = self.task_params.get('width', 480)
+        height = self.task_params.get('height', 854)
+        num_frames = self.task_params.get('num_frames', 81)
+
+        params_text = f"{width}×{height} · {num_frames}帧"
+        self.params_label = CaptionLabel(params_text)
+        self.params_label.setStyleSheet("color: #888888; font-size: 12px;")
+        params_layout.addWidget(self.params_label)
+
+        # 弹性空间
+        params_layout.addStretch()
+
+        # 密钥类型标签
+        self.key_type_label = CaptionLabel(self.key_source)
+        self.key_type_label.setStyleSheet("color: #4a90e2; font-size: 11px; padding: 4px 8px; background: #2a3a4a; border-radius: 4px;")
+        params_layout.addWidget(self.key_type_label)
+
+        layout.addLayout(params_layout)
+
+        # 第三行：提示词（单行显示，超出部分省略）
+        prompt = self.task_params.get('prompt', '')
+        if prompt:
+            # 限制提示词长度，避免显示过长
+            if len(prompt) > 50:
+                prompt_display = prompt[:47] + "..."
+            else:
+                prompt_display = prompt
+
+            self.prompt_label = CaptionLabel(prompt_display)
+            self.prompt_label.setStyleSheet("color: #aaaaaa; font-size: 11px;")
+            self.prompt_label.setWordWrap(False)
+            layout.addWidget(self.prompt_label)
+
+        # 第四行：进度条和时间
+        progress_layout = QHBoxLayout()
+
+        # 进度条
+        self.progress_bar = ProgressBar()
+        self.progress_bar.setFixedHeight(4)
+        progress_layout.addWidget(self.progress_bar)
+
+        # 时间显示
+        self.time_label = CaptionLabel(self.time_string)
+        self.time_label.setStyleSheet("color: #666666; font-size: 11px; min-width: 70px;")
+        self.time_label.setAlignment(Qt.AlignRight)
+        progress_layout.addWidget(self.time_label)
+
+        layout.addLayout(progress_layout)
+
+    def update_progress(self, progress, message):
+        """更新进度"""
+        self.progress = progress
+        self.status = message
+        self.progress_bar.setValue(progress)
+
+        # 根据进度更新状态标签颜色
+        if progress >= 100:
+            self.status_label.setStyleSheet("color: #28a745; font-size: 11px; padding: 4px 8px; background: #e8f5e8; border-radius: 4px;")
+        elif progress >= 50:
+            self.status_label.setStyleSheet("color: #ffc107; font-size: 11px; padding: 4px 8px; background: #fff3cd; border-radius: 4px;")
+        else:
+            self.status_label.setStyleSheet("color: #17a2b8; font-size: 11px; padding: 4px 8px; background: #e6f7ff; border-radius: 4px;")
+
+    def update_time(self, time_string):
+        """更新时间显示"""
+        self.time_string = time_string
+        self.time_label.setText(time_string)
+
+    def set_key_source(self, key_source):
+        """设置密钥源类型"""
+        self.key_source = key_source
+        self.key_type_label.setText(key_source)
+
+        # 根据密钥源类型设置不同颜色
+        if key_source == "系统变量":
+            self.key_type_label.setStyleSheet("color: #17a2b8; font-size: 11px; padding: 4px 8px; background: #e6f7ff; border-radius: 4px;")
+        else:
+            self.key_type_label.setStyleSheet("color: #28a745; font-size: 11px; padding: 4px 8px; background: #e8f5e8; border-radius: 4px;")
+
+    def set_completed(self, success=True, message=""):
+        """设置任务完成状态"""
+        if success:
+            self.progress = 100
+            self.status = "已完成" if not message else message
+            self.progress_bar.setValue(100)
+            self.status_label.setStyleSheet("color: #28a745; font-size: 11px; padding: 4px 8px; background: #e8f5e8; border-radius: 4px;")
+            self.setStyleSheet("""
+                CardWidget {
+                    background-color: #2e3a2e;
+                    border: 1px solid #28a745;
+                    border-radius: 8px;
+                    margin: 2px;
+                }
+            """)
+        else:
+            self.status = f"失败: {message}" if message else "生成失败"
+            self.status_label.setStyleSheet("color: #dc3545; font-size: 11px; padding: 4px 8px; background: #ffebee; border-radius: 4px;")
+            self.setStyleSheet("""
+                CardWidget {
+                    background-color: #3a2a2a;
+                    border: 1px solid #dc3545;
+                    border-radius: 8px;
+                    margin: 2px;
+                }
+            """)
 
 # 视频结果卡片
 class VideoResultCard(QWidget):
