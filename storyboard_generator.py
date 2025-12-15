@@ -2429,7 +2429,13 @@ class StoryboardPage(SmoothScrollArea):
         if not os.path.exists(export_dir):
             os.makedirs(export_dir)
 
-        self.open_directory(export_dir)
+        # 使用QDesktopServices打开文件夹
+        from PyQt5.QtGui import QDesktopServices
+        from PyQt5.QtCore import QUrl
+        if os.path.exists(export_dir):
+            QDesktopServices.openUrl(QUrl.fromLocalFile(os.path.abspath(export_dir)))
+        else:
+            QMessageBox.warning(self, "警告", f"目录不存在: {os.path.abspath(export_dir)}")
 
 
 # 主窗口 (精简)

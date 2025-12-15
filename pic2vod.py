@@ -218,20 +218,33 @@ class SingleVideoGenerationWorker(QThread):
         self.api_key = api_key
         self.start_time = None
         self.is_cancelled = False
+        self.time_update_active = False
 
         # 创建日志目录
         self.log_dir = "logs"
         if not os.path.exists(self.log_dir):
             os.makedirs(self.log_dir)
 
-        # 计时器
-        self.timer = QTimer()
-        self.timer.timeout.connect(self.update_timer)
-        self.timer.setInterval(1000)  # 每秒更新一次
+        # 不再使用QTimer，改用时间信号机制
+        # self.timer = QTimer()
+        # self.timer.timeout.connect(self.update_timer)
+        # self.timer.setInterval(1000)  # 每秒更新一次
+
+    def start_time_updates(self):
+        """开始时间更新"""
+        self.time_update_active = True
+        self.update_time_loop()
+
+    def update_time_loop(self):
+        """时间更新循环"""
+        if self.time_update_active and not self.is_cancelled:
+            self.update_timer()
+            # 使用QTimer.singleShot在主线程中执行下一次更新
+            QTimer.singleShot(1000, self.update_time_loop)
 
     def update_timer(self):
         """更新计时器显示"""
-        if self.start_time:
+        if self.start_time and not self.is_cancelled:
             elapsed = time.time() - self.start_time
             hours = int(elapsed // 3600)
             minutes = int((elapsed % 3600) // 60)
@@ -301,7 +314,7 @@ class SingleVideoGenerationWorker(QThread):
         """运行单个视频生成任务"""
         try:
             self.start_time = time.time()
-            self.timer.start()  # 开始计时
+            self.start_time_updates()  # 开始计时更新
 
             task_name = self.task.get('name', f'任务 {self.task_id}')
             self.log_message(f"🚀 开始生成视频: {task_name}")
@@ -425,8 +438,14 @@ class SingleVideoGenerationWorker(QThread):
                 if request_id:
                     self.log_message(f"📋 任务ID: {request_id}, 状态: {status}")
 
+                    # 处理立即失败的情况
+                    if status == 'Failed' or status == 'failed':
+                        error_info = result_data.get('error', result_data.get('message', '任务执行失败'))
+                        self.task_finished.emit(False, f"视频生成失败: {error_info}", {}, self.task_id)
+                        return
+
                     # 如果任务立即完成且有输出
-                    if status == 'Success' and 'outputs' in result_data:
+                    elif status == 'Success' and 'outputs' in result_data:
                         outputs = result_data['outputs']
                         if outputs and len(outputs) > 0:
                             video_url = outputs[0].get('object_url', '')
@@ -453,8 +472,9 @@ class SingleVideoGenerationWorker(QThread):
                         else:
                             self.task_finished.emit(False, "视频生成成功但无输出结果", {}, self.task_id)
                             return
-                    else:
-                        # 任务可能还在处理中，需要查询状态
+
+                    # 如果任务还在处理中（Running, Pending等状态）
+                    elif status in ['Running', 'Pending', 'submitted', 'processing']:
                         self.progress_updated.emit(50, "查询任务状态...", self.task_id)
                         video_url = self.check_video_status_bizyair(request_id)
 
@@ -476,6 +496,29 @@ class SingleVideoGenerationWorker(QThread):
                             self.task_finished.emit(True, "视频生成成功", result, self.task_id)
                         else:
                             self.task_finished.emit(False, "视频生成失败或超时", {}, self.task_id)
+
+                    # 其他未知状态
+                    else:
+                        self.log_message(f"⚠️ 未知任务状态: {status}")
+                        # 尝试查询一次状态
+                        self.progress_updated.emit(50, "查询任务状态...", self.task_id)
+                        video_url = self.check_video_status_bizyair(request_id)
+
+                        if video_url:
+                            result = {
+                                'id': request_id,
+                                'url': video_url,
+                                'width': width,
+                                'height': height,
+                                'num_frames': num_frames,
+                                'prompt': prompt,
+                                'task_name': task_name,
+                                'timestamp': datetime.now().isoformat()
+                            }
+                            self.progress_updated.emit(100, "任务完成！", self.task_id)
+                            self.task_finished.emit(True, "视频生成成功", result, self.task_id)
+                        else:
+                            self.task_finished.emit(False, f"任务状态异常: {status}", {}, self.task_id)
                 else:
                     self.task_finished.emit(False, "API响应格式错误：缺少request_id", {}, self.task_id)
                     return
@@ -500,7 +543,7 @@ class SingleVideoGenerationWorker(QThread):
             self.log_message(f"❌ 任务执行异常: {str(e)}")
             self.task_finished.emit(False, f"任务执行异常: {str(e)}", {}, self.task_id)
         finally:
-            self.timer.stop()  # 停止计时
+            self.time_update_active = False  # 停止计时更新
 
     def check_video_status_bizyair(self, request_id):
         """查询BizyAir任务状态"""
@@ -626,7 +669,7 @@ class SingleVideoGenerationWorker(QThread):
     def cancel(self):
         """取消任务"""
         self.is_cancelled = True
-        self.timer.stop()
+        self.time_update_active = False
 
 
 # 并发批量任务管理器
@@ -694,6 +737,9 @@ class ConcurrentBatchManager(QObject):
         """单个任务完成的回调"""
         self.completed_tasks += 1
         self.update_batch_progress()
+
+        # 将任务完成信号传递给主界面
+        self.task_finished.emit(success, message, result_data, task_id)
 
         # 移除已完成的工作线程
         if task_id in self.workers:
@@ -1609,6 +1655,17 @@ class VideoGenerationWidget(QWidget):
         # 帧数显示（隐藏）
         self.frames_label = QLabel("81")
 
+    def update_frames(self, seconds):
+        """根据秒数更新帧数显示"""
+        # BizyAir API的帧数计算：16帧/秒 + 1帧封面
+        frames = seconds * 16 + 1
+        self.frames_label.setText(str(frames))
+
+        # 同时更新对话框中的显示（如果存在）
+        if hasattr(self, 'video_settings_dialog') and self.video_settings_dialog:
+            if hasattr(self.video_settings_dialog, 'frames_label'):
+                self.video_settings_dialog.frames_label.setText(str(frames))
+
     def show_video_settings_dialog(self):
         """显示视频参数设置对话框"""
         dialog = VideoSettingsDialog(self)
@@ -2250,8 +2307,8 @@ class VideoGenerationWidget(QWidget):
                 # 停止该任务的计时器更新
                 if self.concurrent_batch_manager and task_id in self.concurrent_batch_manager.workers:
                     worker = self.concurrent_batch_manager.workers.get(task_id)
-                    if worker and hasattr(worker, 'timer') and worker.timer:
-                        worker.timer.stop()
+                    if worker and hasattr(worker, 'time_update_active'):
+                        worker.time_update_active = False
         else:
             self.add_log(f"❌ [{task_id}] {message}")
             # 更新对应卡片为错误状态
