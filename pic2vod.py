@@ -893,7 +893,7 @@ class TaskStatusCard(CardWidget):
         self.setFixedHeight(120)  # 设置固定高度
         self.setStyleSheet("""
             CardWidget {
-                background-color: #2a2a2a;
+                background-color: #1e1e1e;
                 border: 1px solid #404040;
                 border-radius: 8px;
                 margin: 2px;
@@ -1638,9 +1638,9 @@ class VideoGenerationWidget(QWidget):
         self.prompt_edit = QTextEdit()
         self.prompt_edit.setPlaceholderText("输入视频生成的提示词，例如：美女跳舞、风景变化等...")
         self.prompt_edit.setMinimumHeight(40)
-        self.prompt_edit.setMaximumHeight(280)
+        self.prompt_edit.setMaximumHeight(200)
         self.prompt_edit.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        # ... (QTextEdit 样式代码) ...
+        self.prompt_edit.setStyleSheet("padding: 10px; background: #333333; border-radius: 4px;font-size:18px;")
         return self.prompt_edit
         
     def create_actions_group(self):
@@ -1800,24 +1800,24 @@ class VideoGenerationWidget(QWidget):
     def create_task_card(self, task, index):
         """创建任务卡片"""
         card = CardWidget()
-        card.setFixedHeight(36)
+        card.setFixedHeight(48)
         # ... (CardWidget 样式代码) ...
         layout = QHBoxLayout(card)
         layout.setContentsMargins(10, 5, 10, 5)
 
         info_layout = QVBoxLayout()
         name_label = QLabel(task['name'])
-        name_label.setStyleSheet("font-weight: bold; color: #ffffff; font-size: 13px;")
+        name_label.setStyleSheet("font-weight: bold; color: #ffffff; font-size: 14px;")
         info_layout.addWidget(name_label)
 
-        prompt_label = QLabel(f"提示词: {task['prompt'][:20]}...")
+        prompt_label = QLabel(f"提示词: {task['prompt'][:30]}...")
         prompt_label.setStyleSheet("color: #cccccc; font-size: 12px;")
         info_layout.addWidget(prompt_label)
 
         layout.addLayout(info_layout)
         layout.addStretch()
 
-        delete_btn = PushButton("删除")
+        delete_btn = PushButton("X")
         delete_btn.setFixedSize(30, 30)
         # ... (QPushButton 样式代码) ...
         delete_btn.clicked.connect(lambda: self.remove_task(index))
@@ -1844,7 +1844,7 @@ class VideoGenerationWidget(QWidget):
     def create_result_panel(self):
         """创建结果展示面板（深色主题）"""
         panel = QWidget()
-        panel.setStyleSheet("QWidget { background-color: #1e1e1e; }")
+        panel.setStyleSheet("QWidget { background-color: #2A2A2A; }")
         layout = QVBoxLayout(panel)
         layout.setSpacing(10)
         layout.setContentsMargins(5, 0, 0, 0)
