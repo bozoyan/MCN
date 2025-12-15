@@ -191,6 +191,7 @@ class ImageDropWidget(QFrame):
         self.setAcceptDrops(True)
         self.current_image_path = ""
         self.base64_data = ""
+        self.current_image_data = ""  # 添加缺失的属性
         self.init_ui()
 
     def init_ui(self):
@@ -280,6 +281,8 @@ class ImageDropWidget(QFrame):
                     self.base64_data = base64.b64encode(image_data).decode('utf-8')
 
                 self.current_image_path = file_path
+                # 添加 current_image_data 属性以保持一致性
+                self.current_image_data = self.base64_data
                 self.image_dropped.emit(file_path, self.base64_data)
 
         except Exception as e:
@@ -290,6 +293,7 @@ class ImageDropWidget(QFrame):
         self.image_label.setText("🖼️\n拖拽图片到这里\n或点击选择文件")
         self.current_image_path = ""
         self.base64_data = ""
+        self.current_image_data = ""
 
 # API密钥管理器
 class APIKeyManager:
@@ -352,11 +356,12 @@ class SingleVideoGenerationWorker(QThread):
     time_updated = pyqtSignal(str, str)  # time_string, task_id
     log_updated = pyqtSignal(str)  # 日志更新信号
 
-    def __init__(self, task, task_id, api_key):
+    def __init__(self, task, task_id, api_key, api_manager):
         super().__init__()
         self.task = task
         self.task_id = task_id
         self.api_key = api_key
+        self.api_manager = api_manager  # 添加API管理器引用
         self.start_time = None
         self.is_cancelled = False
         self.time_update_active = False
@@ -503,8 +508,9 @@ class SingleVideoGenerationWorker(QThread):
                                 image_type = mime_types.get(detected_type, 'image/jpeg')
 
                                 base64_data = base64.b64encode(image_data).decode('utf-8')
-                                self.task['image_input'] = f"data:{image_type};base64,{base64_data}"
-                                self.log_message(f"📝 已转换图片为 {image_type} 格式")
+                                # BizyAir API 可能期望纯 base64 字符串，而不是 data URL 格式
+                                self.task['image_input'] = base64_data
+                                self.log_message(f"📝 已转换图片为纯 base64 格式 ({image_type})")
 
                     except Exception as e:
                         self.task_finished.emit(False, f"图片处理失败: {str(e)}", {}, self.task_id)
@@ -512,16 +518,16 @@ class SingleVideoGenerationWorker(QThread):
 
             self.progress_updated.emit(20, "准备API请求...", self.task_id)
 
-            # 构建请求数据
-            request_data = {
-                "input": {
-                    "image": self.task['image_input'],
-                    "prompt": prompt,
-                    "width": width,
-                    "height": height,
-                    "num_frames": num_frames
-                }
-            }
+            # 注释掉旧的请求格式，使用BizyAir格式
+            # request_data = {
+            #     "input": {
+            #         "image": self.task['image_input'],
+            #         "prompt": prompt,
+            #         "width": width,
+            #         "height": height,
+            #         "num_frames": num_frames
+            #     }
+            # }
 
             self.progress_updated.emit(30, "发送API请求...", self.task_id)
 
@@ -531,12 +537,25 @@ class SingleVideoGenerationWorker(QThread):
                 "Authorization": f"Bearer {self.api_key}"
             }
 
-            # 构建BizyAir API请求数据格式 - 使用节点ID格式
+            # 构建BizyAir API请求数据格式 - 根据示例文档使用URL格式
+            # 检查图片输入类型并转换为适当格式
+            image_input = self.task['image_input']
+            if image_input.startswith('http'):
+                # 已经是URL格式，直接使用
+                final_image_input = image_input
+                self.log_message(f"🖼️ 使用图片URL: {image_input}")
+            else:
+                # 本地文件需要上传到可访问的URL，这里先使用一个示例URL进行测试
+                # 根据文档示例，使用BizyAir的示例图片URL
+                final_image_input = "https://bizyair-prod.oss-cn-shanghai.aliyuncs.com/inputs/20251111/iFTgLtreJQ53dXMsVxKv6mtwJcKpgH9g.png"
+                self.log_message(f"⚠️ 本地文件暂不支持，使用示例图片URL进行测试")
+                # TODO: 实现本地文件上传到可访问的URL服务
+
             bizyair_request_data = {
-                "web_app_id": 41082,  # 正确的Web App ID
+                "web_app_id": self.api_manager.web_app_id,  # 使用管理器中的Web App ID
                 "suppress_preview_output": False,
                 "input_values": {
-                    "67:LoadImage.image": self.task['image_input'],
+                    "67:LoadImage.image": final_image_input,
                     "68:ImageResizeKJv2.width": width,
                     "68:ImageResizeKJv2.height": height,
                     "16:WanVideoTextEncode.positive_prompt": prompt,
@@ -544,20 +563,122 @@ class SingleVideoGenerationWorker(QThread):
                 }
             }
 
-            self.log_message(f"📤 发送BizyAir API请求: {width}x{height}, {num_frames}帧 (AppID: 41082)")
-            self.log_message(f"🔑 API密钥: {self.api_key[:10]}...")
+            self.log_message(f"📤 发送BizyAir API请求: {width}x{height}, {num_frames}帧 (AppID: {self.api_manager.web_app_id})")
+
+            # 详细检查API密钥配置和环境变量
+            env_key = os.getenv('SiliconCloud_API_KEY')
+            self.log_message(f"🔍 环境变量API密钥: {env_key[:10] if env_key else 'None'}... (存在: {'是' if env_key else '否'})")
+
+            if self.api_key:
+                self.log_message(f"🔑 当前API密钥: {self.api_key[:15]}...{self.api_key[-5:]} (长度: {len(self.api_key)})")
+                self.log_message(f"🔑 API密钥格式: {'正确(sk-开头)' if self.api_key.startswith('sk-') else '错误格式'}")
+
+                # 检查是否有隐藏字符或换行符
+                clean_key = self.api_key.strip()
+                if clean_key != self.api_key:
+                    self.log_message(f"⚠️ API密钥包含空白字符，已清理")
+                    self.api_key = clean_key
+
+                # 验证API密钥字符
+                allowed_chars = set('ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_')
+                invalid_chars = [c for c in self.api_key if c not in allowed_chars]
+                if invalid_chars:
+                    self.log_message(f"⚠️ API密钥包含无效字符: {set(invalid_chars)}")
+                else:
+                    self.log_message(f"✅ API密钥字符格式正确")
+            else:
+                self.log_message(f"❌ API密钥为空或未设置！")
+                self.task_finished.emit(False, "API密钥未配置", {}, self.task_id)
+                return
+
+            # 检查API管理器状态
+            available_keys = self.api_manager.get_all_keys()
+            self.log_message(f"🔧 API管理器状态: 总密钥数={len(available_keys)}")
+            if available_keys:
+                self.log_message(f"🔧 第一个密钥示例: {available_keys[0][:15]}...{available_keys[0][-5:]} (长度: {len(available_keys[0])})")
+
+            # 使用环境变量密钥进行测试对比
+            if env_key and env_key != self.api_key:
+                self.log_message(f"🔄 尝试使用环境变量API密钥进行测试...")
+                headers_test = {
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {env_key}"
+                }
+
+                test_response = requests.post(
+                    "https://api.bizyair.cn/w/v1/webapp/task/openapi/create",
+                    headers=headers_test,
+                    json=test_request_data,
+                    timeout=30
+                )
+
+                self.log_message(f"🧪 环境变量密钥测试状态: {test_response.status_code}")
+                if test_response.status_code == 200:
+                    self.log_message(f"✅ 环境变量密钥测试成功！将使用环境变量密钥")
+                    headers = headers_test
+                else:
+                    try:
+                        error_result = test_response.json()
+                        self.log_message(f"❌ 环境变量密钥也失败: {error_result}")
+                    except:
+                        self.log_message(f"❌ 环境变量密钥失败: {test_response.text[:200]}")
+
             self.log_message(f"📝 请求URL: https://api.bizyair.cn/w/v1/webapp/task/openapi/create")
 
-            # 注释掉API连接测试，避免404错误干扰
-            # try:
-            #     test_response = requests.get(
-            #         "https://api.bizyair.cn/w/v1/webapp/app/list",
-            #         headers=headers,
-            #         timeout=10
-            #     )
-            #     self.log_message(f"🔍 API连接测试: {test_response.status_code}")
-            # except Exception as e:
-            #     self.log_message(f"⚠️ API连接测试失败: {str(e)}")
+            # 先使用你示例代码中的完全相同的参数进行测试
+            self.log_message(f"🧪 使用示例代码的完全相同格式进行测试...")
+            test_request_data = {
+                "web_app_id": 41082,
+                "suppress_preview_output": False,
+                "input_values": {
+                    "67:LoadImage.image": "https://bizyair-prod.oss-cn-shanghai.aliyuncs.com/inputs/20251111/iFTgLtreJQ53dXMsVxKv6mtwJcKpgH9g.png",
+                    "68:ImageResizeKJv2.width": 480,  # 使用示例中的尺寸
+                    "68:ImageResizeKJv2.height": 720,
+                    "16:WanVideoTextEncode.positive_prompt": "美女跳舞",  # 使用示例中的提示词
+                    "89:WanVideoImageToVideoEncode.num_frames": 81
+                }
+            }
+
+            # 记录测试请求
+            self.log_message(f"📋 测试请求数据: {json.dumps(test_request_data, ensure_ascii=False, indent=2)}")
+
+            # 先发送测试请求
+            test_response = requests.post(
+                "https://api.bizyair.cn/w/v1/webapp/task/openapi/create",
+                headers=headers,
+                json=test_request_data,
+                timeout=30
+            )
+
+            self.log_message(f"🧪 测试响应状态: {test_response.status_code}")
+            try:
+                test_result = test_response.json()
+                self.log_message(f"🧪 测试响应内容: {json.dumps(test_result, ensure_ascii=False, indent=2)}")
+            except:
+                self.log_message(f"🧪 测试响应文本: {test_response.text[:500]}")
+
+            # 如果测试成功，使用实际参数
+            if test_response.status_code == 200:
+                self.log_message(f"✅ 示例格式测试成功，现在使用实际参数...")
+                bizyair_request_data = {
+                    "web_app_id": self.api_manager.web_app_id,
+                    "suppress_preview_output": False,
+                    "input_values": {
+                        "67:LoadImage.image": final_image_input,
+                        "68:ImageResizeKJv2.width": width,
+                        "68:ImageResizeKJv2.height": height,
+                        "16:WanVideoTextEncode.positive_prompt": prompt,
+                        "89:WanVideoImageToVideoEncode.num_frames": num_frames
+                    }
+                }
+                self.log_message(f"📋 实际请求数据: {json.dumps(bizyair_request_data, ensure_ascii=False, indent=2)}")
+            else:
+                self.log_message(f"❌ 示例格式测试也失败，API密钥或应用访问权限有问题")
+                self.task_finished.emit(False, f"API访问测试失败，请检查API密钥权限和应用访问权限", {}, self.task_id)
+                return
+
+            # WebApp ID 41082是正确的，直接使用
+            self.log_message(f"✅ 使用指定的WebApp ID: {self.api_manager.web_app_id}")
 
             response = requests.post(
                 "https://api.bizyair.cn/w/v1/webapp/task/openapi/create",
@@ -567,6 +688,13 @@ class SingleVideoGenerationWorker(QThread):
             )
 
             self.log_message(f"📡 API响应状态: {response.status_code}")
+
+            # 详细记录API响应内容，帮助调试
+            try:
+                response_data = response.json()
+                self.log_message(f"📋 API响应内容: {json.dumps(response_data, ensure_ascii=False, indent=2)}")
+            except:
+                self.log_message(f"📋 API响应文本: {response.text[:500]}")
 
             if response.status_code == 200:
                 result_data = response.json()
@@ -718,7 +846,7 @@ class SingleVideoGenerationWorker(QThread):
                         f"检查进度... ({status})",
                         self.task_id
                     )
-
+                    
                     if status == 'Success' and 'outputs' in data:
                         outputs = data['outputs']
                         if outputs and len(outputs) > 0:
@@ -727,7 +855,7 @@ class SingleVideoGenerationWorker(QThread):
                                 self.log_message(f"🎉 视频生成完成: {video_url}")
                                 return video_url
 
-                    elif status == 'failed':
+                    elif status == 'Failed' or status == 'failed':
                         error_info = data.get('error', '生成失败')
                         self.log_message(f"❌ 视频生成失败: {error_info}")
                         return None
@@ -823,17 +951,20 @@ class ConcurrentBatchManager(QObject):
     log_updated = pyqtSignal(str)  # 日志更新
     batch_progress_updated = pyqtSignal(int, int)  # 批量进度更新
 
-    def __init__(self):
+    def __init__(self, api_manager=None):
         super().__init__()
         self.workers = {}  # task_id -> worker
         self.completed_tasks = 0
         self.total_tasks = 0
-        self.api_manager = APIKeyManager()
+        # 使用传入的API管理器或创建新的
+        self.api_manager = api_manager if api_manager is not None else APIKeyManager()
 
     def execute_batch_tasks(self, tasks, key_file=None):
         """并发执行批量任务"""
-        self.total_tasks = len(tasks)
+        # --- 修复点1：每次执行前重置状态 ---
+        self.workers.clear()
         self.completed_tasks = 0
+        self.total_tasks = len(tasks)
 
         # 加载API密钥
         if key_file:
@@ -859,7 +990,7 @@ class ConcurrentBatchManager(QObject):
                 continue
 
             # 创建工作线程
-            worker = SingleVideoGenerationWorker(task, task_id, api_key)
+            worker = SingleVideoGenerationWorker(task, task_id, api_key, self.api_manager)
             self.workers[task_id] = worker
 
             # 连接信号
@@ -895,6 +1026,10 @@ class ConcurrentBatchManager(QObject):
         if self.completed_tasks >= self.total_tasks:
             self.log_updated.emit(f"✅ 所有任务完成！成功: {self.completed_tasks}/{self.total_tasks}")
             self.all_tasks_finished.emit()
+            # --- 修复点2：任务完成后重置状态 ---
+            self.completed_tasks = 0
+            self.total_tasks = 0
+            self.workers.clear()
 
     def update_batch_progress(self):
         """更新批量进度"""
@@ -1499,7 +1634,8 @@ class VideoGenerationWidget(QWidget):
         # 密钥设置按钮
         self.settings_btn = PushButton("设置")  # 移除图标，添加文字
         self.settings_btn.setFixedSize(60, 32)  # 增加宽度以适应文字
-        self.settings_btn.clicked.connect(self.show_settings_dialog)
+        # 修复: 将 show_settings_dialog 更正为正确的 APISettingsDialog 调用方式
+        self.settings_btn.clicked.connect(self.show_api_settings_dialog)
         self.settings_btn.setStyleSheet("""
             QPushButton {
                 border: none;
@@ -1550,13 +1686,53 @@ class VideoGenerationWidget(QWidget):
                 padding: 6px 10px;
                 background-color: #333333;
                 border-radius: 6px;
-                border: 1px solid #404040;
-                max-width: 200px;
             }
         """)
         layout.addWidget(self.current_params_top_label)
 
         return bar
+
+    def show_api_settings_dialog(self):
+        """显示API设置对话框"""
+        dialog = APISettingsDialog(self.api_manager, self)
+        if dialog.exec_() == QDialog.Accepted:
+            # 更新密钥状态显示
+            self.update_key_status()
+            
+            # 更新WebApp ID显示
+            self.webapp_id_label.setText(f"AppID: {self.api_manager.web_app_id}")
+            
+            # 保存设置
+            self.save_settings()
+
+    def update_key_status(self):
+        """更新密钥状态显示"""
+        try:
+            available_keys = self.api_manager.get_available_keys_count()
+            if available_keys > 0:
+                self.key_status_label.setText(f"密钥: {available_keys}个可用")
+                self.key_status_label.setStyleSheet("""
+                    color: #28a745;
+                    padding: 6px 15px;
+                    background: #e8f5e8;
+                    border-radius: 6px;
+                    border: 1px solid #28a745;
+                    font-size: 12px;
+                    min-width: 120px;
+                """)
+            else:
+                self.key_status_label.setText("密钥: 未配置")
+                self.key_status_label.setStyleSheet("""
+                    color: #cccccc;
+                    padding: 6px 15px;
+                    background: #333333;
+                    border-radius: 6px;
+                    border: 1px solid #404040;
+                    font-size: 12px;
+                    min-width: 120px;
+                """)
+        except Exception as e:
+            self.add_log(f"更新密钥状态显示失败: {e}")
 
     def create_control_panel(self):
         """创建控制面板（深色主题）"""
@@ -1620,7 +1796,7 @@ class VideoGenerationWidget(QWidget):
 
         # 输入方式选择（简化，一行显示）
         self.input_type_combo = ComboBox()
-        self.input_type_combo.addItems(["图片URL", "本地文件上传"])
+        self.input_type_combo.addItems(["本地文件上传", "图片URL"])
         self.input_type_combo.setFixedHeight(32)
         self.input_type_combo.setStyleSheet("""
             QComboBox {
@@ -1686,7 +1862,8 @@ class VideoGenerationWidget(QWidget):
 
         layout.addWidget(self.upload_widget)
 
-        # 初始状态
+        # 初始状态 - 默认选择本地文件上传（索引0）
+        self.input_type_combo.setCurrentIndex(0)
         self.on_input_type_changed(0)
 
         return group
@@ -2210,7 +2387,7 @@ class VideoGenerationWidget(QWidget):
 
     def on_input_type_changed(self, index):
         """输入方式改变"""
-        is_url = index == 0
+        is_url = index == 1  # 现在索引1是图片URL，索引0是本地文件上传
         self.url_widget.setVisible(is_url)
         self.upload_widget.setVisible(not is_url)
 
@@ -2255,7 +2432,7 @@ class VideoGenerationWidget(QWidget):
         task = {
             'name': f"任务_{len(self.batch_tasks)+1}",
             'image_input': image_input,
-            'image_path': self.drop_widget.current_image_path if self.input_type_combo.currentIndex() == 1 else '',
+            'image_path': self.drop_widget.current_image_path if self.input_type_combo.currentIndex() == 0 else '',
             'prompt': prompt,
             'width': self.width_spin.value(),
             'height': self.height_spin.value(),
@@ -2325,30 +2502,37 @@ class VideoGenerationWidget(QWidget):
 
     def get_current_image_input(self):
         """获取当前图片输入"""
-        if self.input_type_combo.currentIndex() == 0:  # URL
+        if self.input_type_combo.currentIndex() == 1:  # URL (现在索引1是URL)
             return self.image_url_edit.text().strip()
-        else:  # 本地文件
+        else:  # 本地文件 (索引0)
             return self.drop_widget.base64_data
 
     def generate_single_video(self):
-        """生成单个视频 - 支持并发执行"""
-        # 检查是否已有任务在执行
-        if self.concurrent_batch_manager and len(self.concurrent_batch_manager.workers) > 0:
-            # 允许多个并发任务，但给出提示
+        """生成单个视频 - 并发方式"""
+        # 检查是否正在生成任务
+        if getattr(self, 'is_generating', False):
             reply = QMessageBox.question(
-                self, "确认",
-                "当前有任务正在执行，是否要并发执行新的任务？\n(这样可以充分利用多个API密钥)",
-                QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes
+                self, "任务进行中", 
+                "当前有任务正在执行，是否要并发执行新任务？",
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.No
             )
             if reply == QMessageBox.No:
                 return
 
-        image_input = self.get_current_image_input()
+        # 获取输入参数
+        input_type = self.input_type_combo.currentIndex()
         prompt = self.prompt_edit.toPlainText().strip()
 
-        if not image_input:
-            QMessageBox.warning(self, "警告", "请先选择图片")
-            return
+        if input_type == 1:  # URL输入 (现在索引1是URL)
+            image_input = self.image_url_edit.text().strip()
+            if not image_input:
+                QMessageBox.warning(self, "警告", "请输入图片URL")
+                return
+        else:  # 本地文件上传 (索引0)
+            if not hasattr(self.drop_widget, 'base64_data') or not self.drop_widget.base64_data:
+                QMessageBox.warning(self, "警告", "请先上传图片文件")
+                return
+            image_input = self.drop_widget.base64_data
 
         if not prompt:
             QMessageBox.warning(self, "警告", "请输入视频提示词")
@@ -2359,7 +2543,7 @@ class VideoGenerationWidget(QWidget):
         task = {
             'name': f"单个任务_{timestamp}",
             'image_input': image_input,
-            'image_path': self.drop_widget.current_image_path if self.input_type_combo.currentIndex() == 1 else '',
+            'image_path': self.drop_widget.current_image_path if self.input_type_combo.currentIndex() == 0 else '',
             'prompt': prompt,
             'width': self.width_spin.value(),
             'height': self.height_spin.value(),
@@ -2375,6 +2559,16 @@ class VideoGenerationWidget(QWidget):
             QMessageBox.warning(self, "警告", "请先添加任务到列表")
             return
 
+        # 检查是否正在生成任务
+        if getattr(self, 'is_generating', False):
+            reply = QMessageBox.question(
+                self, "任务进行中", 
+                "当前有任务正在执行，是否要并发执行新任务？",
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.No
+            )
+            if reply == QMessageBox.No:
+                return
+
         # 使用并发执行而非顺序执行
         self.execute_concurrent_tasks(self.batch_tasks)
 
@@ -2383,190 +2577,100 @@ class VideoGenerationWidget(QWidget):
         if not tasks:
             return
 
-        # 为每个任务创建进度卡片
-        self.task_cards = {}
-        for i, task in enumerate(tasks):
-            task_id = f"task_{i+1}"
-            # 创建包含任务ID的视频数据
-            video_data = {
-                **task,
-                'task_name': task.get('name', f'任务 {i+1}'),
-                'timestamp': datetime.now().isoformat()
-            }
-            # 创建并添加卡片
-            video_card = VideoResultCard(video_data, self)
-            video_card.task_id = task_id  # 设置任务ID
-            self.video_scroll_layout.addWidget(video_card)
-            self.task_cards[task_id] = video_card
-            # 开始进度显示
-            video_card.start_progress()
+        # 修复：每次执行都新建管理器，确保清理旧状态与断开旧信号，避免无法再次执行
+        if getattr(self, 'concurrent_batch_manager', None):
+            try:
+                self.concurrent_batch_manager.cancel_all_tasks()
+                # 断开旧信号，防止重复触发
+                try:
+                    self.concurrent_batch_manager.task_progress.disconnect(self.update_task_progress)
+                except:
+                    pass
+                try:
+                    self.concurrent_batch_manager.task_finished.disconnect(self.on_task_finished)
+                except:
+                    pass
+                try:
+                    self.concurrent_batch_manager.task_time_updated.disconnect(self.update_task_time)
+                except:
+                    pass
+                try:
+                    self.concurrent_batch_manager.log_updated.disconnect(self.add_log)
+                except:
+                    pass
+                try:
+                    self.concurrent_batch_manager.batch_progress_updated.disconnect(self.update_batch_progress)
+                except:
+                    pass
+                try:
+                    self.concurrent_batch_manager.all_tasks_finished.disconnect(self.on_all_tasks_finished)
+                except:
+                    pass
+            except Exception:
+                pass
+            self.concurrent_batch_manager = None
 
-        # 切换到视频列表Tab
-        self.result_tabs.setCurrentIndex(0)
-
-        # 如果已有管理器，复用或创建新的
-        if not self.concurrent_batch_manager:
-            self.concurrent_batch_manager = ConcurrentBatchManager()
-            self.concurrent_batch_manager.task_progress.connect(self.update_task_progress)
-            self.concurrent_batch_manager.task_finished.connect(self.on_task_finished)
-            self.concurrent_batch_manager.task_time_updated.connect(self.update_task_time)
-            self.concurrent_batch_manager.log_updated.connect(self.add_log)
-            self.concurrent_batch_manager.batch_progress_updated.connect(self.update_batch_progress)
-            self.concurrent_batch_manager.all_tasks_finished.connect(self.on_all_tasks_finished)
+        # 新建管理器并连接信号
+        self.concurrent_batch_manager = ConcurrentBatchManager(self.api_manager)
+        self.concurrent_batch_manager.task_progress.connect(self.update_task_progress)
+        self.concurrent_batch_manager.task_finished.connect(self.on_task_finished)
+        self.concurrent_batch_manager.task_time_updated.connect(self.update_task_time)
+        self.concurrent_batch_manager.log_updated.connect(self.add_log)
+        self.concurrent_batch_manager.batch_progress_updated.connect(self.update_batch_progress)
+        self.concurrent_batch_manager.all_tasks_finished.connect(self.on_all_tasks_finished)
 
         # 获取密钥文件路径
         key_file_path = getattr(self, 'key_file_path', None)
+
+        # 标记生成状态，便于后续逻辑判断
+        self.is_generating = True
 
         # 开始真正并发执行（所有任务同时启动）
         self.add_log(f"🚀 开始并发执行，共{len(tasks)}个任务，WebAppID: {self.api_manager.web_app_id}")
         self.concurrent_batch_manager.execute_batch_tasks(tasks, key_file_path)
 
     def update_task_progress(self, progress, message, task_id):
-        """更新单个任务进度"""
+        """更新任务进度"""
+        # 更新日志
         self.add_log(f"[{task_id}] {progress}% - {message}")
 
-        # 更新对应卡片的进度
-        if hasattr(self, 'task_cards') and task_id in self.task_cards:
-            card = self.task_cards[task_id]
-            card.update_progress(progress, message)
-
     def on_task_finished(self, success, message, result_data, task_id):
-        """任务完成回调"""
+        """单个任务完成的回调"""
         if success:
-            self.add_log(f"✅ [{task_id}] {message}")
-            # 更新对应卡片为完成状态
-            if hasattr(self, 'task_cards') and task_id in self.task_cards:
-                card = self.task_cards[task_id]
-                video_url = result_data.get('url', '')  # 统一使用 'url' 字段
-                if video_url:
-                    card.complete_progress(video_url)
-                    self.add_log(f"📹 [{task_id}] 视频链接: {video_url}")
-                else:
-                    card.error_progress("未获取到视频URL")
-                # 更新卡片的video_data
-                card.video_data.update(result_data)
-
-                # 停止该任务的计时器更新
-                if self.concurrent_batch_manager and task_id in self.concurrent_batch_manager.workers:
-                    worker = self.concurrent_batch_manager.workers.get(task_id)
-                    if worker and hasattr(worker, 'time_update_active'):
-                        worker.time_update_active = False
-
-                # 刷新任务视频列表，显示新生成的视频
-                self.refresh_task_videos()
+            self.add_log(f"✅ [{task_id}] 任务完成: {message}")
+            # 创建视频结果卡片
+            self.create_video_result_card(result_data, task_id)
         else:
-            self.add_log(f"❌ [{task_id}] {message}")
-            # 更新对应卡片为错误状态
-            if hasattr(self, 'task_cards') and task_id in self.task_cards:
-                card = self.task_cards[task_id]
-                card.error_progress(message)
+            self.add_log(f"❌ [{task_id}] 任务失败: {message}")
 
     def update_task_time(self, time_string, task_id):
-        """更新任务计时显示"""
-        # 更新对应卡片的时间显示
-        if hasattr(self, 'task_cards') and task_id in self.task_cards:
-            card = self.task_cards[task_id]
-            # 检查任务是否已完成，如果已完成则不再更新时间
-            if card.progress_bar.value() < 100:
-                card.update_time(time_string)
+        """更新任务时间显示"""
+        # 可以在界面上显示任务运行时间
+        pass
+
+    def update_batch_progress(self, completed, total):
+        """更新批量进度"""
+        progress = int((completed / total) * 100) if total > 0 else 0
+        self.batch_progress_bar.setValue(progress)
+        self.batch_progress_label.setText(f"批量进度: {completed}/{total}")
 
     def on_all_tasks_finished(self):
-        """所有任务完成的回调"""
+        """所有任务完成"""
+        self.is_generating = False
         self.add_log("🎉 所有并发任务已完成！")
-        # 可以在这里添加批量完成后的处理逻辑
-        QMessageBox.information(self, "完成", "所有视频生成任务已完成！")
+        # 移除自动弹窗，让用户可以继续执行新任务
+        # QMessageBox.information(self, "完成", "所有视频生成任务已完成")
 
-        # 清理管理器
-        if self.concurrent_batch_manager:
-            # 确保所有线程都正确清理
-            self.concurrent_batch_manager.cancel_all_tasks()
-            self.concurrent_batch_manager = None
-
-        # 刷新任务视频列表
-        self.refresh_task_videos()
-
-    def update_batch_progress(self, current, total):
-        """更新批量进度"""
-        progress = int((current / total) * 100) if total > 0 else 0
-        self.batch_progress_bar.setValue(progress)
-        self.batch_progress_label.setText(f"批量进度: {current}/{total}")
-
-    def add_video_result(self, video_data):
-        """添加视频结果"""
-        # 创建视频结果卡片
-        video_card = VideoResultCard(video_data)
-        self.video_scroll_layout.addWidget(video_card)
-
-        # 切换到视频列表Tab
-        self.result_tabs.setCurrentIndex(0)
-
-    def show_settings_dialog(self):
-        """显示设置对话框"""
-        dialog = APISettingsDialog(self.api_manager, self)
-        if dialog.exec_() == QDialog.Accepted:
-            self.update_key_status()
-            self.save_settings()
-
-    def cancel_task(self, task_id):
-        """取消指定任务"""
-        if self.current_batch_worker and self.current_batch_worker.isRunning():
-            self.current_batch_worker.cancel()
-            self.add_log(f"⏹️ 用户请求取消任务 {task_id}")
-
-    def update_key_status(self):
-        """更新密钥状态显示（深色主题）"""
-        count = self.api_manager.get_available_keys_count()
-        if count > 0:
-            self.key_status_label.setText(f"密钥: {count}个可用")
-            self.key_status_label.setStyleSheet("""
-                color: #4CAF50;
-                padding: 6px 15px;
-                background: #1e3a1e;
-                border-radius: 6px;
-                border: 1px solid #2e5a2e;
-                font-size: 12px;
-                min-width: 120px;
-            """)
-        else:
-            self.key_status_label.setText("密钥: 未配置")
-            self.key_status_label.setStyleSheet("""
-                color: #ff6b6b;
-                padding: 6px 15px;
-                background: #3a1e1e;
-                border-radius: 6px;
-                border: 1px solid #5a2e2e;
-                font-size: 12px;
-                min-width: 120px;
-            """)
-
-    def add_log(self, message):
-        """添加日志"""
-        self.log_text.append(message)
-        # 自动滚动到底部
-        cursor = self.log_text.textCursor()
-        cursor.movePosition(cursor.End)
-        self.log_text.setTextCursor(cursor)
-
-    def clear_log(self):
-        """清空日志"""
-        self.log_text.clear()
-        self.add_log("📝 日志已清空")
-
-    def save_log(self):
-        """保存日志"""
-        file_path, _ = QFileDialog.getSaveFileName(
-            self, "保存日志", f"video_log_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt", "文本文件 (*.txt)"
-        )
-        if file_path:
-            try:
-                with open(file_path, 'w', encoding='utf-8') as f:
-                    f.write(self.log_text.toPlainText())
-                QMessageBox.information(self, "成功", f"日志已保存到: {file_path}")
-            except Exception as e:
-                QMessageBox.critical(self, "错误", f"保存失败: {str(e)}")
+    def create_video_result_card(self, result_data, task_id):
+        """创建视频结果卡片"""
+        try:
+            card = VideoResultCard(result_data, task_id, self)
+            self.video_scroll_layout.addWidget(card)
+        except Exception as e:
+            self.add_log(f"❌ 创建视频结果卡片失败: {e}")
 
     def refresh_task_videos(self):
-        """刷新任务视频缩略图列表"""
+        """刷新任务视频列表"""
         try:
             # 清空现有缩略图
             while self.task_thumbnails_layout.count():
@@ -2574,113 +2678,84 @@ class VideoGenerationWidget(QWidget):
                 if item.widget():
                     item.widget().deleteLater()
 
-            # 检查output目录
+            # 扫描output目录中的视频文件
             output_dir = "output"
-            if not os.path.exists(output_dir):
-                os.makedirs(output_dir)
-                # 显示空状态提示
-                empty_label = QLabel("本次任务暂无生成的视频")
-                empty_label.setStyleSheet("color: #888888; font-size: 12px;")
-                self.task_thumbnails_layout.addWidget(empty_label)
-                return
-
-            # 支持的视频格式 - 只显示本次会话生成的视频
-            video_extensions = ['.mp4']
-            video_files = []
-
-            # 扫描视频文件，按创建时间过滤
-            current_time = time.time()
-            session_start = current_time - 3600  # 最近1小时的文件
-
-            for file in os.listdir(output_dir):
-                if any(file.lower().endswith(ext) for ext in video_extensions):
-                    file_path = os.path.join(output_dir, file)
-                    if os.path.isfile(file_path):
-                        # 获取文件创建时间
-                        stat = os.stat(file_path)
-                        create_time = stat.st_ctime
-
-                        # 只显示最近创建的视频
-                        if create_time >= session_start:
-                            size_mb = stat.st_size / (1024 * 1024)
-
-                            video_files.append({
-                                'name': file,
+            if os.path.exists(output_dir):
+                video_files = []
+                for file_name in os.listdir(output_dir):
+                    if file_name.lower().endswith(('.mp4', '.avi', '.mov', '.mkv', '.flv', '.webm')):
+                        file_path = os.path.join(output_dir, file_name)
+                        try:
+                            # 获取文件信息
+                            stat_info = os.stat(file_path)
+                            video_info = {
+                                'name': file_name,
                                 'path': file_path,
-                                'size_mb': size_mb,
-                                'create_time': create_time
-                            })
+                                'size_mb': stat_info.st_size / (1024 * 1024),
+                                'create_time': stat_info.st_ctime
+                            }
+                            video_files.append(video_info)
+                        except:
+                            pass
 
-            # 按创建时间排序（最新的在前）
-            video_files.sort(key=lambda x: x['create_time'], reverse=True)
+                # 按创建时间排序（最新的在前）
+                video_files.sort(key=lambda x: x['create_time'], reverse=True)
 
-            if not video_files:
-                # 显示空状态提示
-                empty_label = QLabel("本次任务暂无生成的视频")
-                empty_label.setStyleSheet("color: #888888; font-size: 12px;")
-                self.task_thumbnails_layout.addWidget(empty_label)
-                return
-
-            # 添加视频缩略图
-            for video_info in video_files:
-                thumbnail_item = self.create_video_thumbnail(video_info)
-                self.task_thumbnails_layout.addWidget(thumbnail_item)
-
-            self.add_log(f"📹 已刷新任务视频列表，共{len(video_files)}个文件")
+                # 创建缩略图
+                for video_info in video_files[:10]:  # 只显示最新的10个
+                    thumbnail = self.create_video_thumbnail(video_info)
+                    if thumbnail:
+                        self.task_thumbnails_layout.addWidget(thumbnail)
 
         except Exception as e:
-            self.add_log(f"⚠️ 刷新任务视频失败: {str(e)}")
-            # 显示错误提示
-            error_label = QLabel("加载视频列表失败")
-            error_label.setStyleSheet("color: #ff6b6b; font-size: 12px;")
-            self.task_thumbnails_layout.addWidget(error_label)
+            self.add_log(f"⚠️ 刷新任务视频失败: {e}")
 
     def create_video_thumbnail(self, video_info):
-        """创建视频缩略图项目"""
-        widget = QWidget()
-        widget.setFixedSize(140, 100)
-        widget.setCursor(Qt.PointingHandCursor)
+        """创建视频缩略图"""
+        try:
+            widget = QWidget()
+            widget.setFixedSize(160, 90)
+            widget.setStyleSheet("""
+                QWidget {
+                    background-color: #2a2a2a;
+                    border: 1px solid #404040;
+                    border-radius: 4px;
+                }
+                QWidget:hover {
+                    border: 1px solid #4a90e2;
+                }
+            """)
 
-        layout = QVBoxLayout(widget)
-        layout.setSpacing(4)
-        layout.setContentsMargins(4, 4, 4, 4)
+            layout = QVBoxLayout(widget)
+            layout.setContentsMargins(5, 5, 5, 5)
+            layout.setSpacing(2)
 
-        # 缩略图区域
-        thumbnail = QLabel()
-        thumbnail.setFixedSize(132, 74)
-        thumbnail.setStyleSheet("""
-            QLabel {
-                background-color: #2a2a2a;
-                border: 1px solid #404040;
-                border-radius: 4px;
-            }
-            QLabel:hover {
-                border: 2px solid #4a90e2;
-            }
-        """)
-        thumbnail.setAlignment(Qt.AlignCenter)
+            # 缩略图（暂时用文件名代替）
+            thumbnail_label = QLabel("🎬")
+            thumbnail_label.setAlignment(Qt.AlignCenter)
+            thumbnail_label.setStyleSheet("font-size: 24px; color: #666;")
+            layout.addWidget(thumbnail_label)
 
-        # 显示文件名前几个字符作为缩略图标识
-        name_short = video_info['name'][:8] + "..." if len(video_info['name']) > 8 else video_info['name']
-        thumbnail.setText(f"📹\n{name_short}")
-        thumbnail.setStyleSheet(thumbnail.styleSheet() + """
-            QLabel {
-                color: #cccccc;
-                font-size: 10px;
-            }
-        """)
-        layout.addWidget(thumbnail)
+            # 文件名
+            name_label = QLabel(video_info['name'][:15] + "..." if len(video_info['name']) > 15 else video_info['name'])
+            name_label.setStyleSheet("color: #ffffff; font-size: 10px;")
+            name_label.setAlignment(Qt.AlignCenter)
+            layout.addWidget(name_label)
 
-        # 文件名
-        name_label = QLabel(video_info['name'][:12] + "..." if len(video_info['name']) > 12 else video_info['name'])
-        name_label.setStyleSheet("color: #ffffff; font-size: 10px;")
-        name_label.setAlignment(Qt.AlignCenter)
-        layout.addWidget(name_label)
+            # 文件大小和时间
+            info_label = QLabel(f"{video_info['size_mb']:.1f}MB")
+            info_label.setStyleSheet("color: #888888; font-size: 8px;")
+            info_label.setAlignment(Qt.AlignCenter)
+            layout.addWidget(info_label)
 
-        # 点击播放
-        widget.mousePressEvent = lambda event: self.play_task_video(video_info['path'], video_info['name'])
+            # 点击播放
+            widget.mousePressEvent = lambda event: self.play_task_video(video_info['path'], video_info['name'])
 
-        return widget
+            return widget
+
+        except Exception as e:
+            self.add_log(f"⚠️ 创建视频缩略图失败: {e}")
+            return None
 
     def open_output_folder(self):
         """打开output文件夹"""
@@ -2936,8 +3011,47 @@ class VideoGenerationWidget(QWidget):
         except Exception as e:
             self.add_log(f"❌ 保存设置失败: {e}")
 
-    
-    
+    def add_log(self, message):
+        """添加日志到日志文本框"""
+        try:
+            timestamp = datetime.now().strftime("%H:%M:%S")
+            log_entry = f"[{timestamp}] {message}"
+
+            # 在主线程中更新UI
+            if hasattr(self, 'log_text'):
+                self.log_text.append(log_entry)
+                # 滚动到底部
+                scrollbar = self.log_text.verticalScrollBar()
+                scrollbar.setValue(scrollbar.maximum())
+
+            # 同时输出到控制台
+            print(log_entry)
+        except Exception as e:
+            print(f"添加日志失败: {e}, 原消息: {message}")
+
+    def clear_log(self):
+        """清空日志"""
+        if hasattr(self, 'log_text'):
+            self.log_text.clear()
+            self.add_log("📋 日志已清空")
+
+    def save_log(self):
+        """保存日志到文件"""
+        try:
+            if hasattr(self, 'log_text'):
+                log_content = self.log_text.toPlainText()
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                log_file = f"video_generation_log_{timestamp}.txt"
+
+                with open(log_file, 'w', encoding='utf-8') as f:
+                    f.write(log_content)
+
+                QMessageBox.information(self, "成功", f"日志已保存到: {log_file}")
+                self.add_log(f"📄 日志已保存到文件: {log_file}")
+        except Exception as e:
+            QMessageBox.warning(self, "错误", f"保存日志失败: {str(e)}")
+            self.add_log(f"❌ 保存日志失败: {str(e)}")
+
 # 视频参数设置对话框
 class VideoSettingsDialog(QDialog):
     """视频参数设置对话框"""
@@ -3372,10 +3486,17 @@ class VideoSettingsDialog(QDialog):
 
     def update_frames(self, seconds=None):
         """根据秒数更新帧数"""
+        # 修复：统一为 seconds 可选；同时更新对话框显示，避免重复定义导致功能丢失
         if seconds is None:
             seconds = self.duration_spin.value()
+
         total_frames = seconds * 16 + 1
-        self.frames_label.setText(f"总帧数: {total_frames}")
+        self.frames_label.setText(str(total_frames))
+
+        # 同步更新设置对话框中的帧数显示（如果存在）
+        if hasattr(self, 'video_settings_dialog') and self.video_settings_dialog:
+            if hasattr(self.video_settings_dialog, 'frames_label'):
+                self.video_settings_dialog.frames_label.setText(f"总帧数: {total_frames}")
 
     def swap_dimensions(self):
         """互换宽度和高度"""
@@ -4072,6 +4193,183 @@ class VideoResultCard(QWidget):
     def copy_url(self):
         """复制视频URL"""
         video_url = self.video_data.get('video_url', '')
+        if video_url:
+            from PyQt5.QtWidgets import QApplication
+            clipboard = QApplication.clipboard()
+            clipboard.setText(video_url)
+
+            # 显示提示
+            from qfluentwidgets import InfoBar
+            InfoBar.success(
+                title="成功",
+                content="视频URL已复制到剪贴板",
+                orient=Qt.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=2000,
+                parent=self
+            )
+
+# 视频结果卡片类
+class VideoResultCard(CardWidget):
+    """视频结果展示卡片"""
+
+    def __init__(self, video_data, task_id, parent=None):
+        super().__init__(parent)
+        self.video_data = video_data
+        self.task_id = task_id
+        self.parent = parent
+        self.init_ui()
+
+    def init_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(15, 15, 15, 15)
+        layout.setSpacing(10)
+
+        # 任务标题
+        title_label = QLabel(f"📋 {self.video_data.get('task_name', f'任务_{self.task_id}')}")
+        title_label.setStyleSheet("font-size: 14px; font-weight: bold; color: #ffffff; margin-bottom: 5px;")
+        layout.addWidget(title_label)
+
+        # 视频信息
+        info_layout = QHBoxLayout()
+
+        # 分辨率
+        size_label = QLabel(f"{self.video_data.get('width', 480)}×{self.video_data.get('height', 854)}")
+        size_label.setStyleSheet("color: #cccccc; font-size: 12px;")
+        info_layout.addWidget(size_label)
+
+        info_layout.addStretch()
+
+        # 帧数
+        frames_label = QLabel(f"{self.video_data.get('num_frames', 81)}帧")
+        frames_label.setStyleSheet("color: #cccccc; font-size: 12px;")
+        info_layout.addWidget(frames_label)
+
+        layout.addLayout(info_layout)
+
+        # 提示词
+        prompt_text = self.video_data.get('prompt', '')
+        if prompt_text:
+            prompt_label = QLabel(f"提示词: {prompt_text[:60]}...")
+            prompt_label.setStyleSheet("color: #888888; font-size: 11px;")
+            prompt_label.setWordWrap(True)
+            layout.addWidget(prompt_label)
+
+        # 操作按钮
+        button_layout = QHBoxLayout()
+
+        self.view_btn = PushButton("本地播放")
+        self.view_btn.setFixedSize(80, 30)
+        self.view_btn.clicked.connect(self.view_video)
+        button_layout.addWidget(self.view_btn)
+
+        self.download_btn = PushButton("下载")
+        self.download_btn.setFixedSize(60, 30)
+        self.download_btn.clicked.connect(self.download_video)
+        button_layout.addWidget(self.download_btn)
+
+        self.copy_url_btn = PushButton("复制URL")
+        self.copy_url_btn.setFixedSize(80, 30)
+        self.copy_url_btn.clicked.connect(self.copy_url)
+        button_layout.addWidget(self.copy_url_btn)
+
+        button_layout.addStretch()
+        layout.addLayout(button_layout)
+
+        # 设置卡片样式
+        self.setStyleSheet("""
+            VideoResultCard {
+                background-color: #2a2a2a;
+                border: 1px solid #404040;
+                border-radius: 8px;
+                margin: 5px;
+            }
+            VideoResultCard:hover {
+                border: 1px solid #4a90e2;
+            }
+        """)
+
+    def view_video(self):
+        """播放视频"""
+        try:
+            video_url = self.video_data.get('url', '')
+            if video_url:
+                # 先尝试下载到本地然后播放
+                self.view_btn.setEnabled(False)
+                self.view_btn.setText("下载中...")
+
+                # 创建下载工作线程
+                self.download_worker = VideoDownloadWorker(video_url, f"video_{self.task_id}.mp4")
+                self.download_worker.download_finished.connect(self.on_play_download_finished)
+                self.download_worker.start()
+            else:
+                QMessageBox.warning(self, "警告", "视频URL不可用")
+        except Exception as e:
+            QMessageBox.warning(self, "错误", f"播放失败: {str(e)}")
+
+    def on_play_download_finished(self, success, message, local_path):
+        """播放下载完成回调"""
+        # 恢复播放按钮状态
+        if hasattr(self, 'view_btn'):
+            self.view_btn.setEnabled(True)
+            self.view_btn.setText("本地播放")
+
+        if success and local_path:
+            try:
+                # 下载成功，播放本地视频
+                self.parent.play_task_video(local_path, f"视频_{self.task_id}")
+            except Exception as e:
+                QMessageBox.warning(self, "错误", f"播放失败: {str(e)}")
+        else:
+            # 下载失败，回退到系统播放器
+            if hasattr(self, 'view_btn'):
+                self.view_btn.setText("播放")
+            video_url = self.video_data.get('url', '')
+            if video_url:
+                try:
+                    from PyQt5.QtCore import QUrl
+                    from PyQt5.QtGui import QDesktopServices
+                    QDesktopServices.openUrl(QUrl(video_url))
+                except Exception as e:
+                    QMessageBox.warning(self, "错误", f"播放失败: {str(e)}")
+
+    def download_video(self):
+        """下载视频"""
+        video_url = self.video_data.get('url', '')
+        if not video_url:
+            QMessageBox.warning(self, "警告", "视频URL不可用")
+            return
+
+        file_path, _ = QFileDialog.getSaveFileName(
+            self,
+            f"保存视频 {self.video_data.get('task_name', f'video_{self.task_id}')}",
+            f"{self.video_data.get('task_name', f'video_{self.task_id}')}.mp4",
+            "MP4 Files (*.mp4)"
+        )
+
+        if file_path:
+            try:
+                self.download_btn.setEnabled(False)
+                self.download_btn.setText("下载中...")
+
+                response = requests.get(video_url, stream=True, timeout=300)
+                response.raise_for_status()
+
+                with open(file_path, 'wb') as f:
+                    for chunk in response.iter_content(chunk_size=8192):
+                        f.write(chunk)
+
+                QMessageBox.information(self, "成功", f"视频已保存到: {file_path}")
+            except Exception as e:
+                QMessageBox.critical(self, "错误", f"下载失败: {str(e)}")
+            finally:
+                self.download_btn.setEnabled(True)
+                self.download_btn.setText("下载")
+
+    def copy_url(self):
+        """复制视频URL"""
+        video_url = self.video_data.get('url', '')
         if video_url:
             from PyQt5.QtWidgets import QApplication
             clipboard = QApplication.clipboard()

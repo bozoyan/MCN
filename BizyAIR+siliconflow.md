@@ -110,3 +110,38 @@ response = requests.post(url, headers=headers, json=data)
 result = response.json()
 print("生成结果:", result)
 ```
+
+
+
+### 图片转视频API 接口
+- 使用 BizyAir 图片转视频API
+- Web App ID: 41082
+- 输出格式: MP4
+- 最大超时时间: 10分钟
+
+```python
+# Python 示例代码
+import requests
+import json
+
+url = "https://api.bizyair.cn/w/v1/webapp/task/openapi/create"
+headers = {
+    "Content-Type": "application/json",
+    "Authorization": "Bearer YOUR_API_KEY"
+}
+data = {
+      "web_app_id": 41082,
+      "suppress_preview_output": False,
+      "input_values": {
+        "67:LoadImage.image": "https://bizyair-prod.oss-cn-shanghai.aliyuncs.com/inputs/20251111/iFTgLtreJQ53dXMsVxKv6mtwJcKpgH9g.png",
+        "68:ImageResizeKJv2.width": 720,
+        "68:ImageResizeKJv2.height": 720,
+        "16:WanVideoTextEncode.positive_prompt": "美女跳舞",
+        "89:WanVideoImageToVideoEncode.num_frames": 81
+      }
+    }
+
+response = requests.post(url, headers=headers, json=data)
+result = response.json()
+print("生成结果:", result)
+```
