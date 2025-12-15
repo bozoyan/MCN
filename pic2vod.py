@@ -61,7 +61,7 @@ from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
                             QSpinBox, QProgressBar, QMessageBox, QFileDialog,
                             QGroupBox, QTabWidget, QSplitter, QFrame,
                             QGridLayout, QScrollArea, QSlider, QCheckBox, QDialog, QSizePolicy)
-from PyQt5.QtGui import QPixmap, QDragEnterEvent, QDropEvent, QPalette, QDesktopServices
+from PyQt5.QtGui import QPixmap, QDragEnterEvent, QDropEvent, QPalette, QDesktopServices, QColor
 
 import qfluentwidgets as qf
 from qfluentwidgets import (FluentIcon, CardWidget, ElevatedCardWidget,
@@ -2938,37 +2938,37 @@ class APISettingsDialog(QDialog):
         except Exception as e:
             print(f"加载API设置失败: {e}")
 
-# # --- 13. 主程序入口（假设已集成到 PyQt 应用框架） ---
-# if __name__ == '__main__':
-#     from PyQt5.QtWidgets import QApplication, QMainWindow
+# --- 13. 主程序入口（假设已集成到 PyQt 应用框架） ---
+if __name__ == '__main__':
+    from PyQt5.QtWidgets import QApplication, QMainWindow
 
-#     app = QApplication(sys.argv)
+    app = QApplication(sys.argv)
     
-#     # 强制设置深色主题
-#     app.setStyle('Fusion')
-#     palette = QPalette()
-#     palette.setColor(QPalette.Window, Qt.darkGray)
-#     palette.setColor(QPalette.WindowText, Qt.white)
-#     palette.setColor(QPalette.Base, Qt.black)
-#     palette.setColor(QPalette.AlternateBase, Qt.darkGray)
-#     palette.setColor(QPalette.ToolTipBase, Qt.white)
-#     palette.setColor(QPalette.ToolTipText, Qt.white)
-#     palette.setColor(QPalette.Text, Qt.white)
-#     palette.setColor(QPalette.Button, Qt.darkGray)
-#     palette.setColor(QPalette.ButtonText, Qt.white)
-#     palette.setColor(QPalette.BrightText, Qt.red)
-#     palette.setColor(QPalette.Link, Qt.cyan)
-#     palette.setColor(QPalette.Highlight, QColor(72, 166, 237))
-#     palette.setColor(QPalette.HighlightedText, Qt.black)
-#     app.setPalette(palette)
+    # 强制设置深色主题
+    app.setStyle('Fusion')
+    palette = QPalette()
+    palette.setColor(QPalette.Window, Qt.darkGray)
+    palette.setColor(QPalette.WindowText, Qt.white)
+    palette.setColor(QPalette.Base, Qt.black)
+    palette.setColor(QPalette.AlternateBase, Qt.darkGray)
+    palette.setColor(QPalette.ToolTipBase, Qt.white)
+    palette.setColor(QPalette.ToolTipText, Qt.white)
+    palette.setColor(QPalette.Text, Qt.white)
+    palette.setColor(QPalette.Button, Qt.darkGray)
+    palette.setColor(QPalette.ButtonText, Qt.white)
+    palette.setColor(QPalette.BrightText, Qt.red)
+    palette.setColor(QPalette.Link, Qt.cyan)
+    palette.setColor(QPalette.Highlight, QColor(72, 166, 237))
+    palette.setColor(QPalette.HighlightedText, Qt.black)
+    app.setPalette(palette)
 
 
-#     main_window = QMainWindow()
-#     main_window.setWindowTitle("图片转视频生成工具")
-#     main_window.setMinimumSize(1200, 800)
+    main_window = QMainWindow()
+    main_window.setWindowTitle("图片转视频生成工具")
+    main_window.setMinimumSize(1200, 800)
 
-#     video_widget = VideoGenerationWidget(main_window)
-#     main_window.setCentralWidget(video_widget)
+    video_widget = VideoGenerationWidget(main_window)
+    main_window.setCentralWidget(video_widget)
 
-#     main_window.show()
-#     sys.exit(app.exec_())
+    main_window.show()
+    sys.exit(app.exec_())
