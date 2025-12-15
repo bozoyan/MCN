@@ -130,7 +130,7 @@ from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
                             QLineEdit, QTextEdit, QPushButton, QComboBox,
                             QSpinBox, QProgressBar, QMessageBox, QFileDialog,
                             QGroupBox, QTabWidget, QSplitter, QFrame,
-                            QGridLayout, QScrollArea, QSlider, QCheckBox, QDialog)
+                            QGridLayout, QScrollArea, QSlider, QCheckBox, QDialog, QSizePolicy)
 from PyQt5.QtGui import QPixmap, QDragEnterEvent, QDropEvent, QPalette
 
 # 尝试导入多媒体组件
@@ -416,6 +416,10 @@ class SingleVideoGenerationWorker(QThread):
             seconds = int(elapsed % 60)
             time_str = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
             self.time_updated.emit(time_str, self.task_id)
+            
+        # 确保时间更新循环持续执行
+        if self.time_update_active and not self.is_cancelled:
+            QTimer.singleShot(1000, self.update_timer)
 
     def log_message(self, message):
         """记录日志消息"""
@@ -1746,12 +1750,16 @@ class VideoGenerationWidget(QWidget):
         # 图片输入组
         image_group = self.create_image_input_group()
         scroll_layout.addWidget(image_group)
+        
+        # 提示词输入区域（移到图片上传区域下方）
+        prompt_group = self.create_prompt_group()
+        scroll_layout.addWidget(prompt_group)
 
-        # 批量任务组
+        # 批量任务组（移到按钮上方）
         batch_group = self.create_batch_group()
         scroll_layout.addWidget(batch_group)
 
-        # 操作按钮组
+        # 操作按钮组（放在最下方）
         actions_group = self.create_actions_group()
         scroll_layout.addWidget(actions_group)
 
@@ -2006,24 +2014,42 @@ class VideoGenerationWidget(QWidget):
             if hasattr(self, 'current_params_label'):
                 self.current_params_label.setText(default_params)
 
-    def create_actions_group(self):
-        """创建操作按钮组（深色主题）"""
-        group = QGroupBox("")  # 操作
+    def create_prompt_group(self):
+        """创建提示词输入组（深色主题）"""
+        group = QGroupBox("提示词")
+        group.setStyleSheet("""
+            QGroupBox {
+                font-weight: bold;
+                border: 1px solid #404040;
+                border-radius: 8px;
+                margin-top: 8px;
+                padding-top: 8px;
+                background-color: #2a2a2a;
+                color: #ffffff;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 12px;
+                padding: 0 8px 0 8px;
+                color: #ffffff;
+                font-size: 14px;
+            }
+        """)
         layout = QVBoxLayout(group)
-        layout.setSpacing(0)  # 增加间距
-
-        # 提示词输入（增高）
+        layout.setContentsMargins(10, 15, 10, 10)
+        
+        # 提示词输入框（自适应高度）
         self.prompt_edit = QTextEdit()
         self.prompt_edit.setPlaceholderText("输入视频生成的提示词，例如：美女跳舞、风景变化等...")
-        self.prompt_edit.setFixedHeight(180)  # 减少高度让界面更紧凑
+        self.prompt_edit.setMinimumHeight(80)  # 设置最小高度，但允许自适应
+        self.prompt_edit.setMaximumHeight(200)  # 设置最大高度，防止过大
+        self.prompt_edit.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.prompt_edit.setStyleSheet("""
             QTextEdit {
-                font-size: 18px;
+                font-size: 14px;
                 font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
                 border: 1px solid #404040;
                 border-radius: 6px;
-                margin-top:-120px;
-                margin-bottom:20px;
                 padding: 12px;
                 background-color: #333333;
                 color: #ffffff;
@@ -2034,9 +2060,32 @@ class VideoGenerationWidget(QWidget):
             }
         """)
         layout.addWidget(self.prompt_edit)
-
-        # 添加弹性空间
-        layout.addStretch()
+        
+        return group
+        
+    def create_actions_group(self):
+        """创建操作按钮组（深色主题）"""
+        group = QGroupBox("操作")
+        group.setStyleSheet("""
+            QGroupBox {
+                font-weight: bold;
+                border: 1px solid #404040;
+                border-radius: 8px;
+                margin-top: 8px;
+                padding-top: 8px;
+                background-color: #2a2a2a;
+                color: #ffffff;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 12px;
+                padding: 0 8px 0 8px;
+                color: #ffffff;
+                font-size: 14px;
+            }
+        """)
+        layout = QVBoxLayout(group)
+        layout.setContentsMargins(10, 15, 10, 10)
 
         # 生成按钮放在底部左对齐
         button_layout = QHBoxLayout()
@@ -2148,14 +2197,14 @@ class VideoGenerationWidget(QWidget):
         list_title.setStyleSheet("font-size: 16px; font-weight: bold; color: #ffffff; margin-bottom: 5px;")
         video_list_layout.addWidget(list_title)
 
-        # 视频列表滚动区域（限制高度）
+        # 视频列表滚动区域（增加高度）
         self.video_scroll = SmoothScrollArea()
         self.video_scroll_widget = QWidget()
         self.video_scroll_layout = QVBoxLayout(self.video_scroll_widget)
         self.video_scroll_layout.setSpacing(10)
         self.video_scroll.setWidget(self.video_scroll_widget)
         self.video_scroll.setWidgetResizable(True)
-        self.video_scroll.setFixedHeight(300)  # 限制高度，为播放器留空间
+        self.video_scroll.setFixedHeight(400)  # 增加高度，为生成结果留更多空间
         video_list_layout.addWidget(self.video_scroll)
 
         # 下部分：任务视频播放区域
@@ -2433,17 +2482,28 @@ class VideoGenerationWidget(QWidget):
         """创建任务卡片"""
         card = CardWidget()
         card.setFixedHeight(60)
+        card.setStyleSheet("""
+            CardWidget {
+                background-color: #2a2a2a;
+                border: 1px solid #404040;
+                border-radius: 8px;
+                margin: 2px;
+            }
+            CardWidget:hover {
+                border: 1px solid #4a90e2;
+            }
+        """)
         layout = QHBoxLayout(card)
         layout.setContentsMargins(10, 5, 10, 5)
 
         # 任务信息
         info_layout = QVBoxLayout()
         name_label = QLabel(task['name'])
-        name_label.setStyleSheet("font-weight: bold;background-color:#292929;")
+        name_label.setStyleSheet("font-weight: bold; color: #ffffff; font-size: 13px;")
         info_layout.addWidget(name_label)
 
         prompt_label = QLabel(f"提示词: {task['prompt'][:60]}...")
-        prompt_label.setStyleSheet("color: #666; font-size: 12px;background-color:#292929;")
+        prompt_label.setStyleSheet("color: #cccccc; font-size: 12px;")
         info_layout.addWidget(prompt_label)
 
         layout.addLayout(info_layout)
@@ -2453,6 +2513,18 @@ class VideoGenerationWidget(QWidget):
         # 删除按钮
         delete_btn = PushButton("删除")  # 移除图标，添加文字
         delete_btn.setFixedSize(30, 30)
+        delete_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #dc3545;
+                border: none;
+                border-radius: 4px;
+                color: white;
+                font-size: 12px;
+            }
+            QPushButton:hover {
+                background-color: #e74c3c;
+            }
+        """)
         delete_btn.clicked.connect(lambda: self.remove_task(index))
         layout.addWidget(delete_btn)
 
@@ -4108,7 +4180,7 @@ class VideoResultCard(QWidget):
         header_layout.addStretch()
 
         # 状态显示
-        self.status_label = QLabel("准备中...")
+        self.status_label = QLabel("等待开始...")
         self.status_label.setStyleSheet("color: #4a90e2; font-size: 12px; font-weight: bold;")
         header_layout.addWidget(self.status_label)
 
@@ -4154,7 +4226,7 @@ class VideoResultCard(QWidget):
 
         # 视频URL显示（初始隐藏）
         self.url_container = QWidget()
-        self.url_layout = QVBoxLayout(self.url_container)
+        self.url_layout = QHBoxLayout(self.url_container)
         self.url_layout.setContentsMargins(0, 0, 0, 0)
 
         url_label = QLabel("视频URL:")
@@ -4180,6 +4252,11 @@ class VideoResultCard(QWidget):
         # 按钮区域
         button_layout = QHBoxLayout()
 
+        self.copy_url_btn = PushButton("复制URL")
+        self.copy_url_btn.clicked.connect(self.copy_url)
+        self.copy_url_btn.hide()  # 初始隐藏
+        button_layout.addWidget(self.copy_url_btn)
+
         self.view_btn = PushButton("播放")
         self.view_btn.clicked.connect(self.view_video)
         self.view_btn.hide()  # 初始隐藏
@@ -4189,11 +4266,6 @@ class VideoResultCard(QWidget):
         self.download_btn.clicked.connect(self.download_video)
         self.download_btn.hide()  # 初始隐藏
         button_layout.addWidget(self.download_btn)
-
-        self.copy_url_btn = PushButton("复制URL")
-        self.copy_url_btn.clicked.connect(self.copy_url)
-        self.copy_url_btn.hide()  # 初始隐藏
-        button_layout.addWidget(self.copy_url_btn)
 
         layout.addLayout(button_layout)
 
@@ -4263,14 +4335,14 @@ class VideoResultCard(QWidget):
     def complete_progress(self, video_url=""):
         """完成进度显示"""
         self.progress_bar.setValue(100)
-        self.status_label.setText("生成完成")
+        self.status_label.setText("任务完成")
         self.status_label.setStyleSheet("color: #28a745; font-size: 12px; font-weight: bold;")
 
         if self.progress_timer:
             self.progress_timer.stop()
 
         elapsed = int(time.time() - self.start_time) if self.start_time else 0
-        self.progress_info_label.setText(f"完成! 总用时: {elapsed}秒")
+        self.progress_info_label.setText(f"任务完成! 总用时: {elapsed}秒")
 
         if video_url:
             self.url_edit.setText(video_url)
@@ -4501,7 +4573,10 @@ class VideoResultCard(QWidget):
 
     def copy_url(self):
         """复制视频URL"""
-        video_url = self.video_data.get('video_url', '')
+        video_url = self.video_data.get('url', '')
+        if not video_url:
+            video_url = self.url_edit.text()
+        
         if video_url:
             from PyQt5.QtWidgets import QApplication
             clipboard = QApplication.clipboard()
