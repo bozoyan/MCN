@@ -1,12 +1,12 @@
 {
   "video_params": {
-    "width": 854,
-    "height": 480,
+    "width": 480,
+    "height": 854,
     "duration": 5,
     "num_frames": 81
   },
   "api_settings": {
-    "key_file": "/Volumes/HAO/SD初始插件/comfyui_bozo/key/siliconflow_API_key.txt",
+    "key_file": "",
     "web_app_id": 41082
   },
   "ui_settings": {

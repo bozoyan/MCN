@@ -4300,11 +4300,18 @@ class VideoResultCard(QWidget):
             time_str = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
             current_progress = self.progress_bar.value()
             
-            # 添加滚动信息
-            if current_progress < 100:
-                scroll_text = "· 正在生成视频...请耐心等待 ·"
+            # 检查任务是否已完成
+            if current_progress >= 100 and self.status_label.text() == "任务完成":
+                # 任务已完成，继续更新总用时
+                self.progress_info_label.setText(f"任务完成! 总用时: {time_str}")
+            elif current_progress < 100:
+                # 任务进行中，显示滚动信息
+                # 生成滚动效果的文本
+                dots = "." * ((elapsed % 3) + 1)  # 1到3个点循环变化
+                scroll_text = f"· 正在生成视频{dots}请耐心等待 ·"
                 self.progress_info_label.setText(f"进度: {current_progress}% - 已用时: {time_str} {scroll_text}")
             else:
+                # 其他情况
                 self.progress_info_label.setText(f"进度: {current_progress}% - 已用时: {time_str}")
 
     def update_time(self, time_string):
@@ -4319,12 +4326,15 @@ class VideoResultCard(QWidget):
         self.status_label.setStyleSheet("color: #28a745; font-size: 12px; font-weight: bold;")
 
         # 不停止计时器，让它继续计时显示总用时
-        elapsed = int(time.time() - self.start_time) if self.start_time else 0
-        hours = elapsed // 3600
-        minutes = (elapsed % 3600) // 60
-        seconds = elapsed % 60
-        time_str = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
-        self.progress_info_label.setText(f"任务完成! 总用时: {time_str}")
+        # 计时器将继续运行，由update_timer方法更新显示
+        # 首次设置完成状态，后续由计时器更新时间
+        if self.start_time:
+            elapsed = int(time.time() - self.start_time)
+            hours = elapsed // 3600
+            minutes = (elapsed % 3600) // 60
+            seconds = elapsed % 60
+            time_str = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+            self.progress_info_label.setText(f"任务完成! 总用时: {time_str}")
 
         if video_url:
             self.url_edit.setText(video_url)
@@ -4709,10 +4719,11 @@ class VideoResultCard(CardWidget):
             QMessageBox.warning(self, "警告", "视频URL不可用")
             return
 
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         file_path, _ = QFileDialog.getSaveFileName(
             self,
             f"保存视频 {self.video_data.get('task_name', f'video_{self.task_id}')}",
-            f"{self.video_data.get('task_name', f'video_{self.task_id}')}.mp4",
+            f"{self.video_data.get('task_name', f'video_{self.task_id}_{timestamp}')}.mp4",
             "MP4 Files (*.mp4)"
         )
 
