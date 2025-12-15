@@ -371,32 +371,10 @@ class SingleVideoGenerationWorker(QThread):
         task_name = self.task.get('name', f'任务 {self.task_id}')
         Utils.log_message(message, self.log_updated, task_name)
 
-    def start_time_updates(self):
-        """开始时间更新"""
-        self.time_update_active = True
-        self.update_time_loop()
-
-    def update_time_loop(self):
-        """时间更新循环"""
-        if self.time_update_active and not self.is_cancelled:
-            self.update_timer()
-            # 使用QTimer.singleShot在主线程中执行下一次更新
-            QTimer.singleShot(1000, self.update_time_loop)
-
-    def update_timer(self):
-        """更新计时器显示"""
-        if self.start_time and not self.is_cancelled:
-            elapsed = time.time() - self.start_time
-            hours = int(elapsed // 3600)
-            minutes = int((elapsed % 3600) // 60)
-            seconds = int(elapsed % 60)
-            time_str = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
-            self.time_updated.emit(time_str, self.task_id)
-
     def run(self):
         """运行单个视频生成任务"""
         self.start_time = time.time()
-        self.start_time_updates()  # 开始计时更新
+        # Timer logic moved to UI thread (TaskStatusCard)
         task_name = self.task.get('name', f'任务 {self.task_id}')
 
         try:
@@ -989,6 +967,13 @@ class TaskStatusCard(CardWidget):
         self.time_string = "00:00:00"
         self.status = "等待开始"
         self.key_source = "文件密钥"
+        
+        # 内部计时器
+        self.timer = QTimer(self)
+        self.timer.timeout.connect(self.update_timer)
+        self.start_ts = None
+        self.is_timing = False
+        
         self.init_ui()
 
     def init_ui(self):
@@ -1105,6 +1090,31 @@ class TaskStatusCard(CardWidget):
             self.progress_msg_label.setText(message)
         
         self.status_label.setText(self.status)
+
+    def start_timing(self):
+        """开始计时"""
+        if not self.is_timing:
+            self.is_timing = True
+            self.start_ts = time.time()
+            self.timer.start(1000) # 每秒更新
+
+    def stop_timing(self):
+        """停止计时"""
+        if self.is_timing:
+            self.is_timing = False
+            self.timer.stop()
+            # 确保最后一次更新
+            self.update_timer()
+
+    def update_timer(self):
+        """更新时间显示"""
+        if self.start_ts:
+            elapsed = time.time() - self.start_ts
+            hours = int(elapsed // 3600)
+            minutes = int((elapsed % 3600) // 60)
+            seconds = int(elapsed % 60)
+            self.time_string = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+            self.time_label.setText(self.time_string)
 
     def update_time(self, time_string):
         """更新时间显示"""
@@ -1646,6 +1656,9 @@ class VideoGenerationWidget(QWidget):
         scroll_layout = QVBoxLayout(scroll_widget)
         scroll_layout.setSpacing(6)
 
+        actions_group = self.create_actions_group()
+        scroll_layout.addWidget(actions_group)
+
         image_group = self.create_image_input_group()
         scroll_layout.addWidget(image_group)
         
@@ -1654,9 +1667,6 @@ class VideoGenerationWidget(QWidget):
 
         batch_group = self.create_batch_group()
         scroll_layout.addWidget(batch_group)
-
-        actions_group = self.create_actions_group()
-        scroll_layout.addWidget(actions_group)
 
         scroll.setWidget(scroll_widget)
         layout.addWidget(scroll)
@@ -1754,7 +1764,7 @@ class VideoGenerationWidget(QWidget):
         self.prompt_edit.setMinimumHeight(40)
         self.prompt_edit.setMaximumHeight(200)
         self.prompt_edit.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        self.prompt_edit.setStyleSheet("padding: 10px; background: #333333; border-radius: 4px;font-size:18px;")
+        self.prompt_edit.setStyleSheet("padding: 10px; background: #333333; border-radius: 4px;font-size:18px; margin-right:20px;")
         return self.prompt_edit
         
     def create_actions_group(self):
@@ -1924,7 +1934,7 @@ class VideoGenerationWidget(QWidget):
         name_label.setStyleSheet("font-weight: bold; color: #ffffff; font-size: 14px;")
         info_layout.addWidget(name_label)
 
-        prompt_label = QLabel(f"提示词: {task['prompt'][:30]}...")
+        prompt_label = QLabel(f"提示词: {task['prompt'][:120]}...")
         prompt_label.setStyleSheet("color: #cccccc; font-size: 12px;")
         info_layout.addWidget(prompt_label)
 
@@ -2120,6 +2130,7 @@ class VideoGenerationWidget(QWidget):
     def complete_task_status_card(self, task_id, success, message=""):
         """完成任务状态卡片"""
         if task_id in self.task_status_cards:
+            self.task_status_cards[task_id].stop_timing() # 停止计时
             self.task_status_cards[task_id].set_completed(success, message)
             
     def get_current_image_input(self):
@@ -2230,7 +2241,13 @@ class VideoGenerationWidget(QWidget):
     def update_task_progress(self, progress, message, task_id):
         """更新任务进度"""
         self.add_log(f"[{task_id}] {progress}% - {message}")
-        self.update_task_status_card(task_id, progress, message)
+        
+        # 自动启动计时器
+        if task_id in self.task_status_cards:
+            card = self.task_status_cards[task_id]
+            card.update_progress(progress, message)
+            if progress > 0 and progress < 100:
+                card.start_timing()
 
     def on_task_finished(self, success, message, result_data, task_id):
         """单个任务完成的回调"""
