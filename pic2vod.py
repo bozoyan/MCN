@@ -1604,7 +1604,7 @@ class VideoGenerationWidget(QWidget):
         self.duration_spin.setRange(1, 30)
         self.duration_spin.setValue(5)
         self.duration_spin.setSingleStep(1)
-        self.duration_spin.valueChanged.connect(self.update_frames)
+        self.duration_spin.valueChanged.connect(lambda value: self.update_frames(value))
 
         # 帧数显示（隐藏）
         self.frames_label = QLabel("81")
@@ -2927,7 +2927,7 @@ class VideoSettingsDialog(QDialog):
                 border: 2px solid #5a5a5a;
             }
         """)
-        self.duration_spin.valueChanged.connect(self.update_frames)
+        self.duration_spin.valueChanged.connect(lambda: self.update_frames())
         duration_layout.addWidget(self.duration_spin)
 
         layout.addWidget(duration_group)

@@ -699,25 +699,16 @@ class ImageGenerationWorker(QThread):
         self.image_urls = [''] * self.image_count
         self.web_app_id = config_manager.get('bizyair_params.web_app_id', 39808)
         self.start_time = None
-        self.timer = QTimer()
-        self.timer.timeout.connect(self.update_elapsed_time)
-
-    def update_elapsed_time(self):
-        """更新运行时间"""
-        if self.start_time:
-            elapsed = time.time() - self.start_time
-            self.time_updated.emit(f"运行时间: {elapsed:.1f}秒")
+        # 移除在子线程中创建的QTimer，使用信号机制替代
 
     def run(self):
         """运行图片生成"""
         try:
-            # 记录开始时间并启动计时器
+            # 记录开始时间
             self.start_time = time.time()
-            self.timer.start(100)  # 每100毫秒更新一次时间显示
 
             api_key = config_manager.get('api.api_key', MODEL_API_KEY)
             if not api_key:
-                self.timer.stop()
                 self.finished.emit(False, [], [])
                 return
 
@@ -738,14 +729,18 @@ class ImageGenerationWorker(QThread):
                 if self.is_cancelled:
                     break
 
+                # 发送时间更新信号
+                elapsed = time.time() - self.start_time
+                self.time_updated.emit(f"运行时间: {elapsed:.1f}秒")
+
                 start_index = batch_index * batch_size
                 end_index = min((batch_index + 1) * batch_size, len(self.prompts))
                 current_prompts = self.prompts[start_index:end_index]
-                
+
                 # 填充提示词到 5 个
                 while len(current_prompts) < batch_size:
-                    current_prompts.append("") 
-                
+                    current_prompts.append("")
+
                 # 构建 input_values
                 input_values = {
                     "35:EmptyLatentImage.width": self.width,
@@ -754,11 +749,11 @@ class ImageGenerationWorker(QThread):
                 for i, prompt in enumerate(current_prompts):
                     # 注意：BizyAIR API 的 prompt 索引从 prompt_1 到 prompt_5
                     input_values[f"42:easy promptList.prompt_{i+1}"] = prompt
-                
+
                 # 提交任务
                 progress = int(batch_index / num_batches * 10) # 提交阶段占前 10%
                 self.progress_updated.emit(progress, f"正在提交 BizyAIR 第 {batch_index+1}/{num_batches} 批任务...")
-                
+
                 response = requests.post(
                     base_url,
                     headers=common_headers,
@@ -775,7 +770,7 @@ class ImageGenerationWorker(QThread):
 
                 if result.get("status") == "Success" and result.get("outputs"):
                     outputs = result["outputs"]
-                    
+
                     # 处理当前批次实际生成的图片
                     for i, output in enumerate(outputs):
                         global_index = start_index + i
@@ -783,7 +778,7 @@ class ImageGenerationWorker(QThread):
                             img_url = output["object_url"]
                             final_urls.append(img_url)
                             self.image_generated.emit(global_index, None, img_url)
-                        
+
                             # 更新进度 (10% + 已完成百分比 * 90%)
                             progress = 10 + int(len(final_urls) / self.image_count * 90)
                             self.progress_updated.emit(progress, f"已生成 {len(final_urls)}/{self.image_count} 张图片 URL")
@@ -795,7 +790,6 @@ class ImageGenerationWorker(QThread):
                              final_urls.append('') # 添加空URL占位
 
             # 最终返回
-            self.timer.stop()  # 停止计时器
             if not self.is_cancelled:
                 total_time = time.time() - self.start_time if self.start_time else 0
                 self.progress_updated.emit(100, f"图片生成完成! 总耗时: {total_time:.1f}秒")
@@ -805,9 +799,8 @@ class ImageGenerationWorker(QThread):
                 total_time = time.time() - self.start_time if self.start_time else 0
                 self.progress_updated.emit(0, f"任务已取消! 耗时: {total_time:.1f}秒")
                 self.finished.emit(False, [], final_urls[:self.image_count])
-                 
+
         except Exception as e:
-            self.timer.stop()  # 停止计时器
             logger.error(f"图片生成失败: {e}")
             self.finished.emit(False, [], [])
 
@@ -1213,6 +1206,7 @@ class TopControlBar(QWidget):
     generate_all_requested = pyqtSignal()
     export_md_requested = pyqtSignal()
     export_images_requested = pyqtSignal()
+    open_export_folder_requested = pyqtSignal()  # 新增信号
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -1257,6 +1251,12 @@ class TopControlBar(QWidget):
         self.export_images_btn.setFixedHeight(36)
         self.export_images_btn.clicked.connect(self.export_images_requested.emit)
         layout.addWidget(self.export_images_btn)
+
+        # 6. 打开导出文件夹
+        self.open_folder_btn = PushButton(FluentIcon.FOLDER, "打开导出文件夹")
+        self.open_folder_btn.setFixedHeight(36)
+        self.open_folder_btn.clicked.connect(self.open_export_folder_requested.emit)
+        layout.addWidget(self.open_folder_btn)
     
     def set_generate_enabled(self, enabled):
         """控制一键生成按钮和导出按钮的启用状态"""
@@ -1579,6 +1579,7 @@ class StoryboardPage(SmoothScrollArea):
         self.top_control_bar.generate_all_requested.connect(self.generate_all)
         self.top_control_bar.export_md_requested.connect(self.export_markdown)
         self.top_control_bar.export_images_requested.connect(self.export_all_images)
+        self.top_control_bar.open_export_folder_requested.connect(self.open_export_folder)
         
         self.init_ui()
         self.init_image_widgets()
@@ -2387,6 +2388,9 @@ class StoryboardPage(SmoothScrollArea):
         if not output_dir:
             return
 
+        # 保存最近使用的导出目录
+        self.last_export_dir = output_dir
+
         timestamp = datetime.now().strftime('%m%d%H%M%S')
         export_count = 0
 
@@ -2395,7 +2399,7 @@ class StoryboardPage(SmoothScrollArea):
                 try:
                     file_name = f"storyboard_{timestamp}_{i+1}.png"
                     file_path = os.path.join(output_dir, file_name)
-                    
+
                     # 从 URL 下载图片并保存
                     response = requests.get(widget.image_url, timeout=30)
                     if response.status_code == 200:
@@ -2404,14 +2408,28 @@ class StoryboardPage(SmoothScrollArea):
                         export_count += 1
                     else:
                         logger.error(f"下载图片失败: HTTP {response.status_code}")
-                    
+
                 except Exception as e:
                     logger.error(f"保存图片失败: {e}")
 
         if export_count > 0:
-            QMessageBox.information(self, "成功", f"已导出 {export_count} 张图片到:\n{output_dir}")
+            # 直接打开导出文件夹，不显示弹窗
+            self.open_directory(output_dir)
         else:
             QMessageBox.warning(self, "警告", "没有可导出的图片")
+
+    def open_export_folder(self):
+        """打开导出文件夹"""
+        # 优先使用最近导出的目录，否则使用默认的output目录
+        export_dir = getattr(self, 'last_export_dir', 'output')
+        if not os.path.exists(export_dir):
+            export_dir = 'output'
+
+        # 如果目录不存在，创建它
+        if not os.path.exists(export_dir):
+            os.makedirs(export_dir)
+
+        self.open_directory(export_dir)
 
 
 # 主窗口 (精简)
