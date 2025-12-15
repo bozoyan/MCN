@@ -1535,7 +1535,7 @@ class VideoGenerationWidget(QWidget):
         self.batch_generate_btn.clicked.connect(self.generate_batch_videos)
         self.batch_generate_btn.setStyleSheet("""
             QPushButton {
-                background-color: #6c757d;
+                background-color: #007bff;
                 border: none;
                 border-radius: 4px;
                 color: #ffffff;
@@ -1543,13 +1543,35 @@ class VideoGenerationWidget(QWidget):
                 font-weight: 500;
             }
             QPushButton:hover {
-                background-color: #5a6268;
+                background-color: #0069d9;
             }
             QPushButton:pressed {
                 background-color: #545b62;
             }
         """)
         layout.addWidget(self.batch_generate_btn)
+        
+        layout.addSpacing(10)
+
+        # 打开文件夹按钮
+        self.open_output_btn = PushButton("打开文件夹")
+        self.open_output_btn.setFixedSize(100, 32)
+        self.open_output_btn.clicked.connect(self.open_output_folder)
+        self.open_output_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #343a40;
+                border: 1px solid #495057;
+                border-radius: 4px;
+                color: #e9ecef;
+                font-size: 13px;
+            }
+            QPushButton:hover {
+                background-color: #23272b;
+                border-color: #dee2e6;
+            }
+        """)
+        layout.addWidget(self.open_output_btn)
+
 
 
         layout.addStretch()
@@ -2049,57 +2071,8 @@ class VideoGenerationWidget(QWidget):
         # self.video_scroll.setFixedHeight(450) # 取消固定高度，使其自适应填充
         video_list_layout.addWidget(self.video_scroll)
 
-        # 播放器/缩略图区域
-        player_container = QWidget()
-        player_container.setStyleSheet("QWidget { background-color: #1e1e1e; }")
-        player_layout = QVBoxLayout(player_container)
-        player_layout.setContentsMargins(0, 0, 0, 0)
-        player_layout.setSpacing(0)
-
-        control_bar = QWidget()
-        control_bar.setFixedHeight(50)
-        control_bar.setStyleSheet("""
-            QWidget { background-color: #2a2a2a; border-top: 1px solid #404040; }
-        """)
-        control_layout = QHBoxLayout(control_bar)
-        control_layout.setContentsMargins(15, 8, 15, 8)
-
-        self.refresh_videos_btn = PushButton("刷新")
-        self.refresh_videos_btn.setFixedSize(80, 34)
-        self.refresh_videos_btn.clicked.connect(self.refresh_task_videos)
-        control_layout.addWidget(self.refresh_videos_btn)
-
-        self.open_output_btn = PushButton("打开文件夹")
-        self.open_output_btn.setFixedSize(100, 34)
-        self.open_output_btn.clicked.connect(self.open_output_folder)
-        control_layout.addWidget(self.open_output_btn)
-
-        self.current_video_label = QLabel("点击下方视频缩略图使用本地播放器打开")
-        # ... (QLabel 样式代码) ...
-        control_layout.addWidget(self.current_video_label)
-        control_layout.addStretch()
-        player_layout.addWidget(control_bar)
-
-        thumbnail_container = QWidget()
-        thumbnail_container.setFixedHeight(120)
-        # ... (QWidget 样式代码) ...
-        thumbnail_layout = QHBoxLayout(thumbnail_container)
-        thumbnail_layout.setContentsMargins(10, 8, 10, 8)
-        thumbnail_layout.setSpacing(10)
-
-        self.task_thumbnail_scroll = QScrollArea()
-        # ... (QScrollArea 样式代码) ...
-
-        self.task_thumbnails_widget = QWidget()
-        self.task_thumbnails_layout = QHBoxLayout(self.task_thumbnails_widget)
-        self.task_thumbnails_layout.setSpacing(10)
-        self.task_thumbnails_layout.setContentsMargins(0, 0, 0, 0)
-        self.task_thumbnail_scroll.setWidget(self.task_thumbnails_widget)
-        thumbnail_layout.addWidget(self.task_thumbnail_scroll)
-
-        player_layout.addWidget(thumbnail_container)
-        video_list_layout.addWidget(player_container)
         self.result_tabs.addTab(self.video_list_widget, "视频列表-任务")
+
 
         # 日志Tab
         self.log_widget = QWidget()
@@ -2334,55 +2307,8 @@ class VideoGenerationWidget(QWidget):
 
     # ... (refresh_task_videos, create_video_thumbnail, open_output_folder, play_task_video, load_settings, save_settings, add_log, clear_log, save_log 方法不变) ...
     def refresh_task_videos(self):
-        """刷新任务视频列表"""
-        try:
-            while self.task_thumbnails_layout.count():
-                item = self.task_thumbnails_layout.takeAt(0)
-                if item.widget():
-                    item.widget().deleteLater()
-
-            output_dir = "output"
-            if os.path.exists(output_dir):
-                video_files = []
-                for file_name in os.listdir(output_dir):
-                    if file_name.lower().endswith(('.mp4', '.avi', '.mov', '.mkv', '.flv', '.webm')):
-                        file_path = os.path.join(output_dir, file_name)
-                        try:
-                            stat_info = os.stat(file_path)
-                            
-                            # 尝试查找对应的缩略图
-                            base_name = os.path.splitext(file_name)[0]
-                            if base_name.endswith('_vod'):
-                                base_name = base_name[:-4] # 去掉 _vod
-                            
-                            thumb_path = ""
-                            # 尝试多种扩展名
-                            for ext in ['.jpg', '.png', '.jpeg', '.webp']:
-                                t_path = os.path.join(output_dir, base_name + ext)
-                                if os.path.exists(t_path):
-                                    thumb_path = t_path
-                                    break
-                            
-                            video_info = {
-                                'name': file_name,
-                                'path': file_path,
-                                'thumb_path': thumb_path,
-                                'size_mb': stat_info.st_size / (1024 * 1024),
-                                'create_time': stat_info.st_ctime
-                            }
-                            video_files.append(video_info)
-                        except:
-                            pass
-
-                video_files.sort(key=lambda x: x['create_time'], reverse=True)
-
-                for video_info in video_files[:10]:
-                    thumbnail = self.create_video_thumbnail(video_info)
-                    if thumbnail:
-                        self.task_thumbnails_layout.addWidget(thumbnail)
-
-        except Exception as e:
-            self.add_log(f"⚠️ 刷新任务视频失败: {e}")
+        """刷新任务视频列表 (功能已禁用，界面元素已移除)"""
+        pass
 
     def create_video_thumbnail(self, video_info):
         """创建视频缩略图"""
