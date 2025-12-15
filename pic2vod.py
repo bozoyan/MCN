@@ -1503,6 +1503,55 @@ class VideoGenerationWidget(QWidget):
         title.setStyleSheet("font-size: 18px; font-weight: bold; color: #ffffff;")
         layout.addWidget(title)
 
+        layout.addSpacing(20)
+
+        # 单个生成按钮
+        self.single_generate_btn = PrimaryPushButton("单个生成")
+        self.single_generate_btn.setFixedSize(100, 32)
+        self.single_generate_btn.clicked.connect(self.generate_single_video)
+        self.single_generate_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #007bff;
+                border: none;
+                border-radius: 4px;
+                color: #ffffff;
+                font-size: 13px;
+                font-weight: 500;
+            }
+            QPushButton:hover {
+                background-color: #0069d9;
+            }
+            QPushButton:pressed {
+                background-color: #0056b3;
+            }
+        """)
+        layout.addWidget(self.single_generate_btn)
+
+        layout.addSpacing(10)
+
+        # 批量生成按钮
+        self.batch_generate_btn = PrimaryPushButton("批量生成")
+        self.batch_generate_btn.setFixedSize(100, 32)
+        self.batch_generate_btn.clicked.connect(self.generate_batch_videos)
+        self.batch_generate_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #6c757d;
+                border: none;
+                border-radius: 4px;
+                color: #ffffff;
+                font-size: 13px;
+                font-weight: 500;
+            }
+            QPushButton:hover {
+                background-color: #5a6268;
+            }
+            QPushButton:pressed {
+                background-color: #545b62;
+            }
+        """)
+        layout.addWidget(self.batch_generate_btn)
+
+
         layout.addStretch()
 
         self.key_status_label = QLabel("密钥: 未配置")
@@ -1656,8 +1705,7 @@ class VideoGenerationWidget(QWidget):
         scroll_layout = QVBoxLayout(scroll_widget)
         scroll_layout.setSpacing(6)
 
-        actions_group = self.create_actions_group()
-        scroll_layout.addWidget(actions_group)
+        # actions_group moved to top bar
 
         image_group = self.create_image_input_group()
         scroll_layout.addWidget(image_group)
@@ -1998,7 +2046,7 @@ class VideoGenerationWidget(QWidget):
         self.video_scroll_layout.setSpacing(10)
         self.video_scroll.setWidget(self.video_scroll_widget)
         self.video_scroll.setWidgetResizable(True)
-        self.video_scroll.setFixedHeight(450)
+        # self.video_scroll.setFixedHeight(450) # 取消固定高度，使其自适应填充
         video_list_layout.addWidget(self.video_scroll)
 
         # 播放器/缩略图区域
@@ -2340,8 +2388,21 @@ class VideoGenerationWidget(QWidget):
         """创建视频缩略图"""
         try:
             widget = QWidget()
-            widget.setFixedSize(160, 90)
-            # ... (QWidget 样式代码) ...
+            # Widget大小将根据内容动态调整，这里设置最大高度限制
+            widget.setFixedHeight(110)
+            
+            # ... (QWidget 样式代码，保持背景色等) ...
+            widget.setStyleSheet("""
+                QWidget {
+                    background-color: #2a2a2a;
+                    border: 1px solid #404040;
+                    border-radius: 4px;
+                }
+                QWidget:hover {
+                    border: 1px solid #4a90e2;
+                    background-color: #333333;
+                }
+            """)
 
             layout = QVBoxLayout(widget)
             layout.setContentsMargins(5, 5, 5, 5)
@@ -2349,35 +2410,45 @@ class VideoGenerationWidget(QWidget):
 
             thumbnail_label = QLabel()
             thumbnail_label.setAlignment(Qt.AlignCenter)
-            thumbnail_label.setFixedSize(150, 65) # 调整大小
+            
+            target_height = 80 # 缩略图固定高度
+            target_width = 142 # 默认 16:9 宽度
             
             if video_info.get('thumb_path') and os.path.exists(video_info['thumb_path']):
                 try:
                     pixmap = QPixmap(video_info['thumb_path'])
-                    scaled_pixmap = pixmap.scaled(
-                        150, 65,
-                        Qt.KeepAspectRatio,
-                        Qt.SmoothTransformation
-                    )
-                    thumbnail_label.setPixmap(scaled_pixmap)
+                    if not pixmap.isNull():
+                        # 计算自适应宽度
+                        aspect_ratio = pixmap.width() / pixmap.height()
+                        target_width = int(target_height * aspect_ratio)
+                        
+                        scaled_pixmap = pixmap.scaled(
+                            target_width, target_height,
+                            Qt.KeepAspectRatio,
+                            Qt.SmoothTransformation
+                        )
+                        thumbnail_label.setPixmap(scaled_pixmap)
+                    else:
+                        thumbnail_label.setText("视频")
+                        thumbnail_label.setStyleSheet("font-size: 14px; color: #666;")
                 except:
                     thumbnail_label.setText("视频")
                     thumbnail_label.setStyleSheet("font-size: 14px; color: #666;")
             else:
                 thumbnail_label.setText("视频")
                 thumbnail_label.setStyleSheet("font-size: 14px; color: #666;")
-                
+            
+            thumbnail_label.setFixedSize(target_width, target_height)
             layout.addWidget(thumbnail_label)
-
+            
+            # 根据计算出的缩略图宽度设置整个组件的固定宽度
+            widget.setFixedWidth(target_width + 10) # 左右边距各5
+            
+            # ... (标签和点击事件) ...
             name_label = QLabel(video_info['name'][:15] + "..." if len(video_info['name']) > 15 else video_info['name'])
-            name_label.setStyleSheet("color: #ffffff; font-size: 10px;")
+            name_label.setStyleSheet("color: #ffffff; font-size: 10px; background: transparent; border: none;")
             name_label.setAlignment(Qt.AlignCenter)
             layout.addWidget(name_label)
-
-            info_label = QLabel(f"{video_info['size_mb']:.1f}MB")
-            info_label.setStyleSheet("color: #888888; font-size: 8px;")
-            info_label.setAlignment(Qt.AlignCenter)
-            layout.addWidget(info_label)
 
             widget.mousePressEvent = lambda event: self.play_task_video(video_info['path'], video_info['name'])
 
