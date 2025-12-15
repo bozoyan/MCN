@@ -732,17 +732,20 @@ class ConcurrentBatchManager(QObject):
         self.workers = {}  # task_id -> worker
         self.completed_tasks = 0
         self.total_tasks = 0
+        self.task_counter = 0 # 累计任务计数器
         self.api_manager = api_manager if api_manager is not None else APIKeyManager()
 
     def log_message(self, message):
         Utils.log_message(message, self.log_updated, "批量管理器")
 
-    def execute_batch_tasks(self, tasks, key_file=None):
-        """并发执行批量任务"""
-        self.workers.clear()
-        self.completed_tasks = 0
-        self.total_tasks = len(tasks)
+    def add_tasks(self, task_map, key_file=None):
+        """添加任务到并发队列 task_map: {task_id: task}"""
+        new_tasks_count = len(task_map)
+        if new_tasks_count == 0:
+            return
 
+        self.total_tasks += new_tasks_count
+        
         # 加载API密钥
         if key_file:
             self.api_manager.load_keys_from_file(key_file)
@@ -750,23 +753,23 @@ class ConcurrentBatchManager(QObject):
         available_keys = self.api_manager.get_all_keys()
         if not available_keys:
             self.log_message("❌ 错误: 没有可用的API密钥")
-            for i in range(self.total_tasks):
-                self.task_finished.emit(False, "没有可用的API密钥", {}, f"task_{i+1}")
-            self.all_tasks_finished.emit()
+            for task_id in task_map.keys():
+                self.task_finished.emit(False, "没有可用的API密钥", {}, task_id)
+            # 如果没有正在运行的任务，发送全部完成信号
+            if not self.workers:
+                self.all_tasks_finished.emit()
             return
 
-        if len(available_keys) < len(tasks):
-            self.log_message(f"⚠️ 警告: 只有{len(available_keys)}个密钥，但有{len(tasks)}个任务，将循环使用密钥。")
-
-        self.log_message(f"🚀 开始并发批量生成，共{len(tasks)}个任务 (AppID: {self.api_manager.web_app_id})")
-        self.batch_progress_updated.emit(0, self.total_tasks)
+        self.log_message(f"🚀 添加 {new_tasks_count} 个新任务到队列 (当前并发: {len(self.workers) + new_tasks_count})")
+        self.batch_progress_updated.emit(self.completed_tasks, self.total_tasks)
 
         # 为每个任务创建独立的工作线程
-        for i, task in enumerate(tasks):
-            task_id = f"task_{i+1}"
-
-            # 循环分配API密钥
-            api_key = available_keys[i % len(available_keys)]
+        current_batch_index = 0
+        for task_id, task in task_map.items():
+            # 循环分配API密钥 (使用累计计数器确保轮询)
+            key_index = (self.task_counter + current_batch_index) % len(available_keys)
+            api_key = available_keys[key_index]
+            current_batch_index += 1
 
             # 创建工作线程
             worker = SingleVideoGenerationWorker(task, task_id, api_key, self.api_manager)
@@ -782,9 +785,11 @@ class ConcurrentBatchManager(QObject):
             worker.start()
             self.log_message(f"🚀 已启动任务 {task_id}，使用密钥 {api_key[:10]}...")
 
-            # 增加错开启动时间，避免同时请求API导致限流
-            QCoreApplication.processEvents() # 确保UI更新
-            time.sleep(0.5)
+            # 增加错开启动时间
+            QCoreApplication.processEvents()
+            time.sleep(0.3)
+            
+        self.task_counter += new_tasks_count
 
     def on_single_task_finished(self, success, message, result_data, task_id):
         """单个任务完成的回调"""
@@ -1437,7 +1442,10 @@ class VideoGenerationWidget(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        super().__init__(parent)
         self.concurrent_batch_manager = None
+        self.batch_tasks = []
+        self.api_manager = APIKeyManager()
         self.batch_tasks = []
         self.api_manager = APIKeyManager()
         self.settings_manager = VideoSettingsManager()
@@ -1457,6 +1465,19 @@ class VideoGenerationWidget(QWidget):
 
         self.init_ui()
         self.load_settings()
+
+        # 初始化并保持并发管理器
+        self.init_concurrent_manager()
+
+    def init_concurrent_manager(self):
+        """初始化并发管理器"""
+        self.concurrent_batch_manager = ConcurrentBatchManager(self.api_manager)
+        self.concurrent_batch_manager.task_progress.connect(self.update_task_progress)
+        self.concurrent_batch_manager.task_finished.connect(self.on_task_finished)
+        self.concurrent_batch_manager.task_time_updated.connect(self.update_task_time)
+        self.concurrent_batch_manager.log_updated.connect(self.add_log)
+        self.concurrent_batch_manager.batch_progress_updated.connect(self.update_batch_progress)
+        self.concurrent_batch_manager.all_tasks_finished.connect(self.on_all_tasks_finished)
 
     def init_ui(self):
         layout = QVBoxLayout(self)
@@ -2004,7 +2025,7 @@ class VideoGenerationWidget(QWidget):
         name_label.setStyleSheet("font-weight: bold; color: #ffffff; font-size: 14px;")
         info_layout.addWidget(name_label)
 
-        prompt_label = QLabel(f"提示词: {task['prompt'][:120]}...")
+        prompt_label = QLabel(f"提示词: {task['prompt'][:80]}...")
         prompt_label.setStyleSheet("color: #cccccc; font-size: 12px;")
         info_layout.addWidget(prompt_label)
 
@@ -2164,15 +2185,8 @@ class VideoGenerationWidget(QWidget):
     # ... (generate_single_video, generate_batch_videos, execute_concurrent_tasks 方法不变) ...
     def generate_single_video(self):
         """生成单个视频 - 并发方式"""
-        if self.is_generating:
-            reply = QMessageBox.question(
-                self, "任务进行中", 
-                "当前有任务正在执行，是否要并发执行新任务？",
-                QMessageBox.Yes | QMessageBox.No, QMessageBox.No
-            )
-            if reply == QMessageBox.No:
-                return
-
+        # 移除“进行中”阻断检查，允许并发提交
+        
         input_type = self.input_type_combo.currentIndex()
         prompt = self.prompt_edit.toPlainText().strip()
 
@@ -2209,15 +2223,8 @@ class VideoGenerationWidget(QWidget):
         if not self.batch_tasks:
             QMessageBox.warning(self, "警告", "请先添加任务到列表")
             return
-
-        if self.is_generating:
-            reply = QMessageBox.question(
-                self, "任务进行中", 
-                "当前有任务正在执行，是否要并发执行新任务？",
-                QMessageBox.Yes | QMessageBox.No, QMessageBox.No
-            )
-            if reply == QMessageBox.No:
-                return
+            
+        # 移除“进行中”阻断检查，允许并发提交
 
         self.execute_concurrent_tasks(self.batch_tasks)
 
@@ -2226,37 +2233,27 @@ class VideoGenerationWidget(QWidget):
         if not tasks:
             return
 
-        # 确保清理旧管理器和信号连接
-        if self.concurrent_batch_manager:
-            try:
-                self.concurrent_batch_manager.cancel_all_tasks()
-                self.concurrent_batch_manager.task_progress.disconnect(self.update_task_progress)
-                self.concurrent_batch_manager.task_finished.disconnect(self.on_task_finished)
-                self.concurrent_batch_manager.task_time_updated.disconnect(self.update_task_time)
-                self.concurrent_batch_manager.log_updated.disconnect(self.add_log)
-                self.concurrent_batch_manager.batch_progress_updated.disconnect(self.update_batch_progress)
-                self.concurrent_batch_manager.all_tasks_finished.disconnect(self.on_all_tasks_finished)
-            except Exception as e:
-                self.add_log(f"⚠️ 清理旧任务管理器失败: {e}")
-            self.concurrent_batch_manager = None
-
-        self.concurrent_batch_manager = ConcurrentBatchManager(self.api_manager)
-        self.concurrent_batch_manager.task_progress.connect(self.update_task_progress)
-        self.concurrent_batch_manager.task_finished.connect(self.on_task_finished)
-        self.concurrent_batch_manager.task_time_updated.connect(self.update_task_time)
-        self.concurrent_batch_manager.log_updated.connect(self.add_log)
-        self.concurrent_batch_manager.batch_progress_updated.connect(self.update_batch_progress)
-        self.concurrent_batch_manager.all_tasks_finished.connect(self.on_all_tasks_finished)
-
         self.is_generating = True
+        
+        # 准备任务映射表 {task_id: task}
+        task_map = {}
+        for task in tasks:
+            # 生成唯一任务ID: timestamp_random
+            import random
+            task_uid = f"{datetime.now().strftime('%H%M%S')}_{random.randint(100,999)}"
+            task_id = f"task_{task_uid}"
+            
+            # 立即创建状态显示卡片
+            # 确保传递完整参数
+            card_task_info = task.copy()
+            if 'name' not in card_task_info:
+                card_task_info['name'] = f"任务_{task_uid}"
+                
+            self.create_task_status_card(task_id, card_task_info)
+            task_map[task_id] = task
 
-        # 为每个任务创建状态卡片
-        for i, task in enumerate(tasks):
-            task_id = f"task_{i+1}"
-            self.create_task_status_card(task_id, task)
-
-        self.add_log(f"🚀 开始并发执行，共{len(tasks)}个任务，WebAppID: {self.api_manager.web_app_id}")
-        self.concurrent_batch_manager.execute_batch_tasks(tasks, self.key_file_path)
+        # 提交到管理器
+        self.concurrent_batch_manager.add_tasks(task_map, self.key_file_path)
 
     # ... (update_task_progress, on_task_finished, update_task_time, update_batch_progress, on_all_tasks_finished 方法不变) ...
     def update_task_progress(self, progress, message, task_id):
