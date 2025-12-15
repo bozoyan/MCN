@@ -541,16 +541,6 @@ class SingleVideoGenerationWorker(QThread):
 
             self.progress_updated.emit(20, "准备API请求...", self.task_id)
 
-            # 注释掉旧的请求格式，使用BizyAir格式
-            # request_data = {
-            #     "input": {
-            #         "image": self.task['image_input'],
-            #         "prompt": prompt,
-            #         "width": width,
-            #         "height": height,
-            #         "num_frames": num_frames
-            #     }
-            # }
 
             self.progress_updated.emit(30, "发送API请求...", self.task_id)
 
@@ -1476,11 +1466,11 @@ class VideoGenerationWidget(QWidget):
         # 设置深色主题整体样式
         self.setStyleSheet("""
             VideoGenerationWidget {
-                background-color: #1e1e1e;
+                background-color: #2A2A2A;
                 color: #ffffff;
             }
             QScrollArea {
-                background-color: #1e1e1e;
+                background-color: #2A2A2A;
                 border: none;
             }
             QSplitter::handle {
@@ -1583,13 +1573,13 @@ class VideoGenerationWidget(QWidget):
 
         # 密钥设置按钮
         self.settings_btn = PushButton("API 密钥设置")  # 移除图标，添加文字
-        self.settings_btn.setFixedSize(60, 32)  # 增加宽度以适应文字
+        self.settings_btn.setFixedSize(130, 32)  # 增加宽度以显示完整文字
         # 修复: 将 show_settings_dialog 更正为正确的 APISettingsDialog 调用方式
         self.settings_btn.clicked.connect(self.show_api_settings_dialog)
         self.settings_btn.setStyleSheet("""
             QPushButton {
                 border: none;
-                background-color: transparent;
+                background-color: #17a2b8;
                 border-radius: 4px;
                 color: #ffffff;
             }
@@ -1713,7 +1703,7 @@ class VideoGenerationWidget(QWidget):
     def create_control_panel(self):
         """创建控制面板（深色主题）"""
         panel = QWidget()
-        panel.setStyleSheet("QWidget { background-color: #1e1e1e; }")
+        panel.setStyleSheet("QWidget { background-color: #2A2A2A; }")
         layout = QVBoxLayout(panel)
         layout.setSpacing(6)  # 减少模块间距
         layout.setContentsMargins(8, 8, 8, 8)  # 减少面板边距
@@ -1724,7 +1714,7 @@ class VideoGenerationWidget(QWidget):
         scroll.setFrameShape(QFrame.NoFrame)
         scroll.setStyleSheet("""
             QScrollArea {
-                background-color: #1e1e1e;
+                background-color: #2A2A2A;
                 border: none;
             }
             QScrollBar:vertical {
@@ -1743,7 +1733,7 @@ class VideoGenerationWidget(QWidget):
         """)
 
         scroll_widget = QWidget()
-        scroll_widget.setStyleSheet("QWidget { background-color: #1e1e1e; }")
+        scroll_widget.setStyleSheet("QWidget { background-color: #2A2A2A; }")
         scroll_layout = QVBoxLayout(scroll_widget)
         scroll_layout.setSpacing(6)  # 减少滚动区域内间距
 
@@ -1868,13 +1858,13 @@ class VideoGenerationWidget(QWidget):
 
         # 任务标题 - 使用更紧凑的显示
         task_title = QLabel("待处理任务:")
-        task_title.setStyleSheet("color: #ffffff; font-size: 18px; font-weight: bold; margin-top: -100px; padding: 2px 0;")
+        task_title.setStyleSheet("color: #ffffff; font-size: 18px; font-weight: bold; padding: 2px 0;")
         layout.addWidget(task_title)
         layout.addWidget(self.task_scroll)
 
         # 添加任务按钮
         add_task_layout = QHBoxLayout()
-        self.add_task_btn = PushButton("添加到任务列表")  # 移除图标
+        self.add_task_btn = PushButton("+ 添加到任务列表 +")  # 移除图标
         self.add_task_btn.setFixedSize(240, 36)
         self.add_task_btn.setStyleSheet("""
             QPushButton {
@@ -1896,7 +1886,7 @@ class VideoGenerationWidget(QWidget):
         self.add_task_btn.clicked.connect(self.add_to_batch_tasks)
         add_task_layout.addWidget(self.add_task_btn)
 
-        self.clear_tasks_btn = PushButton("清空任务")  # 移除图标
+        self.clear_tasks_btn = PushButton("X 清空任务 X")  # 移除图标
         self.clear_tasks_btn.setFixedSize(240, 36)
         self.clear_tasks_btn.setStyleSheet("""
             QPushButton {
@@ -2015,38 +2005,16 @@ class VideoGenerationWidget(QWidget):
                 self.current_params_label.setText(default_params)
 
     def create_prompt_group(self):
-        """创建提示词输入组（深色主题）"""
-        group = QGroupBox("提示词")
-        group.setStyleSheet("""
-            QGroupBox {
-                font-weight: bold;
-                border: 1px solid #404040;
-                border-radius: 8px;
-                margin-top: 8px;
-                padding-top: 8px;
-                background-color: #2a2a2a;
-                color: #ffffff;
-            }
-            QGroupBox::title {
-                subcontrol-origin: margin;
-                left: 12px;
-                padding: 0 8px 0 8px;
-                color: #ffffff;
-                font-size: 14px;
-            }
-        """)
-        layout = QVBoxLayout(group)
-        layout.setContentsMargins(10, 15, 10, 10)
-        
+        """创建提示词输入组（无标题无边框）"""
         # 提示词输入框（自适应高度）
         self.prompt_edit = QTextEdit()
         self.prompt_edit.setPlaceholderText("输入视频生成的提示词，例如：美女跳舞、风景变化等...")
-        self.prompt_edit.setMinimumHeight(80)  # 设置最小高度，但允许自适应
-        self.prompt_edit.setMaximumHeight(200)  # 设置最大高度，防止过大
+        self.prompt_edit.setMinimumHeight(40)  # 设置最小高度，但允许自适应
+        self.prompt_edit.setMaximumHeight(280)  # 设置最大高度，防止过大
         self.prompt_edit.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.prompt_edit.setStyleSheet("""
             QTextEdit {
-                font-size: 14px;
+                font-size: 18px;
                 font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
                 border: 1px solid #404040;
                 border-radius: 6px;
@@ -2059,31 +2027,12 @@ class VideoGenerationWidget(QWidget):
                 border: 1px solid #4a90e2;
             }
         """)
-        layout.addWidget(self.prompt_edit)
         
-        return group
+        return self.prompt_edit
         
     def create_actions_group(self):
         """创建操作按钮组（深色主题）"""
-        group = QGroupBox("操作")
-        group.setStyleSheet("""
-            QGroupBox {
-                font-weight: bold;
-                border: 1px solid #404040;
-                border-radius: 8px;
-                margin-top: 8px;
-                padding-top: 8px;
-                background-color: #2a2a2a;
-                color: #ffffff;
-            }
-            QGroupBox::title {
-                subcontrol-origin: margin;
-                left: 12px;
-                padding: 0 8px 0 8px;
-                color: #ffffff;
-                font-size: 14px;
-            }
-        """)
+        group = QGroupBox("") #操作
         layout = QVBoxLayout(group)
         layout.setContentsMargins(10, 15, 10, 10)
 
@@ -2204,10 +2153,10 @@ class VideoGenerationWidget(QWidget):
         self.video_scroll_layout.setSpacing(10)
         self.video_scroll.setWidget(self.video_scroll_widget)
         self.video_scroll.setWidgetResizable(True)
-        self.video_scroll.setFixedHeight(400)  # 增加高度，为生成结果留更多空间
+        self.video_scroll.setFixedHeight(450)  # 增加高度，为生成结果留更多空间
         video_list_layout.addWidget(self.video_scroll)
 
-        # 下部分：任务视频播放区域
+        # 下部分：任务视频播放区域 - 分两行显示，无间距
         # 视频播放器容器 - 简洁大气设计
         player_container = QWidget()
         player_container.setStyleSheet("QWidget { background-color: #1e1e1e; }")
@@ -2215,7 +2164,7 @@ class VideoGenerationWidget(QWidget):
         player_layout.setContentsMargins(0, 0, 0, 0)
         player_layout.setSpacing(0)
 
-        # 简洁的控制栏
+        # 第一行：简洁的控制栏
         control_bar = QWidget()
         control_bar.setFixedHeight(50)
         control_bar.setStyleSheet("""
@@ -2283,13 +2232,13 @@ class VideoGenerationWidget(QWidget):
 
         player_layout.addWidget(control_bar)
 
-        # 任务视频缩略图区域 - 替换本地视频列表
+        # 第二行：任务视频缩略图区域 - 无间距
         thumbnail_container = QWidget()
         thumbnail_container.setFixedHeight(120)
         thumbnail_container.setStyleSheet("""
             QWidget {
                 background-color: #1a1a1a;
-                border-top: 1px solid #404040;
+                border-top: 0px;
             }
         """)
         thumbnail_layout = QHBoxLayout(thumbnail_container)
@@ -2329,7 +2278,7 @@ class VideoGenerationWidget(QWidget):
 
         video_list_layout.addWidget(player_container)
 
-        self.result_tabs.addTab(self.video_list_widget, "视频列表")
+        self.result_tabs.addTab(self.video_list_widget, "视频列表-任务")
 
         # 日志Tab
         self.log_widget = QWidget()
@@ -2481,7 +2430,7 @@ class VideoGenerationWidget(QWidget):
     def create_task_card(self, task, index):
         """创建任务卡片"""
         card = CardWidget()
-        card.setFixedHeight(60)
+        card.setFixedHeight(36)
         card.setStyleSheet("""
             CardWidget {
                 background-color: #2a2a2a;
@@ -2502,7 +2451,7 @@ class VideoGenerationWidget(QWidget):
         name_label.setStyleSheet("font-weight: bold; color: #ffffff; font-size: 13px;")
         info_layout.addWidget(name_label)
 
-        prompt_label = QLabel(f"提示词: {task['prompt'][:60]}...")
+        prompt_label = QLabel(f"提示词: {task['prompt'][:140]}...")
         prompt_label.setStyleSheet("color: #cccccc; font-size: 12px;")
         info_layout.addWidget(prompt_label)
 
@@ -3246,7 +3195,7 @@ class VideoSettingsDialog(QDialog):
         self.resolution_combo.setFixedHeight(36)
         self.resolution_combo.setStyleSheet("""
             QComboBox {
-                background-color: #1a1a1a;
+                background-color: #000000;
                 border: 2px solid #404040;
                 border-radius: 8px;
                 padding: 8px 12px;
@@ -3258,12 +3207,12 @@ class VideoSettingsDialog(QDialog):
             }
             QComboBox:hover {
                 border: 2px solid #5a5a5a;
-                background-color: #222222;
+                background-color: #1a1a1a;
             }
             QComboBox::drop-down {
                 border: none;
                 width: 20px;
-                background-color: #2a2a2a;
+                background-color: #000000;
                 border-top-right-radius: 6px;
                 border-bottom-right-radius: 6px;
             }
@@ -3273,7 +3222,7 @@ class VideoSettingsDialog(QDialog):
                 height: 12px;
             }
             QComboBox QAbstractItemView {
-                background-color: #1a1a1a;
+                background-color: #000000;
                 border: 1px solid #404040;
                 selection-background-color: #4a90e2;
                 color: #ffffff;
@@ -3283,7 +3232,7 @@ class VideoSettingsDialog(QDialog):
             QComboBox QAbstractItemView::item {
                 padding: 8px 12px;
                 border-bottom: 1px solid #404040;
-                background-color: #1a1a1a;
+                background-color: #000000;
             }
             QComboBox QAbstractItemView::item:selected {
                 background-color: #4a90e2;
