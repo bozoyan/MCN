@@ -409,17 +409,54 @@ class SingleVideoGenerationWorker(QThread):
             num_frames = self.task.get('num_frames', 81)
 
             self.progress_updated.emit(10, "处理图片数据...", self.task_id)
+            
+            # 准备输出目录
+            output_dir = "output"
+            if not os.path.exists(output_dir):
+                os.makedirs(output_dir)
+                
+            base_filename = f"task_{self.task_id}_{int(time.time())}"
+            image_save_path = ""
 
             # 图像格式检查和转换（优化并统一处理本地文件和纯base64）
             image_value = image_input
+            
+             # 尝试提取文件名作为基础名
+            if isinstance(image_input, str):
+                if image_input.startswith('http'):
+                     try:
+                        url_path = image_input.split('?')[0] # 去除参数
+                        name = os.path.basename(url_path)
+                        name_without_ext = os.path.splitext(name)[0]
+                        if name_without_ext:
+                            # 过滤非法字符
+                            base_filename = re.sub(r'[^\w\-_]', '_', name_without_ext)
+                     except:
+                        pass
+                elif not image_input.startswith('data:'):
+                    # 本地文件
+                    image_path = self.task.get('image_path', '')
+                    if image_path:
+                        name = os.path.basename(image_path)
+                        name_without_ext = os.path.splitext(name)[0]
+                        base_filename = re.sub(r'[^\w\-_]', '_', name_without_ext)
+            image_data = None
+
             if isinstance(image_input, str):
                 if image_input.startswith('http'):
                     self.log_message(f"🌐 使用网络图片URL: {image_input}")
+                    # 下载图片用于缩略图
+                    try:
+                        resp = requests.get(image_input, timeout=30)
+                        if resp.status_code == 200:
+                            image_data = resp.content
+                    except Exception as e:
+                        self.log_message(f"⚠️ 下载网络图片失败(仅影响缩略图): {e}")
+
                 elif not image_input.startswith('data:'):
                     # 可能是纯base64或本地文件内容
                     image_path = self.task.get('image_path', '')
-                    image_data = None
-                    image_type = 'image/jpeg' # 默认类型
+                    image_type = 'image/jpeg' 
 
                     if image_path and os.path.exists(image_path):
                         # 本地文件路径
@@ -455,6 +492,47 @@ class SingleVideoGenerationWorker(QThread):
                         self.log_message(f"❌ 无法获取有效的图片数据")
                         self.task_finished.emit(False, "无法获取有效的图片数据", {}, self.task_id)
                         return
+            
+            # 保存缩略图
+            if image_data:
+                try:
+                    thumb_filename = f"{base_filename}.jpg"
+                    thumb_path = os.path.join(output_dir, thumb_filename)
+                    
+                    # 使用 PIL 调整图片大小为视频尺寸 (使用 Crop to Fill 模式，避免拉伸变形)
+                    from PIL import Image, ImageOps
+                    import io
+                    
+                    img = Image.open(io.BytesIO(image_data))
+                    # 转换模式
+                    if img.mode in ('RGBA', 'LA'):
+                        background = Image.new(img.mode[:-1], img.size, (255, 255, 255))
+                        background.paste(img, img.split()[-1])
+                        img = background
+                    elif img.mode != 'RGB':
+                        img = img.convert('RGB')
+                    
+                    # 获取目标尺寸 (确保是整数)
+                    target_width = int(self.task.get('width', 480))
+                    target_height = int(self.task.get('height', 854))
+                    
+                    # 使用 ImageOps.fit 进行智能裁剪缩放 (保持比例，充满画面)
+                    img_resized = ImageOps.fit(img, (target_width, target_height), method=Image.Resampling.LANCZOS)
+                    
+                    img_resized.save(thumb_path, 'JPEG', quality=90)
+                    image_save_path = thumb_path
+                    self.log_message(f"🖼️ 已保存缩略图(已裁剪为 {target_width}x{target_height}): {thumb_filename}")
+                    
+                except Exception as e:
+                    # 如果调整大小失败，回退到直接保存
+                    self.log_message(f"⚠️ 调整缩略图尺寸失败: {e}，尝试直接保存...")
+                    try:
+                        with open(thumb_path, 'wb') as f:
+                            f.write(image_data)
+                        image_save_path = thumb_path
+                        self.log_message(f"🖼️ 已保存原图作为缩略图: {thumb_filename}")
+                    except Exception as e2:
+                        self.log_message(f"⚠️ 保存缩略图失败: {e2}")
             
             # 检查是否取消
             if self.is_cancelled:
@@ -537,7 +615,9 @@ class SingleVideoGenerationWorker(QThread):
                         'num_frames': num_frames,
                         'prompt': prompt,
                         'task_name': task_name,
-                        'timestamp': datetime.now().isoformat()
+                        'timestamp': datetime.now().isoformat(),
+                        'base_filename': base_filename,
+                        'thumbnail_path': image_save_path
                     }
 
                     self.progress_updated.emit(100, "任务完成！", self.task_id)
@@ -786,7 +866,7 @@ class ImageDropWidget(QFrame):
             }
         """)
         self.image_label.setAlignment(Qt.AlignCenter)
-        self.image_label.setText("🖼️\n拖拽图片到这里\n或点击选择文件")
+        self.image_label.setText("请拖拽图片到这里\n或点击选择文件")
         layout.addWidget(self.image_label, alignment=Qt.AlignCenter)
 
         # 选择文件按钮
@@ -868,7 +948,7 @@ class ImageDropWidget(QFrame):
 
     def clear_image(self):
         self.image_label.clear()
-        self.image_label.setText("🖼️\n拖拽图片到这里\n或点击选择文件")
+        self.image_label.setText("请拖拽图片到这里\n或点击选择文件")
         self.current_image_path = ""
         self.base64_data = ""
         self.current_image_data = ""
@@ -890,7 +970,7 @@ class TaskStatusCard(CardWidget):
 
     def init_ui(self):
         """初始化UI"""
-        self.setFixedHeight(120)  # 设置固定高度
+        self.setFixedHeight(145)  # 增加高度以容纳更多信息
         self.setStyleSheet("""
             CardWidget {
                 background-color: #1e1e1e;
@@ -1079,7 +1159,7 @@ class VideoResultCard(CardWidget):
 
         # 任务标题和下载状态
         header_layout = QHBoxLayout()
-        title_label = StrongBodyLabel(f"✅ {self.video_data.get('task_name', f'任务_{self.task_id}')}")
+        title_label = StrongBodyLabel(f"{self.video_data.get('task_name', f'任务_{self.task_id}')}")
         title_label.setStyleSheet("font-size: 14px; font-weight: bold; color: #ffffff;")
         header_layout.addWidget(title_label)
         
@@ -1178,8 +1258,13 @@ class VideoResultCard(CardWidget):
         
         # 生成文件名
         task_name = self.video_data.get('task_name', 'video')
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = re.sub(r'[^\w\-_.]', '_', f"{task_name}_{timestamp}.mp4")
+        base_filename = self.video_data.get('base_filename', '')
+        
+        if base_filename:
+            filename = f"{base_filename}_vod.mp4"
+        else:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = re.sub(r'[^\w\-_.]', '_', f"{task_name}_{timestamp}.mp4")
 
         # 创建下载工作线程
         self.download_worker = VideoDownloadWorker(video_url, filename)
@@ -1296,7 +1381,8 @@ class VideoDownloadWorker(QThread):
             if os.path.exists(local_path) and os.path.getsize(local_path) > 0:
                 file_size = os.path.getsize(local_path)
                 self.progress_updated.emit(100, "下载完成！")
-                self.log_updated.emit(f"✅ 视频下载完成: {local_path} ({file_size} 字节)")
+                self.progress_updated.emit(100, "下载完成！")
+                self.log_updated.emit(f"视频下载完成: {local_path} ({file_size} 字节)")
                 self.download_finished.emit(True, "下载完成", local_path)
             else:
                 self.download_finished.emit(False, "下载失败：文件不完整", "")
@@ -1375,7 +1461,7 @@ class VideoGenerationWidget(QWidget):
         layout = QHBoxLayout(bar)
         layout.setContentsMargins(12, 12, 12, 12)
 
-        title = QLabel("🎬 图片转视频生成")
+        title = QLabel("图片转视频生成")
         title.setStyleSheet("font-size: 18px; font-weight: bold; color: #ffffff;")
         layout.addWidget(title)
 
@@ -1676,9 +1762,9 @@ class VideoGenerationWidget(QWidget):
         # 预设分辨率（隐藏）
         self.resolution_combo = ComboBox()
         self.resolution_combo.addItems([
-            "自定义", "480p - 16:9 (854×480)", "480p - 9:16 (480×854)",
-            "720p - 16:9 (1280×720)", "720p - 9:16 (720×1280)",
-            "1080p - 16:9 (1920×1080)", "1080p - 9:16 (1080×1920)"
+            "自定义", "480p - 9:16 (480×854)", "480p - 16:9 (854×480)",
+             "720p - 9:16 (720×1280)", "720p - 16:9 (1280×720)",
+            "1080p - 9:16 (1080×1920)", "1080p - 16:9 (1920×1080)"
         ])
         self.resolution_combo.currentIndexChanged.connect(self.on_resolution_changed)
 
@@ -1744,12 +1830,12 @@ class VideoGenerationWidget(QWidget):
     def on_resolution_changed(self, index):
         """预设分辨率改变"""
         resolutions = {
-            1: (854, 480),   # 480p - 16:9
-            2: (480, 854),   # 480p - 9:16
-            3: (1280, 720),  # 720p - 16:9
-            4: (720, 1280),  # 720p - 9:16
-            5: (1920, 1080), # 1080p - 16:9
-            6: (1080, 1920)  # 1080p - 9:16
+            1: (480, 854),   # 480p - 9:16
+            2: (854, 480),   # 480p - 16:9
+            3: (720, 1280),  # 720p - 9:16
+            4: (1280, 720),  # 720p - 16:9
+            5: (1080, 1920), # 1080p - 9:16
+            6: (1920, 1080)  # 1080p - 16:9
         }
 
         if index in resolutions:
@@ -2170,9 +2256,24 @@ class VideoGenerationWidget(QWidget):
                         file_path = os.path.join(output_dir, file_name)
                         try:
                             stat_info = os.stat(file_path)
+                            
+                            # 尝试查找对应的缩略图
+                            base_name = os.path.splitext(file_name)[0]
+                            if base_name.endswith('_vod'):
+                                base_name = base_name[:-4] # 去掉 _vod
+                            
+                            thumb_path = ""
+                            # 尝试多种扩展名
+                            for ext in ['.jpg', '.png', '.jpeg', '.webp']:
+                                t_path = os.path.join(output_dir, base_name + ext)
+                                if os.path.exists(t_path):
+                                    thumb_path = t_path
+                                    break
+                            
                             video_info = {
                                 'name': file_name,
                                 'path': file_path,
+                                'thumb_path': thumb_path,
                                 'size_mb': stat_info.st_size / (1024 * 1024),
                                 'create_time': stat_info.st_ctime
                             }
@@ -2201,9 +2302,26 @@ class VideoGenerationWidget(QWidget):
             layout.setContentsMargins(5, 5, 5, 5)
             layout.setSpacing(2)
 
-            thumbnail_label = QLabel("🎬")
+            thumbnail_label = QLabel()
             thumbnail_label.setAlignment(Qt.AlignCenter)
-            thumbnail_label.setStyleSheet("font-size: 24px; color: #666;")
+            thumbnail_label.setFixedSize(150, 65) # 调整大小
+            
+            if video_info.get('thumb_path') and os.path.exists(video_info['thumb_path']):
+                try:
+                    pixmap = QPixmap(video_info['thumb_path'])
+                    scaled_pixmap = pixmap.scaled(
+                        150, 65,
+                        Qt.KeepAspectRatio,
+                        Qt.SmoothTransformation
+                    )
+                    thumbnail_label.setPixmap(scaled_pixmap)
+                except:
+                    thumbnail_label.setText("视频")
+                    thumbnail_label.setStyleSheet("font-size: 14px; color: #666;")
+            else:
+                thumbnail_label.setText("视频")
+                thumbnail_label.setStyleSheet("font-size: 14px; color: #666;")
+                
             layout.addWidget(thumbnail_label)
 
             name_label = QLabel(video_info['name'][:15] + "..." if len(video_info['name']) > 15 else video_info['name'])
@@ -2353,8 +2471,36 @@ class VideoSettingsDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("视频参数设置")
-        self.setMinimumSize(500, 400)
-        self.setStyleSheet("QDialog { background-color: #1e1e1e; color: #ffffff; }")
+        self.setMinimumSize(550, 480)
+        self.setStyleSheet("""
+            QDialog { background-color: #1e1e1e; color: #ffffff; }
+            QSpinBox {
+                background-color: #333333;
+                border: 1px solid #505050;
+                border-radius: 4px;
+                color: #ffffff;
+                padding: 4px;
+                min-height: 30px;
+                font-size: 14px;
+            }
+            QSpinBox:hover {
+                border: 1px solid #4a90e2;
+            }
+            QSpinBox::up-button, QSpinBox::down-button {
+                width: 20px;
+                background-color: #404040;
+                border: none;
+            }
+            QLabel { font-size: 14px; }
+            QGroupBox { 
+                border: 1px solid #404040; 
+                border-radius: 6px; 
+                margin-top: 12px; 
+                padding-top: 20px;
+                font-size: 14px;
+            }
+            QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 5px; color: #aaaaaa; }
+        """)
         self.init_ui()
         self.load_current_settings()
 
@@ -2371,7 +2517,14 @@ class VideoSettingsDialog(QDialog):
         # ... (resolution_group 样式代码) ...
         resolution_layout = QVBoxLayout(resolution_group)
         self.resolution_combo = ComboBox()
-        # ... (QComboBox 列表和样式代码) ...
+        self.resolution_combo.addItems([
+            "自定义",
+            "480p - 9:16 (480×854)", "480p - 16:9 (854×480)",
+            "720p - 9:16 (720×1280)", "720p - 16:9 (1280×720)", 
+            "1080p - 9:16 (1080×1920)", "1080p - 16:9 (1920×1080)"
+        ])
+        self.resolution_combo.setCurrentIndex(0)
+        self.resolution_combo.setFixedHeight(34)
         self.resolution_combo.currentIndexChanged.connect(self.on_resolution_changed)
         preset_label = QLabel("选择预设:")
         # ... (preset_label 样式代码) ...
@@ -2436,7 +2589,7 @@ class VideoSettingsDialog(QDialog):
         # ... (QLabel 样式代码) ...
         info_layout.addWidget(self.frames_label)
 
-        frames_note = QLabel("📝 注：16帧 = 1秒，总帧数 = (时长 × 16) + 1")
+        frames_note = QLabel("注：16帧 = 1秒，总帧数 = (时长 × 16) + 1")
         frames_note.setStyleSheet("color: #cccccc; font-size: 12px;")
         info_layout.addWidget(frames_note)
         layout.addWidget(info_group)
@@ -2483,8 +2636,9 @@ class VideoSettingsDialog(QDialog):
     def on_resolution_changed(self, index):
         """预设分辨率改变"""
         resolutions = {
-            1: (854, 480), 2: (480, 854), 3: (1280, 720),
-            4: (720, 1280), 5: (1920, 1080), 6: (1080, 1920)
+            1: (480, 854), 2: (854, 480), # 480p
+            3: (720, 1280), 4: (1280, 720), # 720p
+            5: (1080, 1920), 6: (1920, 1080) # 1080p
         }
         if index in resolutions:
             self.width_spin.setValue(resolutions[index][0])
@@ -2545,7 +2699,34 @@ class APISettingsDialog(QDialog):
         self.setMinimumSize(500, 400)
         self.init_ui()
         self.load_current_settings()
-        self.setStyleSheet("QDialog { background-color: #1e1e1e; color: #ffffff; }")
+        self.setStyleSheet("""
+            QDialog { background-color: #1e1e1e; color: #ffffff; }
+            QSpinBox {
+                background-color: #333333;
+                border: 1px solid #505050;
+                border-radius: 4px;
+                color: #ffffff;
+                padding: 4px;
+                min-height: 30px;
+                font-size: 14px;
+            }
+            QSpinBox:hover {
+                border: 1px solid #4a90e2;
+            }
+            QSpinBox::up-button, QSpinBox::down-button {
+                width: 20px;
+                background-color: #404040;
+                border: none;
+            }
+            QLineEdit {
+                background-color: #333333;
+                border: 1px solid #505050;
+                border-radius: 4px;
+                color: #ffffff;
+                padding: 4px;
+                font-size: 14px;
+            }
+        """)
 
     def init_ui(self):
         layout = QVBoxLayout(self)
@@ -2645,10 +2826,10 @@ class APISettingsDialog(QDialog):
         if self.env_radio.isChecked():
             if env_key:
                 masked_key = f"{env_key[:10]}...{env_key[-5:]}"
-                self.env_status_label.setText(f"✅ 系统变量已设置: {masked_key}")
+                self.env_status_label.setText(f"系统变量已设置: {masked_key}")
                 self.env_status_label.setStyleSheet("color: #4CAF50; font-size: 12px; padding: 5px;")
             else:
-                self.env_status_label.setText("❌ 系统变量 SiliconCloud_API_KEY 未设置")
+                self.env_status_label.setText("系统变量 SiliconCloud_API_KEY 未设置")
                 self.env_status_label.setStyleSheet("color: #f44336; font-size: 12px; padding: 5px;")
         else:
             self.env_status_label.setText("")
