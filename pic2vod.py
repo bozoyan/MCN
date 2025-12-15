@@ -1818,6 +1818,15 @@ class VideoGenerationWidget(QWidget):
         player_layout = QVBoxLayout(player_container)
         player_layout.setSpacing(8)
 
+        # 分割器：播放器和本地视频列表
+        player_splitter = QSplitter(Qt.Horizontal)
+        player_layout.addWidget(player_splitter)
+
+        # 左侧：播放器区域
+        player_left = QWidget()
+        player_left_layout = QVBoxLayout(player_left)
+        player_left_layout.setSpacing(8)
+
         # 视频播放器
         from PyQt5.QtMultimediaWidgets import QVideoWidget
         from PyQt5.QtMultimedia import QMediaPlayer, QMediaContent
@@ -1831,7 +1840,7 @@ class VideoGenerationWidget(QWidget):
                 min-height: 250px;
             }
         """)
-        player_layout.addWidget(self.video_player)
+        player_left_layout.addWidget(self.video_player)
 
         # 媒体播放器
         self.media_player = QMediaPlayer()
@@ -1852,6 +1861,14 @@ class VideoGenerationWidget(QWidget):
         self.stop_btn.setEnabled(False)
         playback_controls.addWidget(self.stop_btn)
 
+        # 刷新本地视频列表按钮
+        self.refresh_videos_btn = PushButton("🔄")
+        self.refresh_videos_btn.setFixedHeight(30)
+        self.refresh_videos_btn.setFixedWidth(30)
+        self.refresh_videos_btn.clicked.connect(self.refresh_local_videos)
+        self.refresh_videos_btn.setToolTip("刷新本地视频列表")
+        playback_controls.addWidget(self.refresh_videos_btn)
+
         # 当前播放信息
         self.current_video_label = QLabel("未选择视频")
         self.current_video_label.setStyleSheet("""
@@ -1868,7 +1885,51 @@ class VideoGenerationWidget(QWidget):
 
         playback_controls.addStretch()
 
-        player_layout.addLayout(playback_controls)
+        player_left_layout.addLayout(playback_controls)
+        player_splitter.addWidget(player_left)
+
+        # 右侧：本地视频列表
+        player_right = QWidget()
+        player_right_layout = QVBoxLayout(player_right)
+        player_right_layout.setSpacing(5)
+
+        # 本地视频列表标题
+        local_videos_title = QLabel("📁 本地视频")
+        local_videos_title.setStyleSheet("font-size: 14px; font-weight: bold; color: #ffffff; margin-bottom: 5px;")
+        player_right_layout.addWidget(local_videos_title)
+
+        # 本地视频列表区域
+        self.local_videos_scroll = QScrollArea()
+        self.local_videos_scroll.setWidgetResizable(True)
+        self.local_videos_scroll.setStyleSheet("""
+            QScrollArea {
+                background-color: #2a2a2a;
+                border: 1px solid #404040;
+                border-radius: 6px;
+            }
+            QScrollBar:vertical {
+                background-color: #2a2a2a;
+                width: 6px;
+                border-radius: 3px;
+            }
+            QScrollBar::handle:vertical {
+                background-color: #4a4a4a;
+                border-radius: 3px;
+                min-height: 15px;
+            }
+        """)
+
+        self.local_videos_widget = QWidget()
+        self.local_videos_layout = QVBoxLayout(self.local_videos_widget)
+        self.local_videos_layout.setSpacing(3)
+        self.local_videos_scroll.setWidget(self.local_videos_widget)
+        player_right_layout.addWidget(self.local_videos_scroll)
+
+        player_splitter.addWidget(player_right)
+
+        # 设置分割比例（播放器:本地列表 = 3:1）
+        player_splitter.setSizes([450, 150])
+
         video_list_layout.addWidget(player_container)
 
         self.result_tabs.addTab(self.video_list_widget, "视频列表")
@@ -2071,7 +2132,18 @@ class VideoGenerationWidget(QWidget):
             return self.drop_widget.base64_data
 
     def generate_single_video(self):
-        """生成单个视频"""
+        """生成单个视频 - 支持并发执行"""
+        # 检查是否已有任务在执行
+        if self.concurrent_batch_manager and len(self.concurrent_batch_manager.workers) > 0:
+            # 允许多个并发任务，但给出提示
+            reply = QMessageBox.question(
+                self, "确认",
+                "当前有任务正在执行，是否要并发执行新的任务？\n(这样可以充分利用多个API密钥)",
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes
+            )
+            if reply == QMessageBox.No:
+                return
+
         image_input = self.get_current_image_input()
         prompt = self.prompt_edit.toPlainText().strip()
 
@@ -2083,9 +2155,10 @@ class VideoGenerationWidget(QWidget):
             QMessageBox.warning(self, "警告", "请输入视频提示词")
             return
 
-        # 创建单个任务
+        # 创建单个任务，使用时间戳确保唯一性
+        timestamp = datetime.now().strftime("%H%M%S")
         task = {
-            'name': "单个任务",
+            'name': f"单个任务_{timestamp}",
             'image_input': image_input,
             'image_path': self.drop_widget.current_image_path if self.input_type_combo.currentIndex() == 1 else '',
             'prompt': prompt,
@@ -2094,21 +2167,21 @@ class VideoGenerationWidget(QWidget):
             'num_frames': self.duration_spin.value() * 16 + 1
         }
 
-        # 执行单个任务
-        self.execute_batch_tasks([task])
+        # 执行单个任务（并发方式）
+        self.execute_concurrent_tasks([task])
 
     def generate_batch_videos(self):
-        """生成批量视频"""
+        """生成批量视频 - 真正的并发执行"""
         if not self.batch_tasks:
             QMessageBox.warning(self, "警告", "请先添加任务到列表")
             return
 
-        self.execute_batch_tasks(self.batch_tasks)
+        # 使用并发执行而非顺序执行
+        self.execute_concurrent_tasks(self.batch_tasks)
 
-    def execute_batch_tasks(self, tasks):
-        """执行批量任务 - 使用并发管理器"""
-        if self.concurrent_batch_manager and len(self.concurrent_batch_manager.workers) > 0:
-            QMessageBox.warning(self, "警告", "当前有任务正在执行")
+    def execute_concurrent_tasks(self, tasks):
+        """真正并发执行任务 - 每个任务独立线程和API密钥"""
+        if not tasks:
             return
 
         # 为每个任务创建进度卡片
@@ -2132,19 +2205,21 @@ class VideoGenerationWidget(QWidget):
         # 切换到视频列表Tab
         self.result_tabs.setCurrentIndex(0)
 
-        # 使用新的并发批量管理器
-        self.concurrent_batch_manager = ConcurrentBatchManager()
-        self.concurrent_batch_manager.task_progress.connect(self.update_task_progress)
-        self.concurrent_batch_manager.task_finished.connect(self.on_task_finished)
-        self.concurrent_batch_manager.task_time_updated.connect(self.update_task_time)
-        self.concurrent_batch_manager.log_updated.connect(self.add_log)
-        self.concurrent_batch_manager.batch_progress_updated.connect(self.update_batch_progress)
-        self.concurrent_batch_manager.all_tasks_finished.connect(self.on_all_tasks_finished)
+        # 如果已有管理器，复用或创建新的
+        if not self.concurrent_batch_manager:
+            self.concurrent_batch_manager = ConcurrentBatchManager()
+            self.concurrent_batch_manager.task_progress.connect(self.update_task_progress)
+            self.concurrent_batch_manager.task_finished.connect(self.on_task_finished)
+            self.concurrent_batch_manager.task_time_updated.connect(self.update_task_time)
+            self.concurrent_batch_manager.log_updated.connect(self.add_log)
+            self.concurrent_batch_manager.batch_progress_updated.connect(self.update_batch_progress)
+            self.concurrent_batch_manager.all_tasks_finished.connect(self.on_all_tasks_finished)
 
         # 获取密钥文件路径
         key_file_path = getattr(self, 'key_file_path', None)
 
-        # 开始并发执行
+        # 开始真正并发执行（所有任务同时启动）
+        self.add_log(f"🚀 开始并发执行，共{len(tasks)}个任务，WebAppID: {self.api_manager.web_app_id}")
         self.concurrent_batch_manager.execute_batch_tasks(tasks, key_file_path)
 
     def update_task_progress(self, progress, message, task_id):
@@ -2283,6 +2358,192 @@ class VideoGenerationWidget(QWidget):
             except Exception as e:
                 QMessageBox.critical(self, "错误", f"保存失败: {str(e)}")
 
+    def refresh_local_videos(self):
+        """刷新本地视频列表"""
+        try:
+            # 清空现有列表
+            while self.local_videos_layout.count():
+                item = self.local_videos_layout.takeAt(0)
+                if item.widget():
+                    item.widget().deleteLater()
+
+            # 检查output目录
+            output_dir = "output"
+            if not os.path.exists(output_dir):
+                os.makedirs(output_dir)
+                self.local_videos_layout.addWidget(QLabel("📁 output文件夹为空"))
+                return
+
+            # 支持的视频格式
+            video_extensions = ['.mp4', '.avi', '.mov', '.mkv', '.flv', '.wmv', '.webm']
+            video_files = []
+
+            # 扫描视频文件
+            for file in os.listdir(output_dir):
+                if any(file.lower().endswith(ext) for ext in video_extensions):
+                    file_path = os.path.join(output_dir, file)
+                    if os.path.isfile(file_path):
+                        # 获取文件信息
+                        stat = os.stat(file_path)
+                        size_mb = stat.st_size / (1024 * 1024)
+                        mtime = datetime.fromtimestamp(stat.st_mtime).strftime("%Y-%m-%d %H:%M")
+
+                        video_files.append({
+                            'name': file,
+                            'path': file_path,
+                            'size_mb': size_mb,
+                            'mtime': mtime
+                        })
+
+            # 按修改时间排序（最新的在前）
+            video_files.sort(key=lambda x: x['mtime'], reverse=True)
+
+            if not video_files:
+                self.local_videos_layout.addWidget(QLabel("📁 没有找到视频文件"))
+                return
+
+            # 添加视频文件到列表
+            for video_info in video_files:
+                video_item = self.create_local_video_item(video_info)
+                self.local_videos_layout.addWidget(video_item)
+
+            self.add_log(f"📁 已刷新本地视频列表，共{len(video_files)}个文件")
+
+        except Exception as e:
+            self.add_log(f"⚠️ 刷新本地视频列表失败: {str(e)}")
+            self.local_videos_layout.addWidget(QLabel("❌ 加载失败"))
+
+    def create_local_video_item(self, video_info):
+        """创建本地视频列表项"""
+        item = QFrame()
+        item.setStyleSheet("""
+            QFrame {
+                background-color: #2a2a2a;
+                border: 1px solid #404040;
+                border-radius: 4px;
+                margin: 1px;
+                padding: 5px;
+            }
+            QFrame:hover {
+                background-color: #333333;
+                border: 1px solid #4a90e2;
+            }
+        """)
+
+        layout = QVBoxLayout(item)
+        layout.setSpacing(2)
+        layout.setContentsMargins(5, 3, 5, 3)
+
+        # 文件名
+        name_label = QLabel(video_info['name'][:30] + "..." if len(video_info['name']) > 30 else video_info['name'])
+        name_label.setStyleSheet("color: #ffffff; font-size: 12px; font-weight: bold;")
+        layout.addWidget(name_label)
+
+        # 文件信息
+        info_layout = QHBoxLayout()
+
+        size_label = QLabel(f"{video_info['size_mb']:.1f}MB")
+        size_label.setStyleSheet("color: #cccccc; font-size: 10px;")
+        info_layout.addWidget(size_label)
+
+        info_layout.addStretch()
+
+        time_label = QLabel(video_info['mtime'])
+        time_label.setStyleSheet("color: #888888; font-size: 10px;")
+        info_layout.addWidget(time_label)
+
+        layout.addLayout(info_layout)
+
+        # 双击播放
+        item.mouseDoubleClickEvent = lambda event: self.play_local_video(video_info['path'], video_info['name'])
+        item.setCursor(Qt.PointingHandCursor)
+
+        # 右键菜单
+        item.setContextMenuPolicy(3)  # Qt.CustomContextMenu
+        item.customContextMenuRequested.connect(lambda pos: self.show_video_context_menu(pos, video_info))
+
+        return item
+
+    def show_video_context_menu(self, pos, video_info):
+        """显示视频右键菜单"""
+        from PyQt5.QtWidgets import QMenu
+        menu = QMenu()
+
+        play_action = menu.addAction("▶️ 播放")
+        play_action.triggered.connect(lambda: self.play_local_video(video_info['path'], video_info['name']))
+
+        menu.addSeparator()
+
+        open_folder_action = menu.addAction("📁 在文件夹中显示")
+        open_folder_action.triggered.connect(lambda: self.open_in_folder(video_info['path']))
+
+        delete_action = menu.addAction("🗑️ 删除")
+        delete_action.triggered.connect(lambda: self.delete_video_file(video_info['path'], video_info['name']))
+
+        menu.exec_(self.local_videos_widget.mapToGlobal(pos))
+
+    def open_in_folder(self, file_path):
+        """在文件夹中显示文件"""
+        import platform
+        import subprocess
+
+        try:
+            if platform.system() == "Windows":
+                subprocess.Popen(['explorer', '/select,', file_path])
+            elif platform.system() == "Darwin":  # macOS
+                subprocess.Popen(['open', '-R', file_path])
+            else:  # Linux
+                subprocess.Popen(['xdg-open', os.path.dirname(file_path)])
+        except Exception as e:
+            self.add_log(f"⚠️ 无法打开文件夹: {str(e)}")
+
+    def delete_video_file(self, file_path, file_name):
+        """删除视频文件"""
+        reply = QMessageBox.question(
+            self, "确认删除",
+            f"确定要删除视频文件 '{file_name}' 吗？\n\n此操作不可撤销。",
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No
+        )
+
+        if reply == QMessageBox.Yes:
+            try:
+                os.remove(file_path)
+                self.add_log(f"🗑️ 已删除视频文件: {file_name}")
+                self.refresh_local_videos()  # 刷新列表
+            except Exception as e:
+                self.add_log(f"❌ 删除失败: {str(e)}")
+                QMessageBox.warning(self, "错误", f"删除失败: {str(e)}")
+
+    def play_local_video(self, file_path, file_name):
+        """播放本地视频文件"""
+        try:
+            # 切换到视频列表Tab
+            self.result_tabs.setCurrentIndex(0)
+
+            # 设置当前播放的视频
+            self.current_video_path = file_path
+            self.current_video_label.setText(f"正在播放: {file_name}")
+
+            # 启用播放控制按钮
+            self.play_btn.setEnabled(True)
+            self.stop_btn.setEnabled(True)
+
+            # 加载视频到播放器
+            from PyQt5.QtCore import QUrl
+            from PyQt5.QtMultimedia import QMediaContent
+
+            self.media_player.setMedia(QMediaContent(QUrl.fromLocalFile(file_path)))
+            self.media_player.play()
+
+            # 更新播放按钮文本
+            self.play_btn.setText("⏸️ 暂停")
+
+            self.add_log(f"🎬 正在播放本地视频: {file_name}")
+
+        except Exception as e:
+            self.add_log(f"⚠️ 播放本地视频失败: {str(e)}")
+            QMessageBox.warning(self, "错误", f"播放失败: {str(e)}")
+
     def load_settings(self):
         """加载设置"""
         try:
@@ -2300,6 +2561,9 @@ class VideoGenerationWidget(QWidget):
 
                 # 初始化参数显示
                 self.update_current_params_display()
+
+                # 初始化本地视频列表
+                self.refresh_local_videos()
         except Exception as e:
             self.add_log(f"加载设置失败: {e}")
 
