@@ -4142,7 +4142,7 @@ class VideoResultCard(QWidget):
         layout.addWidget(self.progress_bar)
 
         # 进度文字显示（百分比和时间）
-        self.progress_info_label = QLabel("等待开始...")
+        self.progress_info_label = QLabel("等待开始... 00:00:00")
         self.progress_info_label.setStyleSheet("color: #cccccc; font-size: 11px;")
         layout.addWidget(self.progress_info_label)
 
@@ -4198,25 +4198,45 @@ class VideoResultCard(QWidget):
         self.url_container.hide()  # 初始隐藏
         layout.addWidget(self.url_container)
 
-        # 按钮区域
-        button_layout = QHBoxLayout()
-
+        # URL显示和按钮区域
+        url_button_layout = QHBoxLayout()
+        
         self.copy_url_btn = PushButton("复制URL")
         self.copy_url_btn.clicked.connect(self.copy_url)
         self.copy_url_btn.hide()  # 初始隐藏
-        button_layout.addWidget(self.copy_url_btn)
+        url_button_layout.addWidget(self.copy_url_btn)
+        
+        # URL文本展示区域 - 在复制URL按钮右侧
+        self.url_text_label = QLabel()
+        self.url_text_label.setWordWrap(True)
+        self.url_text_label.setMaximumWidth(400)  # 设置最大宽度
+        self.url_text_label.setMinimumHeight(60)  # 设置最小高度
+        self.url_text_label.setAlignment(Qt.AlignTop | Qt.AlignLeft)  # 左上对齐
+        self.url_text_label.setStyleSheet("""
+            QLabel {
+                background-color: #2a2a2a;
+                border: 1px solid #404040;
+                border-radius: 4px;
+                padding: 6px 8px;
+                color: #e0e0e0;
+                font-size: 11px;
+                font-family: 'Consolas', 'Monaco', monospace;
+            }
+        """)
+        self.url_text_label.hide()  # 初始隐藏
+        url_button_layout.addWidget(self.url_text_label)
 
         self.view_btn = PushButton("播放")
         self.view_btn.clicked.connect(self.view_video)
         self.view_btn.hide()  # 初始隐藏
-        button_layout.addWidget(self.view_btn)
+        url_button_layout.addWidget(self.view_btn)
 
         self.download_btn = PushButton("下载")
         self.download_btn.clicked.connect(self.download_video)
         self.download_btn.hide()  # 初始隐藏
-        button_layout.addWidget(self.download_btn)
+        url_button_layout.addWidget(self.download_btn)
 
-        layout.addLayout(button_layout)
+        layout.addLayout(url_button_layout)
 
         # 取消按钮单独放在最下方
         self.cancel_btn = PushButton("取消")
@@ -4251,6 +4271,7 @@ class VideoResultCard(QWidget):
         self.download_btn.hide()
         self.copy_url_btn.hide()
         self.url_container.hide()
+        self.url_text_label.hide()
 
         # 启动计时器
         if self.progress_timer:
@@ -4273,8 +4294,18 @@ class VideoResultCard(QWidget):
         """更新计时器显示"""
         if self.start_time:
             elapsed = int(time.time() - self.start_time)
+            hours = elapsed // 3600
+            minutes = (elapsed % 3600) // 60
+            seconds = elapsed % 60
+            time_str = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
             current_progress = self.progress_bar.value()
-            self.progress_info_label.setText(f"进度: {current_progress}% - 已用时: {elapsed}秒")
+            
+            # 添加滚动信息
+            if current_progress < 100:
+                scroll_text = "· 正在生成视频...请耐心等待 ·"
+                self.progress_info_label.setText(f"进度: {current_progress}% - 已用时: {time_str} {scroll_text}")
+            else:
+                self.progress_info_label.setText(f"进度: {current_progress}% - 已用时: {time_str}")
 
     def update_time(self, time_string):
         """从外部更新计时器显示"""
@@ -4284,18 +4315,22 @@ class VideoResultCard(QWidget):
     def complete_progress(self, video_url=""):
         """完成进度显示"""
         self.progress_bar.setValue(100)
-        self.status_label.setText("任务完成")
+        self.status_label.setText("任务完成")  # 修改为"任务完成"而不是"完成"
         self.status_label.setStyleSheet("color: #28a745; font-size: 12px; font-weight: bold;")
 
-        if self.progress_timer:
-            self.progress_timer.stop()
-
+        # 不停止计时器，让它继续计时显示总用时
         elapsed = int(time.time() - self.start_time) if self.start_time else 0
-        self.progress_info_label.setText(f"任务完成! 总用时: {elapsed}秒")
+        hours = elapsed // 3600
+        minutes = (elapsed % 3600) // 60
+        seconds = elapsed % 60
+        time_str = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+        self.progress_info_label.setText(f"任务完成! 总用时: {time_str}")
 
         if video_url:
             self.url_edit.setText(video_url)
+            self.url_text_label.setText(video_url)
             self.url_container.show()
+            self.url_text_label.show()  # 确保URL文本标签显示
             self.view_btn.show()
             self.download_btn.show()
             self.copy_url_btn.show()
