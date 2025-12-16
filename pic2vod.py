@@ -188,7 +188,7 @@ class VideoSettingsManager:
             },
             "api_settings": {
                 "key_file": "",
-                "web_app_id": 41082,
+                "web_app_id": 39386,
                 "api_url": "https://api.bizyair.cn/w/v1/webapp/task/openapi/create"
             },
             "ui_settings": {
@@ -246,7 +246,7 @@ class VideoSettingsManager:
         settings = self.load_settings()
         return settings.get("api_settings", self.default_settings["api_settings"])
 
-    def set_api_settings(self, key_file, web_app_id=41082, api_url=None):
+    def set_api_settings(self, key_file, web_app_id=39386, api_url=None):
         """设置API参数"""
         settings = self.load_settings()
         
@@ -283,7 +283,7 @@ class APIKeyManager:
         self.api_keys = []
         self.key_file = ""
         self.current_key_index = 0
-        self.web_app_id = 41082  # 正确的WebApp ID
+        self.web_app_id = 39386  # 老的WebApp ID 41082
         self.key_source = "file"  # "file" 或 "env"
 
     def load_keys_from_file(self, file_path):
@@ -2431,7 +2431,7 @@ class VideoGenerationWidget(QWidget):
             self.update_current_params_display()
             self.refresh_task_videos()
             self.webapp_id_label.setText(f"AppID: {self.api_manager.web_app_id}")
-            self.api_manager.web_app_id = api_settings.get('web_app_id', 41082)
+            self.api_manager.web_app_id = api_settings.get('web_app_id', 39386)
 
 
             self.add_log(f"✅ 已加载视频设置配置")
@@ -2970,7 +2970,7 @@ class APISettingsDialog(QDialog):
                 api_settings = self.parent().settings_manager.get_api_settings()
 
                 key_file = api_settings.get('key_file', '')
-                webapp_id = api_settings.get('web_app_id', 41082)
+                webapp_id = api_settings.get('web_app_id', 39386)
                 api_url = api_settings.get('api_url', 'https://api.bizyair.cn/w/v1/webapp/task/openapi/create')
 
                 self.webapp_id_spin.setValue(webapp_id)
