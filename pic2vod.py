@@ -662,7 +662,7 @@ class SingleVideoGenerationWorker(QThread):
                     base_url,
                     headers=headers,
                     json=bizyair_request_data,
-                    timeout=(300, 600),  # 5分钟连接超时，10分钟读取超时
+                    timeout=(300, 900),  # 5分钟连接超时，15分钟读取超时
                     proxies=proxies
                 )
                 
@@ -812,7 +812,38 @@ class SingleVideoGenerationWorker(QThread):
         self.is_cancelled = True
         self.time_update_active = False
 
-# --- 5. 并发批量任务管理器 ---
+# --- 5. 任务调度器 (用于延迟启动) ---
+class TaskScheduler(QThread):
+    """任务调度器 - 在独立线程中处理延迟任务启动"""
+    schedule_task = pyqtSignal(dict, str, str, str)  # task, task_id, api_key, video_mode
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.pending_tasks = []  # (delay_seconds, task, task_id, api_key, video_mode)
+
+    def add_scheduled_task(self, delay_seconds, task, task_id, api_key, video_mode="single"):
+        """添加延迟任务"""
+        self.pending_tasks.append((delay_seconds, task, task_id, api_key, video_mode))
+
+    def run(self):
+        """执行调度"""
+        # 按延迟时间排序
+        self.pending_tasks.sort(key=lambda x: x[0])
+
+        last_schedule_time = 0
+        for delay_seconds, task, task_id, api_key, video_mode in self.pending_tasks:
+            # 计算相对延迟
+            relative_delay = delay_seconds - last_schedule_time
+            if relative_delay > 0:
+                self.msleep(int(relative_delay * 1000))  # 转换为毫秒
+            last_schedule_time = delay_seconds
+
+            # 发送任务启动信号
+            self.schedule_task.emit(task, task_id, api_key, video_mode)
+
+        self.pending_tasks.clear()
+
+# --- 6. 并发批量任务管理器 ---
 class ConcurrentBatchManager(QObject):
     """并发批量任务管理器"""
     all_tasks_finished = pyqtSignal()  # 所有任务完成信号
@@ -829,18 +860,37 @@ class ConcurrentBatchManager(QObject):
         self.total_tasks = 0
         self.task_counter = 0 # 累计任务计数器
         self.api_manager = api_manager if api_manager is not None else APIKeyManager()
+        self.scheduler = TaskScheduler()
+        self.scheduler.schedule_task.connect(self.start_scheduled_task)
 
     def log_message(self, message):
         Utils.log_message(message, self.log_updated, "批量管理器")
 
+    def start_scheduled_task(self, task, task_id, api_key, video_mode):
+        """启动调度器中的任务"""
+        if task_id in self.workers:
+            # 创建工作线程
+            worker = SingleVideoGenerationWorker(task, task_id, api_key, self.api_manager, video_mode)
+            self.workers[task_id] = worker
+
+            # 连接信号
+            worker.progress_updated.connect(self.task_progress)
+            worker.task_finished.connect(self.on_single_task_finished)
+            worker.time_updated.connect(self.task_time_updated)
+            worker.log_updated.connect(self.log_updated)
+
+            # 立即启动任务
+            worker.start()
+            self.log_message(f"🚀 已启动任务 {task_id}，使用密钥 {api_key[:10]}...")
+
     def add_tasks(self, task_map, key_file=None):
-        """添加任务到并发队列 task_map: {task_id: task}"""
+        """添加任务到并发队列 task_map: {task_id: task} - 真正的并发执行"""
         new_tasks_count = len(task_map)
         if new_tasks_count == 0:
             return
 
         self.total_tasks += new_tasks_count
-        
+
         # 加载API密钥
         if key_file:
             self.api_manager.load_keys_from_file(key_file)
@@ -858,9 +908,16 @@ class ConcurrentBatchManager(QObject):
         self.log_message(f"🚀 添加 {new_tasks_count} 个新任务到队列 (当前并发: {len(self.workers) + new_tasks_count})")
         self.batch_progress_updated.emit(self.completed_tasks, self.total_tasks)
 
-        # 为每个任务创建独立的工作线程
+        # 如果调度器正在运行，先停止它
+        if self.scheduler.isRunning():
+            self.scheduler.quit()
+            self.scheduler.wait(1000)
+
+        # 为任务分配API密钥并添加到调度器
         current_batch_index = 0
-        for task_id, task in task_map.items():
+        task_items = list(task_map.items())
+
+        for task_id, task in task_items:
             # 循环分配API密钥 (使用累计计数器确保轮询)
             key_index = (self.task_counter + current_batch_index) % len(available_keys)
             api_key = available_keys[key_index]
@@ -869,24 +926,19 @@ class ConcurrentBatchManager(QObject):
             # 获取视频模式（默认为单图片模式）
             video_mode = task.get('video_mode', 'single')
 
-            # 创建工作线程
-            worker = SingleVideoGenerationWorker(task, task_id, api_key, self.api_manager, video_mode)
-            self.workers[task_id] = worker
+            # 计算延迟时间（第一个任务0秒，后续任务间隔3秒）
+            delay_seconds = (current_batch_index - 1) * 3
 
-            # 连接信号
-            worker.progress_updated.connect(self.task_progress)
-            worker.task_finished.connect(self.on_single_task_finished)
-            worker.time_updated.connect(self.task_time_updated)
-            worker.log_updated.connect(self.log_updated)
+            # 添加到调度器
+            self.scheduler.add_scheduled_task(delay_seconds, task, task_id, api_key, video_mode)
 
-            # 启动任务
-            worker.start()
-            self.log_message(f"🚀 已启动任务 {task_id}，使用密钥 {api_key[:10]}...")
+            # 预先在workers字典中占位，防止重复创建
+            self.workers[task_id] = None
 
-            # 增加错开启动时间
-            QCoreApplication.processEvents()
-            time.sleep(0.3)
-            
+        # 启动调度器（在独立线程中运行，不阻塞主线程）
+        self.scheduler.start()
+        self.log_message(f"⏰ 任务调度器已启动，{new_tasks_count}个任务将在3秒间隔内并发执行")
+
         self.task_counter += new_tasks_count
 
     def on_single_task_finished(self, success, message, result_data, task_id):
@@ -900,10 +952,11 @@ class ConcurrentBatchManager(QObject):
         # 移除已完成的工作线程
         if task_id in self.workers:
             worker = self.workers.pop(task_id)
-            if worker.isRunning():
-                worker.quit()
-                worker.wait(3000)
-            worker.deleteLater()
+            if worker is not None:  # 检查不是占位符None
+                if worker.isRunning():
+                    worker.quit()
+                    worker.wait(3000)
+                worker.deleteLater()
 
         # 检查是否所有任务都已完成
         if self.completed_tasks >= self.total_tasks:
@@ -921,17 +974,26 @@ class ConcurrentBatchManager(QObject):
     def cancel_all_tasks(self):
         """取消所有任务"""
         self.log_message("⏹️ 正在取消所有任务...")
+
+        # 停止调度器
+        if self.scheduler.isRunning():
+            self.scheduler.quit()
+            self.scheduler.wait(1000)
+            self.log_message("⏹️ 任务调度器已停止")
+
         # 先取消所有任务
         for worker in self.workers.values():
-            worker.cancel()
+            if worker is not None:  # 检查不是占位符None
+                worker.cancel()
 
         # 等待所有线程结束
         for task_id, worker in list(self.workers.items()):
-            if worker.isRunning():
+            if worker is not None and worker.isRunning():
                 self.log_message(f"⏹️ 等待任务 {task_id} 结束...")
                 worker.quit()
                 worker.wait(2000) # 等待最多2秒
-            worker.deleteLater()
+            if worker is not None:
+                worker.deleteLater()
             self.workers.pop(task_id, None)
 
         self.log_message("✅ 所有任务已清理。")
@@ -939,7 +1001,7 @@ class ConcurrentBatchManager(QObject):
         self.batch_progress_updated.emit(self.total_tasks, self.total_tasks)
         self.all_tasks_finished.emit() # 发送完成信号，清理主UI状态
 
-# --- 6. 图片拖拽上传小部件 ---
+# --- 7. 图片拖拽上传小部件 ---
 class ImageDropWidget(QFrame):
     # ... (代码不变) ...
     """支持拖拽上传的图片区域"""
@@ -1057,7 +1119,7 @@ class ImageDropWidget(QFrame):
         self.base64_data = ""
         self.current_image_data = ""
 
-# --- 7. 任务状态卡片 (TaskStatusCard) ---
+# --- 8. 任务状态卡片 (TaskStatusCard) ---
 class TaskStatusCard(CardWidget):
     """任务状态展示卡片 - 简约美观大气设计"""
 
@@ -1272,7 +1334,7 @@ class TaskStatusCard(CardWidget):
             """)
         self.status_label.setText(self.status)
 
-# --- 8. 视频结果卡片 (VideoResultCard) ---
+# --- 9. 视频结果卡片 (VideoResultCard) ---
 class VideoResultCard(CardWidget):
     """视频结果展示卡片 (优化版本，用于展示已完成任务)"""
 
@@ -1596,7 +1658,7 @@ class VideoResultCard(CardWidget):
             self.parent.update()
 
 
-# --- 9. 视频下载工作线程 (VideoDownloadWorker) ---
+# --- 10. 视频下载工作线程 (VideoDownloadWorker) ---
 class VideoDownloadWorker(QThread):
     # ... (代码不变，仅修正 import os/re/requests 为外部引用) ...
     """视频下载工作线程"""
@@ -1666,7 +1728,7 @@ class VideoDownloadWorker(QThread):
         """取消下载"""
         self.is_cancelled = True
 
-# --- 10. 主要的视频生成界面 (VideoGenerationWidget) ---
+# --- 11. 主要的视频生成界面 (VideoGenerationWidget) ---
 class VideoGenerationWidget(QWidget):
     """视频生成主界面 - 增强版"""
 
@@ -2251,7 +2313,7 @@ class VideoGenerationWidget(QWidget):
         self.prompt_edit.setMinimumHeight(40)
         self.prompt_edit.setMaximumHeight(200)
         self.prompt_edit.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        self.prompt_edit.setStyleSheet("padding: 10px; background: #333333; border-radius: 4px;font-size:18px; margin-right:20px;")
+        self.prompt_edit.setStyleSheet("padding: 10px; background: #202020; border-radius: 4px;font-size:18px; margin-right:20px;")
         return self.prompt_edit
         
     def create_actions_group(self):
@@ -3055,7 +3117,7 @@ class VideoGenerationWidget(QWidget):
             QMessageBox.warning(self, "错误", f"保存日志失败: {str(e)}")
             self.add_log(f"❌ 保存日志失败: {str(e)}")
 
-# --- 11. 视频参数设置对话框 (VideoSettingsDialog) ---
+# --- 12. 视频参数设置对话框 (VideoSettingsDialog) ---
 class VideoSettingsDialog(QDialog):
     # ... (代码基本不变，仅修正了 frames_label 的文本更新) ...
     """视频参数设置对话框"""
@@ -3279,7 +3341,7 @@ class VideoSettingsDialog(QDialog):
                 self.parent().add_log(f"❌ 应用设置失败: {str(e)}")
         self.accept()
 
-# --- 12. API设置对话框 (APISettingsDialog) ---
+# --- 13. API设置对话框 (APISettingsDialog) ---
 class APISettingsDialog(QDialog):
     # ... (代码基本不变，仅修正了 save_settings 中对 key_file_path 的处理，确保在切换到 env 时设置为空) ...
     """API设置对话框"""
@@ -3660,7 +3722,7 @@ class APISettingsDialog(QDialog):
         except Exception as e:
             print(f"加载API设置失败: {e}")
 
-# --- 13. 主程序入口（假设已集成到 PyQt 应用框架） ---
+# --- 14. 主程序入口（假设已集成到 PyQt 应用框架） ---
 if __name__ == '__main__':
     from PyQt5.QtWidgets import QApplication, QMainWindow
 
