@@ -113,9 +113,9 @@ print("生成结果:", result)
 
 
 
-### 图片转视频API 接口
-- 使用 BizyAir 图片转视频API
-- Web App ID: 41082
+### 单图片转视频API 接口
+- 使用 BizyAir 单图片转视频API
+- Web App ID: 39386
 - 输出格式: MP4
 - 最大超时时间: 10分钟
 
@@ -130,13 +130,48 @@ headers = {
     "Authorization": "Bearer YOUR_API_KEY"
 }
 data = {
-      "web_app_id": 41082,
+      "web_app_id": 39386,
       "suppress_preview_output": False,
       "input_values": {
         "67:LoadImage.image": "https://bizyair-prod.oss-cn-shanghai.aliyuncs.com/inputs/20251111/iFTgLtreJQ53dXMsVxKv6mtwJcKpgH9g.png",
         "68:ImageResizeKJv2.width": 720,
         "68:ImageResizeKJv2.height": 720,
         "16:WanVideoTextEncode.positive_prompt": "美女跳舞",
+        "89:WanVideoImageToVideoEncode.num_frames": 81
+      }
+    }
+
+response = requests.post(url, headers=headers, json=data)
+result = response.json()
+print("生成结果:", result)
+```
+
+
+
+### 首尾帧图片转视频API 接口
+- 使用 BizyAir 首尾帧图片转视频API
+- Web App ID: 39388
+- 输出格式: MP4
+- 最大超时时间: 10分钟
+
+```python
+# Python 示例代码
+import requests
+import json
+
+url = "https://api.bizyair.cn/w/v1/webapp/task/openapi/create"
+headers = {
+    "Content-Type": "application/json",
+    "Authorization": "Bearer YOUR_API_KEY"
+}
+data = {
+      "web_app_id": 39388,
+      "suppress_preview_output": False,
+      "input_values": {
+        "67:LoadImage.image": "https://bizyair-prod.oss-cn-shanghai.aliyuncs.com/inputs/20251122/rXOA7t9lR03I4u9RBejGXRGzT1Dh9qbY.jpg",
+        "99:LoadImage.image": "https://bizyair-prod.oss-cn-shanghai.aliyuncs.com/inputs/20251122/IuFGfYkvQCfwgMKXrhFPnQRqjXfhekLD.jpeg",
+        "100:easy int.value": 720,
+        "101:easy int.value": 720,
         "89:WanVideoImageToVideoEncode.num_frames": 81
       }
     }

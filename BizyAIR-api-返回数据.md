@@ -1,3 +1,6 @@
+
+# 绘本图片返回
+```json
 {
     "type": "API",
     "status": "Success",
@@ -53,3 +56,6 @@
         "real_total_cost_time": 1
     }
 }
+```
+
+
