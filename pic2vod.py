@@ -56,6 +56,7 @@ except ImportError:
             pass
 
 from PyQt5.QtCore import QThread, pyqtSignal, QTimer, Qt, QMimeData, QUrl, QObject, QCoreApplication
+from PyQt5.QtWidgets import QSizePolicy
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
                             QLineEdit, QTextEdit, QPushButton, QComboBox,
                             QSpinBox, QProgressBar, QMessageBox, QFileDialog,
@@ -1281,6 +1282,8 @@ class VideoResultCard(CardWidget):
         self.task_id = task_id
         self.parent = parent
         self.local_video_path = None # 用于存储本地下载路径
+        self.completion_time = video_data.get('timestamp', '')  # 获取完成时间
+        self.is_visible = True  # 控制卡片可见性
         self.init_ui()
 
         # 尝试自动下载
@@ -1292,18 +1295,61 @@ class VideoResultCard(CardWidget):
         layout.setContentsMargins(15, 15, 15, 15)
         layout.setSpacing(10)
 
-        # 任务标题和下载状态
+        # 任务标题、状态和控制按钮
         header_layout = QHBoxLayout()
         title_label = StrongBodyLabel(f"{self.video_data.get('task_name', f'任务_{self.task_id}')}")
         title_label.setStyleSheet("font-size: 14px; font-weight: bold; color: #ffffff;")
         header_layout.addWidget(title_label)
-        
+
         header_layout.addStretch()
+
+        # 隐藏按钮
+        self.hide_btn = QPushButton("👁")
+        self.hide_btn.setFixedSize(24, 24)
+        self.hide_btn.setStyleSheet("""
+            QPushButton {
+                background-color: transparent;
+                border: none;
+                border-radius: 12px;
+                color: #888888;
+                font-size: 14px;
+                padding: 0;
+            }
+            QPushButton:hover {
+                background-color: #404040;
+                color: #ffffff;
+            }
+            QPushButton:pressed {
+                background-color: #505050;
+            }
+        """)
+        self.hide_btn.setToolTip("隐藏/显示任务卡片")
+        self.hide_btn.clicked.connect(self.toggle_visibility)
+        header_layout.addWidget(self.hide_btn)
+
+        # 状态和时间标签容器
+        status_time_layout = QVBoxLayout()
+        status_time_layout.setSpacing(2)
 
         self.download_status_label = QLabel("正在下载...")
         self.download_status_label.setStyleSheet("color: #f39c12; font-size: 12px; font-weight: bold;")
-        header_layout.addWidget(self.download_status_label)
+        status_time_layout.addWidget(self.download_status_label)
 
+        # 完成时间标签
+        self.completion_time_label = QLabel("")
+        self.completion_time_label.setStyleSheet("color: #666666; font-size: 10px;")
+        if self.completion_time:
+            try:
+                # 解析时间戳并格式化显示
+                dt = datetime.fromisoformat(self.completion_time.replace('Z', '+00:00'))
+                formatted_time = dt.strftime("%m-%d %H:%M:%S")
+                self.completion_time_label.setText(f"完成时间: {formatted_time}")
+            except:
+                # 如果解析失败，直接显示原始时间戳
+                self.completion_time_label.setText(f"完成时间: {self.completion_time}")
+        status_time_layout.addWidget(self.completion_time_label)
+
+        header_layout.addLayout(status_time_layout)
         layout.addLayout(header_layout)
 
         # 视频信息
@@ -1420,12 +1466,25 @@ class VideoResultCard(CardWidget):
         """下载完成回调"""
         if success and local_path:
             self.local_video_path = local_path
-            self.download_status_label.setText("本地已保存")
+            # 构建状态文本，包含完成时间
+            completion_time_text = ""
+            if self.completion_time:
+                try:
+                    dt = datetime.fromisoformat(self.completion_time.replace('Z', '+00:00'))
+                    formatted_time = dt.strftime("%m-%d %H:%M:%S")
+                    completion_time_text = f" · {formatted_time}"
+                except:
+                    pass
+
+            self.download_status_label.setText(f"本地已保存{completion_time_text}")
             self.download_status_label.setStyleSheet("color: #28a745; font-size: 12px; font-weight: bold;")
+
+            # 隐藏单独的完成时间标签，因为已经合并到状态标签中
+            self.completion_time_label.hide()
         else:
             self.download_status_label.setText("下载失败/远程")
             self.download_status_label.setStyleSheet("color: #dc3545; font-size: 12px; font-weight: bold;")
-            
+
             if hasattr(self.parent, 'add_log'):
                 self.parent.add_log(f"❌ 任务 {self.task_id} 自动下载失败: {message}")
 
@@ -1461,6 +1520,80 @@ class VideoResultCard(CardWidget):
             )
         else:
             QMessageBox.warning(self, "警告", "视频URL不可用")
+
+    def toggle_visibility(self):
+        """切换卡片可见性"""
+        self.is_visible = not self.is_visible
+
+        if self.is_visible:
+            # 恢复显示所有内容
+            self.hide_btn.setText("👁")
+            self.hide_btn.setToolTip("隐藏任务卡片")
+            self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)  # 恢复原始大小策略
+            # 显示所有子控件
+            for i in range(self.layout().count()):
+                item = self.layout().itemAt(i)
+                if item and item.widget():
+                    item.widget().show()
+            # 恢复原始样式
+            self.setStyleSheet("""
+                VideoResultCard {
+                    background-color: #2a2a2a;
+                    border: 1px solid #404040;
+                    border-radius: 8px;
+                    margin: 5px;
+                }
+                VideoResultCard:hover {
+                    border: 1px solid #4a90e2;
+                }
+            """)
+        else:
+            # 隐藏卡片内容，只保留标题栏和隐藏按钮
+            self.hide_btn.setText("👁‍🗨")
+            self.hide_btn.setToolTip("显示任务卡片")
+            # 设置固定高度，只显示标题栏
+            current_width = self.width() if self.width() > 0 else 300
+            self.setFixedSize(current_width, 50)
+
+            # 只保留 header_layout 的显示，隐藏其他内容
+            header_layout = self.layout().itemAt(0).layout() if self.layout().count() > 0 else None
+            if header_layout:
+                # 保留标题和隐藏按钮
+                for i in range(header_layout.count()):
+                    item = header_layout.itemAt(i)
+                    if item and item.widget():
+                        if item.widget() in [self.hide_btn]:
+                            item.widget().show()
+                        elif isinstance(item.widget(), QLabel) and "任务_" in item.widget().text():
+                            # 调整标题样式以适应小尺寸
+                            title_widget = item.widget()
+                            title_widget.setStyleSheet("font-size: 12px; font-weight: bold; color: #ffffff;")
+                            title_widget.show()
+                        else:
+                            item.widget().hide()
+
+            # 隐藏其他布局
+            for i in range(1, self.layout().count()):
+                item = self.layout().itemAt(i)
+                if item and item.widget():
+                    item.widget().hide()
+
+            # 设置简化样式
+            self.setStyleSheet("""
+                VideoResultCard {
+                    background-color: #333333;
+                    border: 1px solid #555555;
+                    border-radius: 6px;
+                    margin: 2px;
+                }
+                VideoResultCard:hover {
+                    border: 1px solid #666666;
+                }
+            """)
+
+        # 通知父组件更新布局
+        if self.parent:
+            self.parent.update()
 
 
 # --- 9. 视频下载工作线程 (VideoDownloadWorker) ---
