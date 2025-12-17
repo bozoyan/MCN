@@ -59,3 +59,34 @@
 ```
 
 
+## 视频返回数据
+```json
+{
+  "type": "API",
+  "status": "Success",
+  "created_at": "2025-12-17 21:27:43",
+  "updated_at": "2025-12-17 21:29:10",
+  "executed_at": "2025-12-17 21:27:43",
+  "running_at": "2025-12-17 21:27:45",
+  "ended_at": "2025-12-17 21:29:10",
+  "expired_at": "2026-01-01 00:00:00",
+  "request_id": "e55ddf64-b3a0-4835-854d-d89fsf246f41",
+  "outputs": [
+    {
+      "object_url": "https://storage.bizyair.cn/outputs/c34c07d8-4969-4d3f-bf76-2444a86d9372_8b1061dadas174b8c64fb22b178257_WanVideo2_2_I2V_00012.mp4",
+      "output_ext": ".mp4",
+      "cost_time": 84119,
+      "audit_status": 2,
+      "error_type": "NOT_ERROR"
+    }
+  ],
+  "cost_times": {
+    "inference_cost_time": 84576,
+    "running_cost_time": 86480,
+    "total_cost_time": 86505,
+    "real_cpu_cost_time": 1470,
+    "real_gpu_cost_time": 82206,
+    "real_total_cost_time": 83676
+  }
+}
+```
