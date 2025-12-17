@@ -381,9 +381,11 @@ class ModelLauncher:
         
         # 添加组件
         ttk.Label(tab, text="模型名称:").grid(row=0, column=0, padx=5, pady=5, sticky=tk.W)
-        self.base64_model_entry = ttk.Entry(tab, width=95)
-        self.base64_model_entry.insert(0, "FunAudioLLM/CosyVoice2-0.5B")
-        self.base64_model_entry.grid(row=0, column=1, padx=5, pady=5)
+        self.base64_model_var = tk.StringVar()
+        self.base64_model_var.set("FunAudioLLM/CosyVoice2-0.5B")
+        model_options = ["FunAudioLLM/CosyVoice2-0.5B", "IndexTeam/IndexTTS-2", "fnlp/MOSS-TTSD-v0.5"]
+        self.base64_model_combo = ttk.Combobox(tab, textvariable=self.base64_model_var, values=model_options, width=93, state="readonly")
+        self.base64_model_combo.grid(row=0, column=1, padx=5, pady=5, sticky=tk.W)
         
         ttk.Label(tab, text="音色名称:").grid(row=1, column=0, padx=5, pady=5, sticky=tk.W)
         self.base64_name_entry = ttk.Entry(tab, width=95)
@@ -406,9 +408,11 @@ class ModelLauncher:
         self.voice_notebook.add(tab, text=" 音频文件上传 ")
         
         ttk.Label(tab, text="模型名称:").grid(row=0, column=0, padx=5, pady=5, sticky=tk.W)
-        self.file_model_entry = ttk.Entry(tab, width=90)
-        self.file_model_entry.insert(0, "FunAudioLLM/CosyVoice2-0.5B")
-        self.file_model_entry.grid(row=0, column=1, padx=5, pady=5, sticky=tk.W)
+        self.file_model_var = tk.StringVar()
+        self.file_model_var.set("FunAudioLLM/CosyVoice2-0.5B")
+        model_options = ["FunAudioLLM/CosyVoice2-0.5B", "IndexTeam/IndexTTS-2", "fnlp/MOSS-TTSD-v0.5"]
+        self.file_model_combo = ttk.Combobox(tab, textvariable=self.file_model_var, values=model_options, width=88, state="readonly")
+        self.file_model_combo.grid(row=0, column=1, padx=5, pady=5, sticky=tk.W)
 
         ttk.Label(tab, text="音色名称:").grid(row=1, column=0, padx=5, pady=5, sticky=tk.W)
         self.file_name_entry = ttk.Entry(tab, width=90)
@@ -470,9 +474,11 @@ class ModelLauncher:
         self.voice_notebook.add(tab, text=" 用户预置音色 ")
         
         ttk.Label(tab, text="模型名称:").grid(row=0, column=0, padx=5, pady=5, sticky=tk.W)
-        self.user_model_entry = ttk.Entry(tab, width=95)
-        self.user_model_entry.insert(0, "FunAudioLLM/CosyVoice2-0.5B")
-        self.user_model_entry.grid(row=0, column=1, padx=5, pady=5, sticky=tk.W)
+        self.user_model_var = tk.StringVar()
+        self.user_model_var.set("FunAudioLLM/CosyVoice2-0.5B")
+        model_options = ["FunAudioLLM/CosyVoice2-0.5B", "IndexTeam/IndexTTS-2", "fnlp/MOSS-TTSD-v0.5"]
+        self.user_model_combo = ttk.Combobox(tab, textvariable=self.user_model_var, values=model_options, width=93, state="readonly")
+        self.user_model_combo.grid(row=0, column=1, padx=5, pady=5, sticky=tk.W)
 
         ttk.Label(tab, text="音色URI:").grid(row=1, column=0, padx=5, pady=5, sticky=tk.W)
         self.user_uri_entry = ttk.Entry(tab, width=95)
@@ -498,9 +504,11 @@ class ModelLauncher:
         
         # 添加组件
         ttk.Label(tab, text="模型名称:").grid(row=0, column=0, padx=5, pady=5, sticky=tk.W)
-        self.system_model_entry = ttk.Entry(tab, width=80)
-        self.system_model_entry.insert(0, "FunAudioLLM/CosyVoice2-0.5B")
-        self.system_model_entry.grid(row=0, column=1, padx=5, pady=5, sticky=tk.W)
+        self.system_model_var = tk.StringVar()
+        self.system_model_var.set("FunAudioLLM/CosyVoice2-0.5B")
+        model_options = ["FunAudioLLM/CosyVoice2-0.5B", "IndexTeam/IndexTTS-2", "fnlp/MOSS-TTSD-v0.5"]
+        self.system_model_combo = ttk.Combobox(tab, textvariable=self.system_model_var, values=model_options, width=78, state="readonly")
+        self.system_model_combo.grid(row=0, column=1, padx=5, pady=5, sticky=tk.W)
 
         # 音色下拉菜单紧跟模型名称
         voice_options = [
@@ -595,7 +603,7 @@ class ModelLauncher:
         }
         
         data = {
-            "model": self.base64_model_entry.get(),
+            "model": self.base64_model_var.get(),
             "customName": self.base64_name_entry.get(),
             "audio": self.base64_text.get("1.0", tk.END).strip(),
             "text": self.base64_ref_entry.get()
@@ -629,7 +637,7 @@ class ModelLauncher:
             with open(self.file_path_entry.get(), "rb") as f:
                 files = {"file": f}
                 data = {
-                    "model": self.file_model_entry.get(),
+                    "model": self.file_model_var.get(),
                     "customName": self.file_name_entry.get(),
                     "text": self.file_ref_text.get("1.0", tk.END).strip()
                 }
@@ -729,7 +737,7 @@ class ModelLauncher:
         
         try:
             with client.audio.speech.with_streaming_response.create(
-                model=self.user_model_entry.get(),
+                model=self.user_model_var.get(),
                 voice=self.user_uri_entry.get(),
                 input=self.user_text_text.get("1.0", tk.END).strip(),
                 response_format=self.user_format_var.get()
@@ -770,8 +778,8 @@ class ModelLauncher:
         
         try:
             with client.audio.speech.with_streaming_response.create(
-                model=self.system_model_entry.get(),
-                voice=f"{self.system_model_entry.get()}:{self.system_voice_var.get()}",
+                model=self.system_model_var.get(),
+                voice=f"{self.system_model_var.get()}:{self.system_voice_var.get()}",
                 input=self.system_text_text.get("1.0", tk.END).strip(),
                 response_format=self.system_format_var.get()
             ) as response:

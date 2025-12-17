@@ -746,8 +746,10 @@ class VoiceManagerPage(BasePage):
         layout.setContentsMargins(0, 20, 0, 0)
         layout.setSpacing(15)
 
-        self.uv_model = LineEdit()
-        self.uv_model.setText("FunAudioLLM/CosyVoice2-0.5B")
+        self.uv_model = ComboBox()
+        model_options = ["FunAudioLLM/CosyVoice2-0.5B", "IndexTeam/IndexTTS-2", "fnlp/MOSS-TTSD-v0.5"]
+        self.uv_model.addItems(model_options)
+        self.uv_model.setCurrentText("FunAudioLLM/CosyVoice2-0.5B")
         layout.addLayout(self.create_form_row("模型名称:", self.uv_model))
 
         self.uv_uri = LineEdit()
@@ -778,7 +780,7 @@ class VoiceManagerPage(BasePage):
 
     def generate_user_voice(self):
         self.generate_voice(
-            self.uv_model.text(),
+            self.uv_model.currentText(),
             self.uv_uri.text(),
             self.uv_text.toPlainText(),
             self.uv_format.currentText()
@@ -791,8 +793,10 @@ class VoiceManagerPage(BasePage):
         layout.setContentsMargins(0, 20, 0, 0)
         layout.setSpacing(15)
 
-        self.sv_model = LineEdit()
-        self.sv_model.setText("FunAudioLLM/CosyVoice2-0.5B")
+        self.sv_model = ComboBox()
+        model_options = ["FunAudioLLM/CosyVoice2-0.5B", "IndexTeam/IndexTTS-2", "fnlp/MOSS-TTSD-v0.5"]
+        self.sv_model.addItems(model_options)
+        self.sv_model.setCurrentText("FunAudioLLM/CosyVoice2-0.5B")
         layout.addLayout(self.create_form_row("模型名称:", self.sv_model))
 
         self.sv_voice = ComboBox()
@@ -828,9 +832,9 @@ class VoiceManagerPage(BasePage):
 
     def generate_system_voice(self):
         voice_code = self.sv_voice.itemData(self.sv_voice.currentIndex())
-        voice_uri = f"{self.sv_model.text()}:{voice_code}"
+        voice_uri = f"{self.sv_model.currentText()}:{voice_code}"
         self.generate_voice(
-            self.sv_model.text(),
+            self.sv_model.currentText(),
             voice_uri,
             self.sv_text.toPlainText(),
             self.sv_format.currentText(),
@@ -888,8 +892,10 @@ class VoiceManagerPage(BasePage):
         layout.setContentsMargins(0, 20, 0, 0)
         layout.setSpacing(15)
 
-        self.b64_model = LineEdit()
-        self.b64_model.setText("FunAudioLLM/CosyVoice2-0.5B")
+        self.b64_model = ComboBox()
+        model_options = ["FunAudioLLM/CosyVoice2-0.5B", "IndexTeam/IndexTTS-2", "fnlp/MOSS-TTSD-v0.5"]
+        self.b64_model.addItems(model_options)
+        self.b64_model.setCurrentText("FunAudioLLM/CosyVoice2-0.5B")
         layout.addLayout(self.create_form_row("模型名称:", self.b64_model))
 
         self.b64_name = LineEdit()
@@ -923,7 +929,7 @@ class VoiceManagerPage(BasePage):
             "Content-Type": "application/json"
         }
         data = {
-            "model": self.b64_model.text(),
+            "model": self.b64_model.currentText(),
             "customName": self.b64_name.text(),
             "audio": self.b64_data.toPlainText().strip(),
             "text": self.b64_text.text()
@@ -946,8 +952,10 @@ class VoiceManagerPage(BasePage):
         layout.setContentsMargins(0, 20, 0, 0)
         layout.setSpacing(15)
 
-        self.fu_model = LineEdit()
-        self.fu_model.setText("FunAudioLLM/CosyVoice2-0.5B")
+        self.fu_model = ComboBox()
+        model_options = ["FunAudioLLM/CosyVoice2-0.5B", "IndexTeam/IndexTTS-2", "fnlp/MOSS-TTSD-v0.5"]
+        self.fu_model.addItems(model_options)
+        self.fu_model.setCurrentText("FunAudioLLM/CosyVoice2-0.5B")
         layout.addLayout(self.create_form_row("模型名称:", self.fu_model))
 
         self.fu_name = LineEdit()
@@ -992,7 +1000,7 @@ class VoiceManagerPage(BasePage):
             with open(file_path, "rb") as f:
                 files = {"file": f}
                 data = {
-                    "model": self.fu_model.text(),
+                    "model": self.fu_model.currentText(),
                     "customName": self.fu_name.text(),
                     "text": self.fu_text.toPlainText().strip()
                 }
@@ -1018,8 +1026,8 @@ class VoiceManagerPage(BasePage):
 
         # 列表
         self.voice_table = TableWidget(self)
-        self.voice_table.setColumnCount(3)
-        self.voice_table.setHorizontalHeaderLabels(["音色名称", "模型", "URI"])
+        self.voice_table.setColumnCount(4)
+        self.voice_table.setHorizontalHeaderLabels(["音色名称", "模型", "URI", "文本"])
         self.voice_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         self.voice_table.itemClicked.connect(self.copy_uri_from_table)
         layout.addWidget(self.voice_table)
@@ -1043,6 +1051,7 @@ class VoiceManagerPage(BasePage):
                     self.voice_table.setItem(i, 0, QTableWidgetItem(item.get("customName", "")))
                     self.voice_table.setItem(i, 1, QTableWidgetItem(item.get("model", "")))
                     self.voice_table.setItem(i, 2, QTableWidgetItem(item.get("uri", "")))
+                    self.voice_table.setItem(i, 3, QTableWidgetItem(item.get("text", "")))
                 self.show_success("成功", f"加载了 {len(data)} 个音色")
             else:
                 self.show_error("失败", resp.text)
