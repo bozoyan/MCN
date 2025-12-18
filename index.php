@@ -273,7 +273,7 @@ if ($path[0] === 'api') {
         .node-field label { font-size: 10px; color: var(--text-sub); font-family: var(--font-mono); display: flex; justify-content: space-between; }
         .node-field input, .node-field textarea { background: #222; border-color: #444; font-size: 11px; }
         
-        .node-thumb { width: 100%; height: 120px; object-fit: contain; background: #111; border: 1px dashed #444; margin-top: 5px; border-radius: 4px; display: none; }
+        .node-thumb { width: 100%; height: 240px; object-fit: contain; background: #111; border: 1px dashed #444; margin-top: 5px; border-radius: 4px; display: none; }
         .node-thumb[src] { display: block; }
 
         .port { width: 10px; height: 10px; background: #666; border-radius: 50%; border: 2px solid #333; position: absolute; top: 50%; transform: translateY(-50%); cursor: crosshair; }
@@ -283,7 +283,7 @@ if ($path[0] === 'api') {
         path.connector { fill: none; stroke: #666; stroke-width: 2; opacity: 0.6; }
 
         /* 预览区 */
-        .preview-box { width: 100%; height: 160px; background: #111; border-radius: 4px; display: flex; align-items: center; justify-content: center; overflow: hidden; color:#555; font-size:10px; border:1px dashed #444; position:relative; }
+        .preview-box { width: 100%; height: 240px; background: #111; border-radius: 4px; display: flex; align-items: center; justify-content: center; overflow: hidden; color:#555; font-size:10px; border:1px dashed #444; position:relative; }
         .preview-box img, .preview-box video { width:100%; height:100%; object-fit:contain; }
         .node-timer { position: absolute; top: 5px; right: 5px; background: rgba(0,0,0,0.6); color: var(--accent); font-family: var(--font-mono); font-size: 10px; padding: 2px 5px; border-radius: 3px; display:none;}
 
@@ -567,7 +567,13 @@ if ($path[0] === 'api') {
                 </div>
                 <!-- 右侧编辑器 -->
                 <div style="flex:1; display:flex; flex-direction:column;">
-                    <input type="text" id="current-config-name" placeholder="Select a file..." style="margin-bottom:10px; padding:8px; border-radius:4px; font-size:11px; font-family:var(--font-mono); background:#1a1a1a; border:1px solid #444; color:#eee; width:100%; display:none;" />
+                    <div style="display:flex; gap:10px; margin-bottom:10px;">
+                        <input type="text" id="current-config-name" placeholder="Select a file..." style="flex:1; padding:8px; border-radius:4px; font-size:11px; font-family:var(--font-mono); background:#1a1a1a; border:1px solid #444; color:#eee; display:none;" />
+                        <button id="import-to-nodes-btn" class="action-btn secondary-btn" onclick="importConfigToNodes()" style="width:auto; padding:8px 15px; display:none; font-size:11px;" title="导入到节点模式">
+                            <span style="display:inline-block; transform:rotate(45deg); margin-right:5px;">⎘</span>
+                            导入节点
+                        </button>
+                    </div>
                     <div id="config-editor-container" style="flex:1; border:1px solid #444; min-height: 600px;"></div>
                     <div style="display:flex; gap:10px; margin-top:10px; justify-content:flex-end;">
                         <button class="action-btn secondary-btn" onclick="deleteCurrentConfig()" style="width:auto;">DELETE</button>
@@ -996,12 +1002,29 @@ if ($path[0] === 'api') {
                     n.inputs.forEach(inp => {
                         html += `<div class="node-field"><label>${inp.field}</label>`;
                         if (inp.field === 'image') {
-                            html += `<div style="display:flex; gap:5px;">
-                                        <textarea class="live-input" data-key="${inp.key}" rows="2" oninput="this.nextElementSibling.nextElementSibling.src=this.value" placeholder="输入图片URL或上传文件..." style="flex:1;">${inp.value}</textarea>
-                                        <input type="file" accept="image/*" onchange="handleImageUpload(this, '${inp.key}')" style="display:none;">
-                                        <button onclick="this.previousElementSibling.click()" class="action-btn" style="width:auto; padding:0 10px; font-size:10px;">上传</button>
+                            // 判断是URL还是文件路径
+                            const isUrl = inp.value && (inp.value.startsWith('http') || inp.value.startsWith('data:image'));
+                            const displayValue = inp.value && !inp.value.startsWith('data:image') ? inp.value : '';
+
+                            html += `<div style="margin-bottom:10px;">
+                                        <select id="image-source-${inp.key}" onchange="toggleImageSource('${inp.key}')" style="width:100%; padding:4px; background:#2a2a2a; border:1px solid #444; color:#ccc; border-radius:4px; margin-bottom:5px;">
+                                            <option value="url" ${isUrl ? 'selected' : ''}>URL图片</option>
+                                            <option value="file" ${!isUrl && inp.value ? 'selected' : ''}>本地文件</option>
+                                        </select>
                                      </div>
-                                     <img src="${inp.value}" class="node-thumb" onload="this.style.display='block'">`;
+                                     <div id="url-input-${inp.key}" style="${isUrl ? 'display:block' : 'display:none'}">
+                                        <input type="url" class="live-input" data-key="${inp.key}" value="${displayValue}" placeholder="输入图片URL..." onblur="updateImagePreview('${inp.key}', this.value)" style="width:100%; margin-bottom:5px;">
+                                     </div>
+                                     <div id="file-input-${inp.key}" style="${!isUrl && inp.value ? 'display:block' : 'display:none'}">
+                                        <div style="display:flex; gap:5px; margin-bottom:5px;">
+                                            <input type="text" id="file-path-${inp.key}" value="${!isUrl && inp.value ? inp.value : ''}" placeholder="点击选择本地文件..." readonly style="flex:1; padding:4px; background:#2a2a2a; border:1px solid #444; color:#ccc; border-radius:4px;">
+                                            <input type="file" accept="image/*" onchange="handleImageFileUpload(this, '${inp.key}')" style="display:none;">
+                                            <button onclick="this.previousElementSibling.click()" class="action-btn" style="width:auto; padding:0 10px; font-size:10px;">选择文件</button>
+                                        </div>
+                                     </div>
+                                     <img id="preview-${inp.key}" src="${isUrl ? inp.value : (inp.value && inp.value.startsWith('data:') ? inp.value : '')}" class="node-thumb"
+                                          ${isUrl || (inp.value && inp.value.startsWith('data:')) ? `onload="this.style.display='block'"` : ''}
+                                          style="${isUrl || (inp.value && inp.value.startsWith('data:')) ? 'display:block' : 'display:none'}">`;
                         } else if (inp.field.toLowerCase().includes('prompt')) {
                             html += `<textarea class="live-input" data-key="${inp.key}" rows="4" placeholder="输入提示词...">${inp.value}</textarea>`;
                         } else if (inp.type === 'string' && inp.value.toString().length > 40) {
@@ -1065,10 +1088,17 @@ if ($path[0] === 'api') {
 
         async function startGeneration() {
             if(!apiKey) { alert("Please set API Key first."); openApiModal(); return; }
+
+            // 检查 API 密钥格式
+            if (!apiKey.startsWith('Bearer ')) {
+                apiKey = 'Bearer ' + apiKey;
+                localStorage.setItem('id_works_api_key', apiKey);
+            }
+
             const previewBox = document.getElementById('node-output-preview');
             const canvasBtn = document.getElementById('btn-canvas-generate');
             let originalText = "";
-            
+
             startRequestTimer(); // Start Timer
 
             if (canvasBtn) { originalText = canvasBtn.innerText; canvasBtn.innerText = "RUNNING..."; }
@@ -1090,22 +1120,95 @@ if ($path[0] === 'api') {
                     selectedImageIndex = prevSelect; redrawCanvas();
                 } else { payload = generateJSONFromNodes(); }
 
-                const res = await fetch('https://api.bizyair.cn/w/v1/webapp/task/openapi/create', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` }, body: JSON.stringify(payload) });
-                const result = await res.json();
-                
-                let outputUrl = null;
-                if(result.outputs && Array.isArray(result.outputs)) {
-                     const found = result.outputs.find(o => o.object_url);
-                     if(found) outputUrl = found.object_url;
+                // 打印请求负载到控制台
+                console.log('Sending payload:', payload);
+                console.log('API Key:', apiKey.substring(0, 20) + '...');
+
+                const res = await fetch('https://api.bizyair.cn/w/v1/webapp/task/openapi/create', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': apiKey
+                    },
+                    body: JSON.stringify(payload)
+                });
+
+                // 检查HTTP响应状态
+                if (!res.ok) {
+                    const errorText = await res.text();
+                    console.error('HTTP Error Response:', errorText);
+                    throw new Error(`HTTP ${res.status}: ${res.statusText} - ${errorText}`);
                 }
 
-                if(outputUrl) {
-                    const media = (outputUrl.endsWith('.mp4')||outputUrl.endsWith('.webm')) ? `<video src="${outputUrl}" autoplay loop muted></video>` : `<img src="${outputUrl}">`;
-                    if(previewBox) previewBox.innerHTML = `<span class="node-timer" style="display:block">${document.getElementById('canvas-timer').innerText}</span>` + media;
-                    if(currentMode === 'node' && previewBox) previewBox.querySelector(outputUrl.endsWith('.mp4')?'video':'img').onclick = () => showLightbox(outputUrl);
-                    showLightbox(outputUrl);
-                    saveToHistory(outputUrl);
-                } else { if(previewBox) previewBox.innerHTML = `<span style="color:red">Done (Check Console)</span>`; }
+                const result = await res.json();
+
+                // 打印响应到控制台以便调试
+                console.log('API Response:', result);
+
+                // 检查API返回的状态
+                if (result.status && result.status !== 'Success') {
+                    // 如果状态不是Success，可能是处理中或其他状态
+                    if (result.status === 'Running' || result.status === 'Pending') {
+                        // 任务正在处理中，显示提示
+                        if(previewBox) {
+                            previewBox.innerHTML = `<span style="color:orange">Task is running...</span><br><small>Request ID: ${result.request_id || 'N/A'}</small>`;
+                        }
+                        // 可以添加轮询逻辑来检查任务状态
+                        setTimeout(() => checkTaskStatus(result.request_id), 3000);
+                        return; // 不停止计时器，让用户知道任务在运行
+                    }
+                    throw new Error(`API Error: ${result.status} - ${result.message || 'Unknown error'}`);
+                } else if (!result.status) {
+                    // 如果没有status字段，可能是不同的API格式
+                    console.warn('No status field in response, treating as success');
+                }
+
+                let outputUrls = [];
+                if(result.outputs && Array.isArray(result.outputs) && result.outputs.length > 0) {
+                     // BizyAir API 返回数组，获取所有输出
+                     result.outputs.forEach(output => {
+                         if(output.object_url) {
+                             outputUrls.push(output.object_url);
+                         }
+                     });
+                }
+
+                if(outputUrls.length > 0) {
+                    // 构建所有媒体的HTML
+                    let mediaHtml = `<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; width: 100%;">`;
+
+                    outputUrls.forEach((url, index) => {
+                        const isVideo = url.endsWith('.mp4') || url.endsWith('.webm');
+                        const media = isVideo
+                            ? `<video src="${url}" autoplay loop muted controls style="width: 100%; height: auto; max-height: 300px; object-fit: contain;"></video>`
+                            : `<img src="${url}" style="width: 100%; height: auto; max-height: 300px; object-fit: contain; cursor: pointer;" onclick="showLightbox('${url}')" alt="Output ${index + 1}">`;
+
+                        mediaHtml += `<div style="position: relative;">
+                            ${media}
+                            <div style="position: absolute; bottom: 5px; right: 5px; background: rgba(0,0,0,0.6); color: white; padding: 2px 5px; font-size: 10px; border-radius: 3px;">
+                                ${isVideo ? 'Video' : 'Image'} ${index + 1}
+                            </div>
+                        </div>`;
+                    });
+
+                    mediaHtml += `</div>`;
+
+                    if(previewBox) {
+                        previewBox.innerHTML = `<span class="node-timer" style="display:block">${document.getElementById('canvas-timer').innerText}</span>` + mediaHtml;
+                    }
+
+                    // 保存所有输出到历史记录
+                    outputUrls.forEach(url => saveToHistory(url));
+
+                    // 如果只有一个输出，显示lightbox
+                    if(outputUrls.length === 1) {
+                        showLightbox(outputUrls[0]);
+                    }
+                } else {
+                    // 没有找到输出URL
+                    console.error('No output URLs found in response:', result);
+                    if(previewBox) previewBox.innerHTML = `<span style="color:red">No output returned</span>`;
+                }
             } catch (e) { alert("Error: " + e.message); if(previewBox) previewBox.innerHTML = `<span style="color:red">Failed</span>`; } 
             finally { 
                 stopRequestTimer(); 
@@ -1216,23 +1319,76 @@ if ($path[0] === 'api') {
             }, 100);
         }
 
-        // 处理图片上传
-        function handleImageUpload(input, key) {
+        // 切换图片来源（URL/文件）
+        function toggleImageSource(key) {
+            const source = document.getElementById(`image-source-${key}`).value;
+            const urlDiv = document.getElementById(`url-input-${key}`);
+            const fileDiv = document.getElementById(`file-input-${key}`);
+            const preview = document.getElementById(`preview-${key}`);
+
+            if (source === 'url') {
+                urlDiv.style.display = 'block';
+                fileDiv.style.display = 'none';
+                // 更新输入框的值
+                const urlInput = urlDiv.querySelector('input');
+                const fileInput = document.querySelector(`.live-input[data-key="${key}"]`);
+                if (fileInput && fileInput.value && !fileInput.value.startsWith('data:')) {
+                    urlInput.value = fileInput.value;
+                }
+            } else {
+                urlDiv.style.display = 'none';
+                fileDiv.style.display = 'block';
+            }
+        }
+
+        // 更新图片预览（URL模式）
+        function updateImagePreview(key, url) {
+            const preview = document.getElementById(`preview-${key}`);
+            const liveInput = document.querySelector(`.live-input[data-key="${key}"]`);
+
+            if (liveInput) {
+                liveInput.value = url;
+                liveInput.dispatchEvent(new Event('input'));
+            }
+
+            if (url && (url.startsWith('http') || url.startsWith('data:'))) {
+                preview.src = url;
+                preview.style.display = 'block';
+            } else {
+                preview.style.display = 'none';
+            }
+        }
+
+        // 处理本地图片文件上传
+        function handleImageFileUpload(input, key) {
             const file = input.files[0];
             if (!file) return;
 
+            const filePathInput = document.getElementById(`file-path-${key}`);
+            const preview = document.getElementById(`preview-${key}`);
+            const liveInput = document.querySelector(`.live-input[data-key="${key}"]`);
+
+            // 显示文件名
+            filePathInput.value = file.name;
+
             const reader = new FileReader();
             reader.onload = function(e) {
-                const textarea = input.previousElementSibling;
-                textarea.value = e.target.result;
-                textarea.dispatchEvent(new Event('input'));
+                // 将base64数据保存到live-input中
+                if (liveInput) {
+                    liveInput.value = e.target.result;
+                    liveInput.dispatchEvent(new Event('input'));
+                }
 
-                // 更新预览图
-                const img = input.parentElement.nextElementSibling;
-                img.src = e.target.result;
-                img.style.display = 'block';
+                // 更新预览
+                preview.src = e.target.result;
+                preview.style.display = 'block';
             };
             reader.readAsDataURL(file);
+        }
+
+        // 兼容旧的handleImageUpload函数
+        function handleImageUpload(input, key) {
+            handleImageFileUpload(input, key);
         }
 
         // 关闭 JSON 编辑器
@@ -1334,8 +1490,11 @@ if ($path[0] === 'api') {
         async function loadConfigFile(filename) {
             currentConfigFile = filename;
             const nameInput = document.getElementById('current-config-name');
+            const importBtn = document.getElementById('import-to-nodes-btn');
+
             nameInput.value = filename;
             nameInput.style.display = 'block';
+            importBtn.style.display = 'block';
 
             try {
                 const response = await fetch(`http://127.0.0.1:8004/api/config/${encodeFilename(filename)}`);
@@ -1407,6 +1566,45 @@ if ($path[0] === 'api') {
             }
         }
 
+        // 导入配置到节点模式
+        async function importConfigToNodes() {
+            if (!currentConfigFile) {
+                alert('请先选择一个配置文件');
+                return;
+            }
+
+            try {
+                const configContent = configEditor.getValue();
+                const config = JSON.parse(configContent);
+
+                // 切换到节点模式
+                switchMode('node');
+
+                // 等待节点模式初始化完成
+                setTimeout(() => {
+                    // 清空现有节点
+                    nodes = [];
+
+                    // 解析配置并构建节点
+                    parseAndBuildNodes(config);
+
+                    // 渲染节点
+                    renderNodes();
+
+                    // 更新编辑器内容（可选）
+                    if (nodeEditor) {
+                        nodeEditor.setValue(JSON.stringify(config, null, 2));
+                    }
+
+                    alert(`配置 "${currentConfigFile}" 已成功导入到节点模式\n\n已创建以下节点：\n` +
+                          nodes.map(n => `• ${n.id}: ${n.name}`).join('\n') +
+                          `\n\n提示：\n1. 可以拖动节点调整位置\n2. 确保API密钥已设置\n3. 点击RUN FLOW执行生成`);
+                }, 200);
+            } catch (e) {
+                alert('导入失败: ' + e.message);
+            }
+        }
+
         // 删除当前配置
         async function deleteCurrentConfig() {
             if (!currentConfigFile) {
@@ -1430,8 +1628,10 @@ if ($path[0] === 'api') {
                 alert('配置已删除: ' + currentConfigFile);
                 currentConfigFile = null;
                 const nameInput = document.getElementById('current-config-name');
+                const importBtn = document.getElementById('import-to-nodes-btn');
                 nameInput.value = '';
                 nameInput.style.display = 'none';
+                importBtn.style.display = 'none';
                 configEditor.setValue('');
                 loadConfigFileList();
             } catch (e) {
@@ -1457,6 +1657,89 @@ if ($path[0] === 'api') {
                 }, 10);
             } catch (e) {
                 alert('JSON 格式错误: ' + e.message);
+            }
+        }
+
+        // 检查任务状态（用于轮询）
+        async function checkTaskStatus(requestId) {
+            if (!requestId) return;
+
+            try {
+                const res = await fetch(`https://api.bizyair.cn/w/v1/webapp/task/${requestId}/status`, {
+                    headers: {
+                        'Authorization': apiKey
+                    }
+                });
+
+                if (!res.ok) {
+                    console.error('Failed to check task status');
+                    return;
+                }
+
+                const status = await res.json();
+                console.log('Task Status:', status);
+
+                const previewBox = document.getElementById('node-output-preview');
+                if (status.status === 'Success' && status.outputs && status.outputs.length > 0) {
+                    // 任务完成，显示所有结果
+                    let outputUrls = [];
+                    status.outputs.forEach(output => {
+                        if(output.object_url) {
+                            outputUrls.push(output.object_url);
+                        }
+                    });
+
+                    // 构建所有媒体的HTML
+                    let mediaHtml = `<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; width: 100%;">`;
+
+                    outputUrls.forEach((url, index) => {
+                        const isVideo = url.endsWith('.mp4') || url.endsWith('.webm');
+                        const media = isVideo
+                            ? `<video src="${url}" autoplay loop muted controls style="width: 100%; height: auto; max-height: 300px; object-fit: contain;"></video>`
+                            : `<img src="${url}" style="width: 100%; height: auto; max-height: 300px; object-fit: contain; cursor: pointer;" onclick="showLightbox('${url}')" alt="Output ${index + 1}">`;
+
+                        mediaHtml += `<div style="position: relative;">
+                            ${media}
+                            <div style="position: absolute; bottom: 5px; right: 5px; background: rgba(0,0,0,0.6); color: white; padding: 2px 5px; font-size: 10px; border-radius: 3px;">
+                                ${isVideo ? 'Video' : 'Image'} ${index + 1}
+                            </div>
+                        </div>`;
+                    });
+
+                    mediaHtml += `</div>`;
+
+                    if(previewBox) {
+                        previewBox.innerHTML = `<span class="node-timer" style="display:block">${document.getElementById('canvas-timer').innerText}</span>` + mediaHtml;
+                    }
+
+                    // 保存所有输出到历史记录
+                    outputUrls.forEach(url => saveToHistory(url));
+
+                    // 如果只有一个输出，显示lightbox
+                    if(outputUrls.length === 1) {
+                        showLightbox(outputUrls[0]);
+                    }
+
+                    stopRequestTimer();
+                    document.querySelectorAll('.action-btn').forEach(b => b.disabled = false);
+                } else if (status.status === 'Running' || status.status === 'Pending') {
+                    // 继续等待
+                    if(previewBox) {
+                        previewBox.innerHTML = `<span style="color:orange">Task is running...</span><br><small>Elapsed: ${document.getElementById('canvas-timer').innerText}</small>`;
+                    }
+                    setTimeout(() => checkTaskStatus(requestId), 3000);
+                } else {
+                    // 任务失败
+                    throw new Error(`Task failed: ${status.status}`);
+                }
+            } catch (e) {
+                console.error('Error checking task status:', e);
+                const previewBox = document.getElementById('node-output-preview');
+                if(previewBox) {
+                    previewBox.innerHTML = `<span style="color:red">Task failed</span>`;
+                }
+                stopRequestTimer();
+                document.querySelectorAll('.action-btn').forEach(b => b.disabled = false);
             }
         }
     </script>
