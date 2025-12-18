@@ -54,11 +54,8 @@ MCN/
 ├── MCN.py                    # 主程序入口，多媒体编辑器
 ├── storyboard_generator.py   # AI分镜脚本生成器（独立程序）
 ├── pic2vod.py               # 图片转视频模块（集成在MCN中）
-├── aigc.py                  # AI模型启动器
-├── story.py                 # 故事生成工具
 ├── run.py                   # 通用运行脚本
 ├── check_requirements.py    # 依赖检查工具
-├── config.json              # 主程序配置文件
 ├── storyboard_config.json   # 分镜生成器配置
 ├── video_settings.json      # 视频生成配置
 ├── buttons.json             # 按钮配置
@@ -98,9 +95,6 @@ python MCN.py
 
 # 运行分镜生成器
 python storyboard_generator.py
-
-# 运行AI模型启动器
-python aigc.py
 
 # 检查依赖环境
 python check_requirements.py
@@ -175,7 +169,7 @@ rm config.json storyboard_config.json video_settings.json
 ### SiliconCloud API
 
 - **基础URL**: `https://api.siliconflow.cn/v1/chat/completions`
-- **模型**: Qwen/Qwen2.5-Coder-32B-Instruct
+- **模型**: Qwen/Qwen3-235B-A22B-Instruct
 - **密钥环境变量**: `SiliconCloud_API_KEY`
 
 ### ModelScope API
