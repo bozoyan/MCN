@@ -2079,7 +2079,7 @@ class VideoGenerationWidget(QWidget):
 
         # 首尾帧图片转视频选项卡
         frames_tab = self.create_frames_image_tab()
-        self.mode_tabs.addTab(frames_tab, "首尾帧图片转视频")
+        self.mode_tabs.addTab(frames_tab, "首尾帧转视频")
 
         layout.addWidget(self.mode_tabs)
 

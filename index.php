@@ -1,9 +1,104 @@
+<?php
+// 处理API路由
+$request_uri = $_SERVER['REQUEST_URI'];
+$path_parts = parse_url($request_uri);
+$path = explode('/', trim($path_parts['path'], '/'));
+
+// API路由处理
+if ($path[0] === 'api') {
+    header('Content-Type: application/json');
+    header('Access-Control-Allow-Origin: *');
+    header('Access-Control-Allow-Methods: GET, POST, DELETE, OPTIONS');
+    header('Access-Control-Allow-Headers: Content-Type');
+
+    // 处理 OPTIONS 请求
+    if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
+        exit(0);
+    }
+
+    $json_dir = __DIR__ . '/json/';
+
+    // 确保目录存在
+    if (!file_exists($json_dir)) {
+        mkdir($json_dir, 0777, true);
+    }
+
+    if ($path[1] === 'configs' && $_SERVER['REQUEST_METHOD'] === 'GET') {
+        // 获取配置文件列表
+        $files = glob($json_dir . '*.json');
+        $file_list = [];
+        foreach ($files as $file) {
+            $filename = basename($file);
+            // 确保文件名是UTF-8编码
+            $filename = mb_convert_encoding($filename, 'UTF-8', 'UTF-8,ISO-8859-1');
+            $file_list[] = $filename;
+        }
+        echo json_encode($file_list, JSON_UNESCAPED_UNICODE);
+        exit;
+    } elseif ($path[1] === 'config' && isset($path[2])) {
+        // URL解码文件名，支持中文
+        $filename = urldecode($path[2]);
+
+        // 转换编码以确保兼容性
+        $filename = mb_convert_encoding($filename, 'UTF-8', 'UTF-8,ISO-8859-1');
+
+        // 确保 .json 扩展名
+        if (!preg_match('/\.json$/', $filename)) {
+            $filename .= '.json';
+        }
+
+        $filepath = $json_dir . $filename;
+
+        if ($_SERVER['REQUEST_METHOD'] === 'GET') {
+            // 读取配置文件
+            if (file_exists($filepath)) {
+                $content = file_get_contents($filepath);
+                echo $content;
+            } else {
+                http_response_code(404);
+                echo json_encode(['error' => 'File not found']);
+            }
+            exit;
+        } elseif ($_SERVER['REQUEST_METHOD'] === 'POST') {
+            // 保存配置文件
+            $json_data = file_get_contents('php://input');
+            $data = json_decode($json_data, true);
+
+            if ($data !== null) {
+                $json_string = json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
+                if (file_put_contents($filepath, $json_string) !== false) {
+                    echo json_encode(['status' => 'success']);
+                } else {
+                    http_response_code(500);
+                    echo json_encode(['error' => 'Failed to save file']);
+                }
+            } else {
+                http_response_code(400);
+                echo json_encode(['error' => 'Invalid JSON data']);
+            }
+            exit;
+        } elseif ($_SERVER['REQUEST_METHOD'] === 'DELETE') {
+            // 删除配置文件
+            if (file_exists($filepath) && unlink($filepath)) {
+                echo json_encode(['status' => 'success']);
+            } else {
+                http_response_code(404);
+                echo json_encode(['error' => 'File not found or could not be deleted']);
+            }
+            exit;
+        }
+    }
+}
+?>
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>BizyAIR Studio | Ultimate Plus</title>
+    <!-- CodeMirror CSS -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/codemirror.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/theme/monokai.min.css">
     <style>
         :root {
             --bg-color: #1e1e1e;
@@ -218,6 +313,144 @@
         }
         .add-node-btn:hover { transform: scale(1.1); }
 
+        /* CodeMirror 样式调整 */
+        .CodeMirror {
+            font-family: var(--font-mono);
+            font-size: 20px;
+            background: #272822 !important;
+            color: #f8f8f2 !important;
+            line-height: 2.0;
+        }
+
+        /* 修复行号位置 */
+        .CodeMirror-gutters {
+            background-color: #1e1e1e !important;
+            border-right: 2px solid #444 !important;
+            min-width: 80px;
+        }
+
+        .CodeMirror-linenumber {
+            color: #75715e !important;
+            padding: 0 15px 0 25px !important;
+            text-align: right !important;
+            font-size: 18px;
+            min-width: 60px;
+        }
+
+        /* 代码区域样式 */
+        .CodeMirror-lines {
+            padding: 20px 0 !important;
+        }
+
+        .CodeMirror pre.CodeMirror-line,
+        .CodeMirror pre.CodeMirror-line-like {
+            padding-left: 25px !important;
+            line-height: 2.0 !important;
+        }
+
+        /* JSON 语法高亮颜色 - monokai主题优化 */
+        .cm-property { color: #66d9ef !important; }
+        .cm-string { color: #e6db74 !important; }
+        .cm-number { color: #ae81ff !important; }
+        .cm-atom { color: #ae81ff !important; }
+        .cm-boolean { color: #ae81ff !important; }
+        .cm-keyword { color: #f92672 !important; }
+        .cm-variable { color: #f8f8f2 !important; }
+        .cm-variable-2 { color: #9effff !important; }
+        .cm-variable-3 { color: #66d9ef !important; }
+        .cm-def { color: #fd971f !important; }
+        .cm-operator { color: #f8f8f2 !important; }
+        .cm-comment { color: #75715e !important; font-style: italic !important; }
+        .cm-bracket { color: #f8f8f2 !important; }
+        .cm-tag { color: #f92672 !important; }
+        .cm-attribute { color: #a6e22e !important; }
+
+        /* 匹配的括号高亮 */
+        .CodeMirror-matchingbracket {
+            color: #fff !important;
+            background-color: rgba(255, 255, 255, 0.1) !important;
+            outline: 1px solid rgba(255, 255, 255, 0.2) !important;
+        }
+
+        /* 选中文本样式 */
+        .CodeMirror-selected {
+            background: rgba(74, 192, 255, 0.25) !important;
+        }
+
+        /* 光标样式 */
+        .CodeMirror-cursor {
+            border-left: 2px solid #f8f8f0 !important;
+        }
+
+        /* 滚动条样式 */
+        .CodeMirror-scrollbar-filler,
+        .CodeMirror-gutter-filler {
+            background-color: #272822 !important;
+        }
+
+        .CodeMirror-vscrollbar::-webkit-scrollbar,
+        .CodeMirror-hscrollbar::-webkit-scrollbar {
+            width: 12px;
+            height: 12px;
+        }
+
+        .CodeMirror-vscrollbar::-webkit-scrollbar-track,
+        .CodeMirror-hscrollbar::-webkit-scrollbar-track {
+            background: #1e1e1e;
+        }
+
+        .CodeMirror-vscrollbar::-webkit-scrollbar-thumb,
+        .CodeMirror-hscrollbar::-webkit-scrollbar-thumb {
+            background: #444;
+            border-radius: 6px;
+        }
+
+        .CodeMirror-vscrollbar::-webkit-scrollbar-thumb:hover,
+        .CodeMirror-hscrollbar::-webkit-scrollbar-thumb:hover {
+            background: #555;
+        }
+
+        /* 每行之间的分隔线 */
+        .CodeMirror-line {
+            padding-bottom: 8px;
+            position: relative;
+            margin-bottom: 5px;
+        }
+
+        .CodeMirror-line::after {
+            content: '';
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 1px;
+            background: rgba(255, 255, 255, 0.05);
+        }
+
+        /* 确保所有编辑器容器高度 */
+        #json-editor-container .CodeMirror,
+        #config-editor-container .CodeMirror {
+            height: auto !important;
+            min-height: 500px !important;
+        }
+
+        /* 编辑器内容区域高度 */
+        .CodeMirror-scroll {
+            overflow-x: auto !important;
+            overflow-y: auto !important;
+            min-height: 400px !important;
+        }
+
+        /* 修复模态框中的CodeMirror显示问题 */
+        .modal-content .CodeMirror {
+            height: 400px !important;
+            min-height: 400px !important;
+        }
+
+        .modal-content .CodeMirror-scroll {
+            min-height: 400px !important;
+        }
+
     </style>
 </head>
 <body>
@@ -232,6 +465,9 @@
         </div>
         <div class="icon-btn" onclick="switchMode('history')" title="History">
             <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
+        </div>
+        <div class="icon-btn" onclick="switchMode('config')" title="Config Manager">
+            <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
         </div>
     </div>
 
@@ -320,6 +556,30 @@
             <div class="gallery-grid" id="history-grid"></div>
         </div>
 
+        <!-- View 4: Config Manager -->
+        <div id="view-config" class="workspace">
+            <h2 style="margin-bottom:20px; font-family:var(--font-mono); color:#888;">CONFIG MANAGER</h2>
+            <div style="display:flex; gap:15px; height:calc(100% - 60px); overflow:hidden;">
+                <!-- 左侧文件列表 -->
+                <div style="width:200px; border:1px solid #444; border-radius:6px; overflow-y:auto; background:#1a1a1a;">
+                    <div style="padding:10px; border-bottom:1px solid #444; font-family:var(--font-mono); font-size:10px; color:#888;">JSON FILES</div>
+                    <div id="config-file-list" style="padding:5px;"></div>
+                </div>
+                <!-- 右侧编辑器 -->
+                <div style="flex:1; display:flex; flex-direction:column;">
+                    <input type="text" id="current-config-name" placeholder="Select a file..." style="margin-bottom:10px; padding:8px; border-radius:4px; font-size:11px; font-family:var(--font-mono); background:#1a1a1a; border:1px solid #444; color:#eee; width:100%; display:none;" />
+                    <div id="config-editor-container" style="flex:1; border:1px solid #444; min-height: 600px;"></div>
+                    <div style="display:flex; gap:10px; margin-top:10px; justify-content:flex-end;">
+                        <button class="action-btn secondary-btn" onclick="deleteCurrentConfig()" style="width:auto;">DELETE</button>
+                        <button class="action-btn" onclick="saveCurrentConfig()" style="width:auto;">SAVE</button>
+                    </div>
+                </div>
+            </div>
+            <div style="display:flex; gap:10px; justify-content:flex-end; margin-top:15px;">
+                <button class="action-btn" onclick="loadConfigToWorkspace()" style="width:auto;">LOAD TO WORKSPACE</button>
+            </div>
+        </div>
+
         <!-- 右侧同步画廊 -->
         <div class="right-sidebar" id="right-sidebar">
             <div style="padding:10px; font-family:var(--font-mono); font-size:11px; color:#888; text-align:center; border-bottom:1px solid var(--border);">
@@ -355,9 +615,14 @@
     <div class="modal-overlay" id="import-modal">
         <div class="modal-content modal-large">
             <h3 style="margin-bottom:10px; font-family:var(--font-mono);">JSON CONFIGURATION</h3>
-            <textarea id="import-json" style="flex:1; background:#111; color:#0f0; font-family:monospace; font-size:11px; padding:10px; border:1px solid #444; resize:none;" placeholder='Paste JSON here...'></textarea>
-            <div style="display:flex; gap:10px; justify-content:flex-end; margin-top:15px;">
-                <button class="action-btn secondary-btn" onclick="document.getElementById('import-modal').style.display='none'" style="width:auto;">CLOSE</button>
+            <div id="json-editor-container" style="flex:1; border:1px solid #444; margin-bottom:10px; min-height: 500px;"></div>
+            <div style="display:flex; gap:10px; align-items:center; margin-bottom:10px;">
+                <label style="font-family:var(--font-mono); font-size:11px; color:var(--text-sub);">文件名:</label>
+                <input type="text" id="json-filename" placeholder="config" style="flex:1; padding:8px; border-radius:4px; font-size:11px; background:#1a1a1a; border:1px solid #444; color:#eee;">
+                <button class="action-btn" onclick="saveJsonToFile()" style="width:auto;">SAVE TO FILE</button>
+            </div>
+            <div style="display:flex; gap:10px; justify-content:flex-end;">
+                <button class="action-btn secondary-btn" onclick="closeJsonEditor()" style="width:auto;">CLOSE</button>
                 <button class="action-btn" onclick="runImport()" style="width:auto;">APPLY</button>
             </div>
         </div>
@@ -385,6 +650,7 @@
         <div id="lightbox-content" style="display:flex;justify-content:center;align-items:center;width:100%;height:100%"></div>
     </div>
 
+
     <script>
         // --- Global State ---
         let currentMode = 'canvas';
@@ -403,6 +669,11 @@
         
         let timerInterval = null; // Timer handle
 
+        // CodeMirror 编辑器实例
+        let jsonEditor = null;
+        let configEditor = null;
+        let currentConfigFile = null;
+
         window.onload = () => {
             initCanvas();
             loadHistory();
@@ -418,23 +689,29 @@
             
             // 默认打开右侧画廊
             toggleRightSidebar(true);
+
+            // 初始化 CodeMirror 编辑器
+            initCodeMirrorEditors();
         };
 
         function switchMode(mode) {
             currentMode = mode;
             document.querySelectorAll('.workspace').forEach(el => el.classList.remove('active'));
             document.getElementById(`view-${mode}`).classList.add('active');
-            
+
             document.querySelectorAll('.sidebar .icon-btn').forEach((btn, idx) => {
-                btn.classList.toggle('active', (mode==='canvas'&&idx===0)||(mode==='node'&&idx===1)||(mode==='history'&&idx===2));
+                btn.classList.toggle('active', (mode==='canvas'&&idx===0)||(mode==='node'&&idx===1)||(mode==='history'&&idx===2)||(mode==='config'&&idx===3));
             });
 
             const isNode = (mode === 'node');
             document.getElementById('btn-import').style.display = isNode ? 'flex' : 'none';
             document.getElementById('btn-edit-json').style.display = isNode ? 'flex' : 'none';
-            
+
             if(mode === 'node') renderNodes();
             if(mode === 'history') loadHistory();
+            if(mode === 'config') {
+                loadConfigFileList();
+            }
         }
 
         // --- Right Sidebar Logic ---
@@ -617,8 +894,26 @@
                 "input_values": { "2:LoadImage.image": "", "3:BizyAirSiliconCloudLLMAPI.user_prompt": "Default Prompt", "1:BizyAir_NanoBananaPro.operation": "edit" }
             });
         }
-        function openImportModal() { document.getElementById('import-json').value = ''; document.getElementById('import-modal').style.display = 'flex'; }
-        function openEditConfigModal() { document.getElementById('import-json').value = JSON.stringify(generateJSONFromNodes(), null, 2); document.getElementById('import-modal').style.display = 'flex'; }
+        function openImportModal() {
+            if (jsonEditor) {
+                jsonEditor.setValue('');
+            }
+            document.getElementById('import-modal').style.display = 'flex';
+            // 刷新编辑器以确保正确显示
+            setTimeout(() => {
+                if (jsonEditor) jsonEditor.refresh();
+            }, 10);
+        }
+        function openEditConfigModal() {
+            if (jsonEditor) {
+                jsonEditor.setValue(JSON.stringify(generateJSONFromNodes(), null, 2));
+            }
+            document.getElementById('import-modal').style.display = 'flex';
+            // 刷新编辑器以确保正确显示
+            setTimeout(() => {
+                if (jsonEditor) jsonEditor.refresh();
+            }, 10);
+        }
         function openAddNodeModal() { document.getElementById('add-node-modal').style.display = 'flex'; }
 
         function generateJSONFromNodes() {
@@ -646,7 +941,19 @@
 
         function deleteNode(nodeId) { if(confirm("Delete node?")) { nodes = nodes.filter(n => n.id !== nodeId); renderNodes(); } }
         function runImport() {
-            try { nodes = []; parseAndBuildNodes(JSON.parse(document.getElementById('import-json').value)); document.getElementById('import-modal').style.display = 'none'; renderNodes(); } catch (e) { alert(e.message); }
+            try {
+                const jsonContent = jsonEditor ? jsonEditor.getValue() : '';
+                if (!jsonContent.trim()) {
+                    alert('没有 JSON 内容');
+                    return;
+                }
+                nodes = [];
+                parseAndBuildNodes(JSON.parse(jsonContent));
+                document.getElementById('import-modal').style.display = 'none';
+                renderNodes();
+            } catch (e) {
+                alert(e.message);
+            }
         }
 
         function parseAndBuildNodes(json) {
@@ -688,9 +995,20 @@
                     html += `<div class="port port-out" style="top:50%"></div>`;
                     n.inputs.forEach(inp => {
                         html += `<div class="node-field"><label>${inp.field}</label>`;
-                        if (inp.field === 'image') html += `<textarea class="live-input" data-key="${inp.key}" rows="3" oninput="this.nextElementSibling.src=this.value">${inp.value}</textarea><img src="${inp.value}" class="node-thumb" onload="this.style.display='block'">`;
-                        else if (inp.type === 'string' && inp.value.toString().length > 40) html += `<textarea class="live-input" data-key="${inp.key}" rows="4">${inp.value}</textarea>`;
-                        else html += `<input type="text" class="live-input" data-key="${inp.key}" value="${inp.value}">`;
+                        if (inp.field === 'image') {
+                            html += `<div style="display:flex; gap:5px;">
+                                        <textarea class="live-input" data-key="${inp.key}" rows="2" oninput="this.nextElementSibling.nextElementSibling.src=this.value" placeholder="输入图片URL或上传文件..." style="flex:1;">${inp.value}</textarea>
+                                        <input type="file" accept="image/*" onchange="handleImageUpload(this, '${inp.key}')" style="display:none;">
+                                        <button onclick="this.previousElementSibling.click()" class="action-btn" style="width:auto; padding:0 10px; font-size:10px;">上传</button>
+                                     </div>
+                                     <img src="${inp.value}" class="node-thumb" onload="this.style.display='block'">`;
+                        } else if (inp.field.toLowerCase().includes('prompt')) {
+                            html += `<textarea class="live-input" data-key="${inp.key}" rows="4" placeholder="输入提示词...">${inp.value}</textarea>`;
+                        } else if (inp.type === 'string' && inp.value.toString().length > 40) {
+                            html += `<textarea class="live-input" data-key="${inp.key}" rows="4">${inp.value}</textarea>`;
+                        } else {
+                            html += `<input type="text" class="live-input" data-key="${inp.key}" value="${inp.value}">`;
+                        }
                         html += `</div>`;
                     });
                 }
@@ -843,10 +1161,307 @@
 
         function openApiModal() { document.getElementById('api-modal').style.display='flex'; document.getElementById('api-key-field').value = apiKey; }
         function saveApiKey() { apiKey = document.getElementById('api-key-field').value; localStorage.setItem('id_works_api_key', apiKey); document.getElementById('api-modal').style.display='none'; }
-        function showLightbox(src) { 
-            const box = document.getElementById('lightbox'); const content = document.getElementById('lightbox-content'); box.style.display='flex'; 
+        function showLightbox(src) {
+            const box = document.getElementById('lightbox'); const content = document.getElementById('lightbox-content'); box.style.display='flex';
             content.innerHTML = (src.endsWith('.mp4')||src.endsWith('.webm')) ? `<video src="${src}" controls autoplay style="max-width:95%;max-height:95%"></video>` : `<img src="${src}" style="max-width:95%;max-height:95%">`;
         }
+
+        // --- 新增功能函数 ---
+
+        // 编码文件名以支持中文
+        function encodeFilename(filename) {
+            return encodeURIComponent(filename);
+        }
+
+        // 初始化 CodeMirror 编辑器
+        function initCodeMirrorEditors() {
+            jsonEditor = CodeMirror(document.getElementById('json-editor-container'), {
+                value: '',
+                mode: 'application/json',
+                theme: 'monokai',
+                lineNumbers: true,
+                lineWrapping: true,
+                indentUnit: 4,
+                tabSize: 4,
+                smartIndent: true,
+                electricChars: true,
+                autoCloseBrackets: true,
+                matchBrackets: true,
+                showCursorWhenSelecting: true,
+                undoDepth: 200,
+                viewportMargin: 200
+            });
+
+            configEditor = CodeMirror(document.getElementById('config-editor-container'), {
+                value: '',
+                mode: 'application/json',
+                theme: 'monokai',
+                lineNumbers: true,
+                lineWrapping: true,
+                indentUnit: 4,
+                tabSize: 4,
+                smartIndent: true,
+                electricChars: true,
+                autoCloseBrackets: true,
+                matchBrackets: true,
+                showCursorWhenSelecting: true,
+                undoDepth: 200,
+                viewportMargin: 200
+            });
+
+            // 强制刷新编辑器以应用样式
+            setTimeout(() => {
+                jsonEditor.refresh();
+                configEditor.refresh();
+            }, 100);
+        }
+
+        // 处理图片上传
+        function handleImageUpload(input, key) {
+            const file = input.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const textarea = input.previousElementSibling;
+                textarea.value = e.target.result;
+                textarea.dispatchEvent(new Event('input'));
+
+                // 更新预览图
+                const img = input.parentElement.nextElementSibling;
+                img.src = e.target.result;
+                img.style.display = 'block';
+            };
+            reader.readAsDataURL(file);
+        }
+
+        // 关闭 JSON 编辑器
+        function closeJsonEditor() {
+            document.getElementById('import-modal').style.display = 'none';
+        }
+
+        // 保存 JSON 到文件（保存到服务器）
+        async function saveJsonToFile() {
+            const content = jsonEditor.getValue();
+            if (!content.trim()) {
+                alert('没有内容可保存');
+                return;
+            }
+
+            try {
+                const data = JSON.parse(content); // 验证 JSON 格式
+            } catch (e) {
+                alert('JSON 格式错误: ' + e.message);
+                return;
+            }
+
+            let filename = document.getElementById('json-filename').value.trim() || 'config';
+            // 自动添加 .json 扩展名
+            filename += '.json';
+
+            try {
+                // 保存到服务器
+                const response = await fetch(`http://127.0.0.1:8004/api/config/${encodeFilename(filename)}`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: content
+                });
+
+                if (!response.ok) {
+                    throw new Error('保存失败');
+                }
+
+                alert('配置已保存到 json 文件夹: ' + filename);
+            } catch (e) {
+                alert('保存失败: ' + e.message);
+            }
+        }
+
+    
+        // 加载配置文件列表
+        async function loadConfigFileList() {
+            const fileListEl = document.getElementById('config-file-list');
+            fileListEl.innerHTML = '<div style="padding:10px; color:#888; font-size:10px;">加载中...</div>';
+
+            try {
+                // 从 PHP API 获取文件列表
+                const response = await fetch('http://127.0.0.1:8004/api/configs');
+                if (!response.ok) {
+                    throw new Error('无法连接到配置服务器，请确保服务器已启动');
+                }
+
+                const files = await response.json();
+
+                if (files.length === 0) {
+                    fileListEl.innerHTML = '<div style="padding:10px; color:#888; font-size:10px;">没有找到 JSON 文件</div>';
+                    return;
+                }
+
+                fileListEl.innerHTML = '';
+                files.forEach(filename => {
+                    const fileEl = document.createElement('div');
+                    fileEl.className = 'config-file-item';
+                    fileEl.style.cssText = `
+                        padding: 8px 10px;
+                        margin: 2px 0;
+                        cursor: pointer;
+                        border-radius: 4px;
+                        font-size: 11px;
+                        font-family: var(--font-mono);
+                        color: #ccc;
+                        transition: background 0.2s;
+                    `;
+                    fileEl.textContent = filename;
+                    fileEl.onmouseover = () => fileEl.style.background = '#333';
+                    fileEl.onmouseout = () => fileEl.style.background = '';
+                    fileEl.onclick = () => loadConfigFile(filename);
+                    fileListEl.appendChild(fileEl);
+                });
+            } catch (error) {
+                console.error('加载文件列表失败:', error);
+                fileListEl.innerHTML = `
+                    <div style="padding:10px; color:#ff6666; font-size:10px;">
+                        加载失败<br>
+                        <small>请确保 PHP 服务器已启动</small>
+                    </div>
+                `;
+            }
+        }
+
+        // 加载配置文件内容
+        async function loadConfigFile(filename) {
+            currentConfigFile = filename;
+            const nameInput = document.getElementById('current-config-name');
+            nameInput.value = filename;
+            nameInput.style.display = 'block';
+
+            try {
+                const response = await fetch(`http://127.0.0.1:8004/api/config/${encodeFilename(filename)}`);
+                if (!response.ok) {
+                    throw new Error(`无法加载文件: ${filename}`);
+                }
+
+                const config = await response.json();
+                configEditor.setValue(JSON.stringify(config, null, 2));
+            } catch (error) {
+                console.error('加载配置失败:', error);
+                alert('加载配置文件失败: ' + error.message);
+                configEditor.setValue('');
+            }
+        }
+
+        // 保存当前配置
+        async function saveCurrentConfig() {
+            if (!currentConfigFile) {
+                alert('请先选择一个配置文件');
+                return;
+            }
+
+            const nameInput = document.getElementById('current-config-name');
+            let newFilename = nameInput.value.trim();
+
+            if (!newFilename) {
+                alert('请输入文件名');
+                return;
+            }
+
+            // 确保 .json 扩展名
+            if (!newFilename.endsWith('.json')) {
+                newFilename += '.json';
+            }
+
+            try {
+                const content = configEditor.getValue();
+                const data = JSON.parse(content); // 验证格式
+
+                // 如果文件名改变了，需要先删除旧文件
+                if (newFilename !== currentConfigFile) {
+                    // 删除旧文件
+                    await fetch(`http://127.0.0.1:8004/api/config/${encodeFilename(currentConfigFile)}`, {
+                        method: 'DELETE'
+                    });
+                    // 更新当前文件名
+                    currentConfigFile = newFilename;
+                }
+
+                // 发送到服务器保存
+                const response = await fetch(`http://127.0.0.1:8004/api/config/${encodeFilename(newFilename)}`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(data)
+                });
+
+                if (!response.ok) {
+                    throw new Error('保存失败');
+                }
+
+                alert('配置已保存到 json 文件夹: ' + newFilename);
+                // 刷新文件列表
+                loadConfigFileList();
+            } catch (e) {
+                alert('保存失败: ' + e.message);
+            }
+        }
+
+        // 删除当前配置
+        async function deleteCurrentConfig() {
+            if (!currentConfigFile) {
+                alert('请先选择一个配置文件');
+                return;
+            }
+
+            if (!confirm(`确定要删除 ${currentConfigFile} 吗？`)) {
+                return;
+            }
+
+            try {
+                const response = await fetch(`http://127.0.0.1:8004/api/config/${encodeFilename(currentConfigFile)}`, {
+                    method: 'DELETE'
+                });
+
+                if (!response.ok) {
+                    throw new Error('删除失败');
+                }
+
+                alert('配置已删除: ' + currentConfigFile);
+                currentConfigFile = null;
+                const nameInput = document.getElementById('current-config-name');
+                nameInput.value = '';
+                nameInput.style.display = 'none';
+                configEditor.setValue('');
+                loadConfigFileList();
+            } catch (e) {
+                alert('删除失败: ' + e.message);
+            }
+        }
+
+        // 加载配置到工作空间
+        function loadConfigToWorkspace() {
+            if (!currentConfigFile) {
+                alert('请先选择一个配置文件');
+                return;
+            }
+
+            try {
+                const content = configEditor.getValue();
+                const config = JSON.parse(content);
+                openImportModal();
+                jsonEditor.setValue(JSON.stringify(config, null, 2));
+                // 刷新编辑器以确保正确显示
+                setTimeout(() => {
+                    if (jsonEditor) jsonEditor.refresh();
+                }, 10);
+            } catch (e) {
+                alert('JSON 格式错误: ' + e.message);
+            }
+        }
     </script>
+  <!-- CodeMirror JS -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/codemirror.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/mode/javascript/javascript.min.js"></script>
 </body>
 </html>

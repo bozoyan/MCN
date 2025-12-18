@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-BOZO-MCN 分镜脚本与图片生成器启动脚本
+BOZO-MCN 快速启动脚本（包含PHP服务器）
 """
 import os
 import sys
@@ -13,16 +13,16 @@ import threading
 def check_environment():
     """检查环境配置"""
     print("🔍 检查环境配置...")
-    
+
     # 检查Python环境
     python_version = sys.version
     print(f"✅ Python版本: {python_version}")
-    
+
     # 检查必要的包
     required_packages = [
         'PyQt5', 'qfluentwidgets', 'requests', 'PIL', 'openai'
     ]
-    
+
     missing_packages = []
     for package in required_packages:
         try:
@@ -31,22 +31,13 @@ def check_environment():
         except ImportError:
             missing_packages.append(package)
             print(f"❌ {package} 未安装")
-    
+
     if missing_packages:
         print(f"\n⚠️  缺少以下包: {', '.join(missing_packages)}")
         print("请运行以下命令安装:")
         print(f"pip install {' '.join(missing_packages)}")
         return False
-    
-    # 检查API密钥
-    api_key = os.getenv('SiliconCloud_API_KEY')
-    if api_key:
-        print(f"✅ API密钥已配置 (长度: {len(api_key)})")
-    else:
-        print("⚠️  API密钥未配置")
-        print("请设置环境变量 SiliconCloud_API_KEY")
-        print("或在应用设置中配置API密钥")
-    
+
     return True
 
 def create_directories():
@@ -72,6 +63,9 @@ def start_php_server():
         print("✅ PHP已安装")
     except (subprocess.CalledProcessError, FileNotFoundError):
         print("❌ 未找到PHP，请先安装PHP")
+        print("macOS: brew install php")
+        print("Ubuntu: sudo apt-get install php-cli")
+        print("Windows: 请从 https://www.php.net/downloads.php 下载安装")
         return None
 
     # 启动PHP服务器
@@ -83,6 +77,8 @@ def start_php_server():
         else:
             # macOS/Linux系统
             php_cmd = ['php', '-S', '127.0.0.1:8004']
+
+        print(f"执行命令: {' '.join(php_cmd)}")
 
         # 启动服务器进程
         php_process = subprocess.Popen(
@@ -125,7 +121,7 @@ def start_php_server():
 def main():
     """主函数"""
     print("=" * 60)
-    print("🎬 BOZO-MCN 分镜脚本与图片生成器 v1.0")
+    print("🎬 BOZO-MCN 分镜脚本与图片生成器 (含PHP服务器)")
     print("=" * 60)
 
     # 检查环境
@@ -136,45 +132,24 @@ def main():
     # 创建目录
     create_directories()
 
-    # 询问要启动的服务
-    print("\n" + "=" * 60)
-    print("请选择要启动的服务:")
-    print("1. 仅启动分镜生成器")
-    print("2. 启动分镜生成器 + PHP网页服务器")
-    print("3. 启动MCN多媒体编辑器")
-    print("=" * 60)
-
-    choice = input("请输入选择 (1/2/3, 默认2): ").strip() or "2"
-
-    php_process = None
-    if choice == "2":
-        php_process = start_php_server()
-    elif choice == "3":
-        print("\n🚀 启动MCN多媒体编辑器...")
-        try:
-            # 导入并运行MCN主程序
-            import MCN
-            MCN.main()
-        except ImportError:
-            print("❌ 未找到MCN.py文件")
-            input("按回车键退出...")
-        except Exception as e:
-            print(f"❌ 启动MCN失败: {e}")
-            input("按回车键退出...")
+    # 启动PHP服务器
+    php_process = start_php_server()
+    if not php_process:
+        print("\n❌ 无法启动PHP服务器，退出程序")
+        input("按回车键退出...")
         return
-    else:
-        print("\n⚠️  跳过PHP服务器启动")
-        print("如需使用配置管理功能，请手动启动PHP服务器:")
-        print("php -S 127.0.0.1:8004")
 
-    print("\n🚀 启动应用...")
+    print("\n🚀 启动分镜生成器应用...")
+    print("提示: PHP服务器将在后台运行，关闭此窗口时会自动关闭")
 
     # 启动主应用
     try:
         from storyboard_generator import main as app_main
         app_main()
+    except KeyboardInterrupt:
+        print("\n\n⚠️  用户中断")
     except Exception as e:
-        print(f"❌ 启动失败: {e}")
+        print(f"\n❌ 启动失败: {e}")
         input("按回车键退出...")
     finally:
         # 清理：关闭PHP服务器
@@ -189,6 +164,9 @@ def main():
                 print("⚠️  强制关闭PHP服务器")
             except Exception as e:
                 print(f"⚠️  关闭PHP服务器时出错: {e}")
+
+        print("\n👋 程序已退出")
+        time.sleep(1)
 
 if __name__ == "__main__":
     main()
