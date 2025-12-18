@@ -609,7 +609,7 @@ if ($path[0] === 'api') {
             <h3 style="margin-bottom:15px; font-family:var(--font-mono);">API SETTINGS</h3>
             <div class="input-group" style="margin-bottom:20px;">
                 <label>API Authorization Key</label>
-                <input type="password" id="api-key-field" placeholder="Bearer ...">
+                <input type="password" id="api-key-field" placeholder="输入您的API密钥（不需要Bearer前缀）">
             </div>
             <div style="display:flex; gap:10px; justify-content:flex-end;">
                 <button class="action-btn secondary-btn" onclick="document.getElementById('api-modal').style.display='none'" style="width:auto;">CANCEL</button>
@@ -1089,12 +1089,6 @@ if ($path[0] === 'api') {
         async function startGeneration() {
             if(!apiKey) { alert("Please set API Key first."); openApiModal(); return; }
 
-            // 检查 API 密钥格式
-            if (!apiKey.startsWith('Bearer ')) {
-                apiKey = 'Bearer ' + apiKey;
-                localStorage.setItem('id_works_api_key', apiKey);
-            }
-
             const previewBox = document.getElementById('node-output-preview');
             const canvasBtn = document.getElementById('btn-canvas-generate');
             let originalText = "";
@@ -1121,14 +1115,18 @@ if ($path[0] === 'api') {
                 } else { payload = generateJSONFromNodes(); }
 
                 // 打印请求负载到控制台
-                console.log('Sending payload:', payload);
-                console.log('API Key:', apiKey.substring(0, 20) + '...');
+                console.log('Sending payload:', JSON.stringify(payload, null, 2));
+                console.log('API Key:', apiKey ? apiKey.substring(0, 20) + '...' : 'No API key');
+                console.log('Web App ID:', payload.web_app_id);
 
-                const res = await fetch('https://api.bizyair.cn/w/v1/webapp/task/openapi/create', {
+                // 确保API密钥格式正确（添加Bearer前缀）
+              const authKey = apiKey.startsWith('Bearer ') ? apiKey : `Bearer ${apiKey}`;
+
+              const res = await fetch('https://api.bizyair.cn/w/v1/webapp/task/openapi/create', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
-                        'Authorization': apiKey
+                        'Authorization': authKey
                     },
                     body: JSON.stringify(payload)
                 });
@@ -1137,13 +1135,26 @@ if ($path[0] === 'api') {
                 if (!res.ok) {
                     const errorText = await res.text();
                     console.error('HTTP Error Response:', errorText);
-                    throw new Error(`HTTP ${res.status}: ${res.statusText} - ${errorText}`);
+                    console.error('Response headers:', Object.fromEntries(res.headers.entries()));
+                    throw new Error(`HTTP ${res.status}: ${res.statusText}\n${errorText}`);
                 }
 
-                const result = await res.json();
+                // 检查响应内容类型
+                const contentType = res.headers.get('content-type');
+                console.log('Response Content-Type:', contentType);
+
+                let result;
+                try {
+                    const responseText = await res.text();
+                    console.log('Raw Response:', responseText);
+                    result = JSON.parse(responseText);
+                } catch (parseError) {
+                    console.error('Failed to parse JSON response:', parseError);
+                    throw new Error('Invalid JSON response from server');
+                }
 
                 // 打印响应到控制台以便调试
-                console.log('API Response:', result);
+                console.log('Parsed API Response:', result);
 
                 // 检查API返回的状态
                 if (result.status && result.status !== 'Success') {
@@ -1157,7 +1168,15 @@ if ($path[0] === 'api') {
                         setTimeout(() => checkTaskStatus(result.request_id), 3000);
                         return; // 不停止计时器，让用户知道任务在运行
                     }
-                    throw new Error(`API Error: ${result.status} - ${result.message || 'Unknown error'}`);
+                    // 输出详细的错误信息
+                    console.error('API Error Details:', {
+                        status: result.status,
+                        message: result.message,
+                        error_code: result.error_code,
+                        error_type: result.error_type,
+                        full_response: result
+                    });
+                    throw new Error(`API Error: ${result.status} - ${result.message || result.error_type || 'Unknown error'} (Code: ${result.error_code || 'N/A'})`);
                 } else if (!result.status) {
                     // 如果没有status字段，可能是不同的API格式
                     console.warn('No status field in response, treating as success');
@@ -1263,7 +1282,16 @@ if ($path[0] === 'api') {
         }
 
         function openApiModal() { document.getElementById('api-modal').style.display='flex'; document.getElementById('api-key-field').value = apiKey; }
-        function saveApiKey() { apiKey = document.getElementById('api-key-field').value; localStorage.setItem('id_works_api_key', apiKey); document.getElementById('api-modal').style.display='none'; }
+        function saveApiKey() {
+            // 保存密钥时自动移除Bearer前缀
+            let key = document.getElementById('api-key-field').value;
+            if (key.startsWith('Bearer ')) {
+                key = key.substring(7);
+            }
+            apiKey = key;
+            localStorage.setItem('id_works_api_key', apiKey);
+            document.getElementById('api-modal').style.display='none';
+        }
         function showLightbox(src) {
             const box = document.getElementById('lightbox'); const content = document.getElementById('lightbox-content'); box.style.display='flex';
             content.innerHTML = (src.endsWith('.mp4')||src.endsWith('.webm')) ? `<video src="${src}" controls autoplay style="max-width:95%;max-height:95%"></video>` : `<img src="${src}" style="max-width:95%;max-height:95%">`;
@@ -1665,9 +1693,12 @@ if ($path[0] === 'api') {
             if (!requestId) return;
 
             try {
+                // 确保API密钥格式正确（添加Bearer前缀）
+                const authKey = apiKey.startsWith('Bearer ') ? apiKey : `Bearer ${apiKey}`;
+
                 const res = await fetch(`https://api.bizyair.cn/w/v1/webapp/task/${requestId}/status`, {
                     headers: {
-                        'Authorization': apiKey
+                        'Authorization': authKey
                     }
                 });
 
