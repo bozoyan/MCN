@@ -1497,7 +1497,9 @@ if ($path[0] === 'api') {
                         color: #ccc;
                         transition: background 0.2s;
                     `;
-                    fileEl.textContent = filename;
+                    // 显示文件名时去掉 .json 扩展名
+                    const displayName = filename.endsWith('.json') ? filename.slice(0, -5) : filename;
+                    fileEl.textContent = displayName;
                     fileEl.onmouseover = () => fileEl.style.background = '#333';
                     fileEl.onmouseout = () => fileEl.style.background = '';
                     fileEl.onclick = () => loadConfigFile(filename);
@@ -1520,7 +1522,9 @@ if ($path[0] === 'api') {
             const nameInput = document.getElementById('current-config-name');
             const importBtn = document.getElementById('import-to-nodes-btn');
 
-            nameInput.value = filename;
+            // 显示文件名时去掉 .json 扩展名
+            const displayName = filename.endsWith('.json') ? filename.slice(0, -5) : filename;
+            nameInput.value = displayName;
             nameInput.style.display = 'block';
             importBtn.style.display = 'block';
 
@@ -1585,6 +1589,10 @@ if ($path[0] === 'api') {
                 if (!response.ok) {
                     throw new Error('保存失败');
                 }
+
+                // 保存后更新显示的文件名（去掉扩展名）
+                const displayName = newFilename.endsWith('.json') ? newFilename.slice(0, -5) : newFilename;
+                nameInput.value = displayName;
 
                 alert('配置已保存到 json 文件夹: ' + newFilename);
                 // 刷新文件列表
