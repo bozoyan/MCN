@@ -23,7 +23,7 @@ from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                             QHBoxLayout, QGridLayout, QLabel, QProgressBar,
                             QScrollArea, QFrame, QSplitter, QFileDialog,
                             QMessageBox, QPushButton, QComboBox, QSpinBox,
-                            QCheckBox, QGroupBox, QTextEdit, QLineEdit)
+                            QCheckBox, QGroupBox, QTextEdit, QLineEdit, QSizePolicy)
 from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer, QMimeData, QSize
 from PyQt5.QtGui import QDragEnterEvent, QDropEvent, QPixmap, QFont, QIcon, QPalette
 
@@ -67,6 +67,7 @@ class VAEDecoderThread(QThread):
         self.device = "cpu"
         self.max_workers = max_workers
         self.is_running = False
+        self.vae_type = "unknown"  # VAE模型类型
         self.vae = None
 
     def load_vae(self):
@@ -96,7 +97,13 @@ class VAEDecoderThread(QThread):
                 try:
                     # 方法2：直接使用 sd 模块的 VAE 类
                     self.vae = comfy.sd.VAE(vae_data)
-                except:
+
+                    # 检测VAE类型和配置
+                    self.vae_type = self.detect_vae_type()
+                    self.log_message.emit(f"🔍 检测到VAE类型: {self.vae_type}")
+
+                except Exception as e2:
+                    self.log_message.emit(f"⚠️ 标准VAE加载失败: {str(e2)}")
                     # 方法3：尝试从字典直接初始化
                     if isinstance(vae_data, dict):
                         # 创建 VAE 实例
@@ -109,6 +116,10 @@ class VAEDecoderThread(QThread):
                         else:
                             # 如果没有找到特殊键，尝试直接加载
                             self.vae.load_state_dict(vae_data)
+
+                        # 检测VAE类型
+                        self.vae_type = self.detect_vae_type()
+                        self.log_message.emit(f"🔍 检测到VAE类型: {self.vae_type}")
                     else:
                         raise ValueError("无法识别的VAE模型格式")
 
@@ -131,6 +142,90 @@ class VAEDecoderThread(QThread):
             self.log_message.emit("   支持的格式: .safetensors, .pt, .pth, .ckpt")
             traceback.print_exc()
             return False
+
+    def detect_vae_type(self):
+        """检测VAE模型类型和期望的输入格式"""
+        try:
+            # 方法1：从模型参数直接检查第一层的输入通道数
+            input_channels = 4  # 默认值
+
+            # 尝试从模型的state_dict中检查第一层卷积的权重
+            if hasattr(self.vae, 'first_stage_model') and hasattr(self.vae.first_stage_model, 'state_dict'):
+                state_dict = self.vae.first_stage_model.state_dict()
+            elif hasattr(self.vae, 'state_dict'):
+                state_dict = self.vae.state_dict()
+            else:
+                state_dict = None
+
+            if state_dict:
+                # 查找decoder的第一层卷积权重
+                for key in state_dict.keys():
+                    if key.startswith('decoder.') and 'conv_in' in key or key.startswith('decoder.0.'):
+                        weight = state_dict[key]
+                        if len(weight.shape) == 4:
+                            input_channels = weight.shape[1]
+                            self.log_message.emit(f"🔍 从权重 {key} 检测到输入通道数: {input_channels}")
+                            break
+                else:
+                    # 尝试查找其他可能的卷积层
+                    for key in state_dict.keys():
+                        if 'weight' in key and len(state_dict[key].shape) == 4:
+                            # 跳过attention层（通常有特定的维度）
+                            if 'to_q' not in key and 'to_k' not in key and 'to_v' not in key and 'to_out' not in key:
+                                input_channels = state_dict[key].shape[1]
+                                self.log_message.emit(f"🔍 从权重 {key} 检测到输入通道数: {input_channels}")
+                                break
+
+            # 方法2：根据文件名判断
+            filename = os.path.basename(self.vae_path).lower()
+            expected_size = None
+
+            if "ae.safetensors" in filename or "ae.sft" in filename:
+                # 这是AutoencoderKL，通常期望16通道
+                if input_channels == 4:  # 如果检测失败，使用经验值
+                    input_channels = 16
+                expected_size = 64
+                vae_type = f"AutoencoderKL ({input_channels}通道)"
+            elif "xl" in filename or "sdxl" in filename:
+                # SDXL VAE期望4通道
+                if input_channels == 4 or input_channels == 3:  # 修正检测错误
+                    input_channels = 4
+                vae_type = f"Stable Diffusion XL VAE ({input_channels}通道)"
+            elif "flux" in filename:
+                # FLUX VAE期望16通道
+                if input_channels == 4 or input_channels == 3:
+                    input_channels = 16
+                expected_size = 64
+                vae_type = f"FLUX VAE ({input_channels}通道)"
+            elif "anything" in filename:
+                # Anything VAE期望4通道
+                input_channels = 4
+                vae_type = f"Anything VAE ({input_channels}通道)"
+            elif "kl-f8" in filename:
+                input_channels = 4
+                vae_type = f"KL-F8 VAE ({input_channels}通道)"
+            else:
+                # 标准SD VAE
+                input_channels = 4
+                vae_type = f"标准Stable Diffusion VAE ({input_channels}通道)"
+
+            self.vae_input_channels = input_channels
+            if expected_size:
+                self.vae_expected_size = expected_size
+                vae_type += f" 期望尺寸:{expected_size}"
+
+            return vae_type
+        except Exception as e:
+            self.log_message.emit(f"⚠️ VAE类型检测失败: {str(e)}")
+            # 根据文件名提供默认值
+            filename = os.path.basename(self.vae_path).lower()
+            if "ae.safetensors" in filename or "flux" in filename:
+                self.vae_input_channels = 16
+                self.vae_expected_size = 64
+                return f"AutoencoderKL (16通道)"
+            else:
+                self.vae_input_channels = 4
+                return f"标准SD VAE (4通道)"
 
     def decode_single_latent(self, latent_file: str) -> tuple:
         """解码单个latent文件"""
@@ -299,20 +394,313 @@ class VAEDecoderThread(QThread):
                 if len(latent_tensor.shape) == 3:
                     latent_tensor = latent_tensor.unsqueeze(0)  # 添加batch维度
 
+                # 检查latent数据的有效性
+                max_val = latent_tensor.max().item()
+                min_val = latent_tensor.min().item()
+                self.log_message.emit(f"📊 Latent张量形状: {latent_tensor.shape}, 范围: [{min_val:.3f}, {max_val:.3f}]")
+
+                # 如果数值异常（过大或过小），尝试修复
+                if abs(max_val) > 1000 or abs(min_val) > 1000:
+                    self.log_message.emit("⚠️ 检测到异常数值，尝试数据修复...")
+
+                    # 方法1: 重新解释为 uint16
+                    try:
+                        import numpy as np
+                        latent_np = latent_tensor.numpy()
+                        if latent_np.dtype == np.float32:
+                            # 尝试解释为uint16然后转为float32
+                            latent_uint16 = latent_np.view(np.uint16)
+                            latent_fixed = latent_uint16.astype(np.float32)
+                            latent_tensor = torch.from_numpy(latent_fixed)
+                            # 重新计算范围
+                            max_val = latent_tensor.max().item()
+                            min_val = latent_tensor.min().item()
+                            self.log_message.emit(f"✅ 重新解释为uint16，新范围: [{min_val:.3f}, {max_val:.3f}]")
+                    except Exception as e:
+                        self.log_message.emit(f"⚠️ 重新解释失败: {str(e)[:80]}")
+
+                    # 方法2: 如果仍然异常，尝试归一化
+                    if abs(max_val) > 1000 or abs(min_val) > 1000:
+                        # 计算合理的缩放因子
+                        scale_factor = 1.0
+                        if abs(max_val) > 1e6:
+                            scale_factor = 1e6
+                        elif abs(max_val) > 1e3:
+                            scale_factor = 1e3
+                        elif abs(max_val) > 10:
+                            scale_factor = 10
+
+                        latent_tensor = latent_tensor / scale_factor
+                        max_val = latent_tensor.max().item()
+                        min_val = latent_tensor.min().item()
+                        self.log_message.emit(f"✅ 应用缩放因子 {scale_factor}，新范围: [{min_val:.3f}, {max_val:.3f}]")
+
+                # 检查数据分布
+                std_val = latent_tensor.std().item()
+                mean_val = latent_tensor.mean().item()
+                self.log_message.emit(f"📊 数据分布: 均值={mean_val:.3f}, 标准差={std_val:.3f}")
+
+                # 检查是否是 FLUX latent
+                vae_filename = os.path.basename(self.vae_path).lower()
+                is_flux_vae = "flux" in vae_filename
+
+                # ComfyUI latent 通常的范围应该在 [-10, 10] 之间
+                # 如果超出这个范围，可能需要缩放
+                if abs(max_val) > 10 or abs(min_val) > 10:
+                    self.log_message.emit("⚠️ 数值范围可能不正常，尝试标准化...")
+
+                    # 选择合适的缩放因子
+                    if is_flux_vae:
+                        # FLUX 特定的缩放因子
+                        scales_to_try = [0.13025, 0.11525, 0.18215, 0.150, 0.1, 0.08333]
+                        self.log_message.emit("🔍 检测到 FLUX VAE，使用 FLUX 专用缩放因子")
+                    else:
+                        # 标准 SD VAE 缩放因子
+                        scales_to_try = [0.18215, 1/0.18215, 1.0, 8.0, 0.08333, 1/255, 1/127.5]
+
+                    best_scale = None
+                    best_std = float('inf')
+
+                    for scale in scales_to_try:
+                        test_latent = latent_tensor * scale
+                        test_std = test_latent.std().item()
+                        # 标准差应该在一个合理范围内（通常在 1-10 之间）
+                        if 1.0 < test_std < 10.0 and test_std < best_std:
+                            best_std = test_std
+                            best_scale = scale
+
+                    if best_scale:
+                        latent_tensor = latent_tensor * best_scale
+                        max_val = latent_tensor.max().item()
+                        min_val = latent_tensor.min().item()
+                        std_val = latent_tensor.std().item()
+                        self.log_message.emit(f"✅ 使用缩放因子 {best_scale:.5f}")
+                        self.log_message.emit(f"📊 缩放后分布: 范围=[{min_val:.3f}, {max_val:.3f}], 标准差={std_val:.3f}")
+
                 # 尝试不同的解码方法
+                decoded = None
+                decode_method = ""
+
+              # 检查VAE模型的数据类型要求
+                # 检查模型参数的数据类型
+                model_dtype = None
+                if hasattr(self.vae, 'first_stage_model'):
+                    # 检查第一层卷积的数据类型
+                    for param in self.vae.first_stage_model.parameters():
+                        model_dtype = param.dtype
+                        break
+                elif hasattr(self.vae, 'decoder'):
+                    for param in self.vae.decoder.parameters():
+                        model_dtype = param.dtype
+                        break
+
+                if model_dtype == torch.bfloat16:
+                    self.log_message.emit("🔧 VAE模型使用BFloat16，转换latent数据类型")
+                    latent_tensor = latent_tensor.bfloat16()
+
+                # 检查VAE模型是否有特殊的解码要求
+                vae_config = {}
+                if hasattr(self.vae, 'config'):
+                    vae_config = self.vae.config
+                elif hasattr(self.vae, 'vae_config'):
+                    vae_config = self.vae.vae_config
+
+                # 检查VAE期望的输入格式
+                vae_input_channels = getattr(self, 'vae_input_channels', 4)
+                vae_expected_size = getattr(self, 'vae_expected_size', None)
+
+                # 自动调整latent格式以匹配VAE期望
+                original_shape = latent_tensor.shape
+                needs_adjustment = False
+
+                # 1. 检查通道数
+                if len(latent_tensor.shape) == 4:
+                    current_channels = latent_tensor.shape[1]
+                    if current_channels != vae_input_channels:
+                        needs_adjustment = True
+                        self.log_message.emit(f"🔧 通道数不匹配: 当前{current_channels}, 期望{vae_input_channels}")
+
+                        if current_channels == 4 and vae_input_channels == 16:
+                            # 重复4次通道来达到16通道
+                            latent_tensor = latent_tensor.repeat(1, 4, 1, 1)
+                            self.log_message.emit("✅ 已将4通道重复为16通道")
+                        elif current_channels == 16 and vae_input_channels == 4:
+                            # 取前4个通道
+                            latent_tensor = latent_tensor[:, :4, :, :]
+                            self.log_message.emit("✅ 已从16通道截取前4个通道")
+
+                # 2. 检查空间尺寸
+                if vae_expected_size:
+                    current_h, current_w = latent_tensor.shape[2], latent_tensor.shape[3]
+                    if current_h != vae_expected_size or current_w != vae_expected_size:
+                        needs_adjustment = True
+                        self.log_message.emit(f"🔧 尺寸不匹配: 当前{current_h}x{current_w}, 期望{vae_expected_size}x{vae_expected_size}")
+
+                        # 使用双线性插值调整尺寸
+                        import torch.nn.functional as F
+                        latent_tensor = F.interpolate(
+                            latent_tensor,
+                            size=(vae_expected_size, vae_expected_size),
+                            mode='bilinear',
+                            align_corners=False
+                        )
+                        self.log_message.emit(f"✅ 已调整尺寸为{vae_expected_size}x{vae_expected_size}")
+
+                if needs_adjustment:
+                    self.log_message.emit(f"📐 格式调整: {original_shape} -> {latent_tensor.shape}")
+
+                # 确保数据类型正确
+                if latent_tensor.dtype != torch.float32:
+                    self.log_message.emit(f"🔧 转换数据类型: {latent_tensor.dtype} -> float32")
+                    latent_tensor = latent_tensor.float()
+
+                # 方法1：标准decode方法
                 try:
                     decoded = self.vae.decode(latent_tensor)
-                except:
-                    # 如果直接解码失败，尝试使用其他方法
+                    decode_method = "标准decode"
+                    self.log_message.emit(f"✅ 方法1成功: {decode_method}")
+                except Exception as e:
+                    error_msg = str(e)
+                    if "channels" in error_msg:
+                        self.log_message.emit(f"⚠️ 方法1失败: 输入尺寸不匹配 - {error_msg[:120]}")
+                    else:
+                        self.log_message.emit(f"⚠️ 方法1失败: {error_msg[:100]}")
+
+                # 方法2：使用first_stage_model
+                if decoded is None and hasattr(self.vae, 'first_stage_model'):
                     try:
-                        # 方法2：使用编码器输出
                         decoded = self.vae.first_stage_model.decode(latent_tensor)
-                    except:
-                        # 方法3：如果有decode方法，尝试调用
-                        if hasattr(self.vae, 'decode_from_latent'):
-                            decoded = self.vae.decode_from_latent(latent_tensor)
+                        decode_method = "first_stage_model.decode"
+                        self.log_message.emit(f"✅ 方法2成功: {decode_method}")
+                    except Exception as e:
+                        error_msg = str(e)
+                        if "type" in error_msg and "bias" in error_msg:
+                            self.log_message.emit(f"⚠️ 方法2失败: 数据类型不匹配 - {error_msg[:80]}")
+                            # 尝试转换数据类型
+                            if "BFloat16" in error_msg:
+                                latent_tensor = latent_tensor.bfloat16()
+                                try:
+                                    decoded = self.vae.first_stage_model.decode(latent_tensor)
+                                    decode_method = "first_stage_model.decode (bfloat16)"
+                                    self.log_message.emit(f"✅ 方法2(修正)成功: {decode_method}")
+                                except:
+                                    latent_tensor = latent_tensor.float()
                         else:
-                            raise ValueError("无法找到合适的解码方法")
+                            self.log_message.emit(f"⚠️ 方法2失败: {error_msg[:100]}")
+
+                # 方法3：直接调用decoder
+                if decoded is None and hasattr(self.vae, 'decoder'):
+                    try:
+                        decoded = self.vae.decoder(latent_tensor)
+                        decode_method = "直接decoder"
+                        self.log_message.emit(f"✅ 方法3成功: {decode_method}")
+                    except Exception as e:
+                        self.log_message.emit(f"⚠️ 方法3失败: {str(e)[:100]}")
+
+                # 方法4：使用decode_from_latent
+                if decoded is None and hasattr(self.vae, 'decode_from_latent'):
+                    try:
+                        decoded = self.vae.decode_from_latent(latent_tensor)
+                        decode_method = "decode_from_latent"
+                        self.log_message.emit(f"✅ 方法4成功: {decode_method}")
+                    except Exception as e:
+                        self.log_message.emit(f"⚠️ 方法4失败: {str(e)[:100]}")
+
+                # 方法5：尝试量化/反量化（ComfyUI可能需要）
+                if decoded is None:
+                    try:
+                        # ComfyUI的latent可能需要乘以一个缩放因子
+                        # 尝试常见的缩放因子
+                        scales = [0.18215, 1.0, 8.0, 0.08333]  # 添加一些额外的缩放因子
+                        for scale in scales:
+                            try:
+                                scaled_latent = latent_tensor * scale
+                                if hasattr(self.vae, 'first_stage_model'):
+                                    decoded = self.vae.first_stage_model.decode(scaled_latent)
+                                else:
+                                    decoded = self.vae.decode(scaled_latent)
+                                decode_method = f"缩放因子 {scale}"
+                                self.log_message.emit(f"✅ 方法5成功: 缩放因子 {scale}")
+                                break
+                            except:
+                                continue
+                    except Exception as e:
+                        self.log_message.emit(f"⚠️ 方法5失败: {str(e)[:100]}")
+
+                # 方法6：尝试传入模型的不同部分
+                if decoded is None and hasattr(self.vae, 'vae'):
+                    try:
+                        if hasattr(self.vae.vae, 'decoder'):
+                            decoded = self.vae.vae.decoder(latent_tensor)
+                            decode_method = "vae.decoder"
+                            self.log_message.emit(f"✅ 方法6成功: {decode_method}")
+                        elif hasattr(self.vae.vae, 'first_stage_model'):
+                            decoded = self.vae.vae.first_stage_model.decode(latent_tensor)
+                            decode_method = "vae.first_stage_model"
+                            self.log_message.emit(f"✅ 方法6成功: {decode_method}")
+                    except Exception as e:
+                        self.log_message.emit(f"⚠️ 方法6失败: {str(e)[:100]}")
+
+                # 方法7：尝试使用不同的VAE模型
+                if decoded is None:
+                    self.log_message.emit("⚠️ 当前VAE模型无法解码，可能需要其他VAE模型")
+                    # 记录VAE模型信息
+                    if hasattr(self.vae, '__class__'):
+                        self.log_message.emit(f"当前VAE类型: {self.vae.__class__.__name__}")
+
+                # 如果所有方法都失败，尝试特殊的FLUX/AutoencoderKL处理
+                if decoded is None:
+                    vae_filename = os.path.basename(self.vae_path).lower()
+
+                    if "flux" in vae_filename or "ae.safetensors" in vae_filename:
+                        # FLUX/AutoencoderKL 特殊处理
+                        self.log_message.emit("⚠️ 尝试FLUX/AutoencoderKL特殊处理...")
+
+                        # FLUX latent 通常需要特定的缩放
+                        flux_scales = [0.13025, 0.11525, 0.18215, 0.150, 0.1, 0.01, 0.001]
+
+                        for scale in flux_scales:
+                            try:
+                                test_latent = latent_tensor * scale
+
+                                # FLUX 有时需要不同的数据类型
+                                if hasattr(self.vae, 'first_stage_model'):
+                                    # 检查模型期望的数据类型
+                                    for param in self.vae.first_stage_model.parameters():
+                                        model_dtype = param.dtype
+                                        break
+                                    test_latent = test_latent.to(model_dtype)
+
+                                    decoded = self.vae.first_stage_model.decode(test_latent)
+                                else:
+                                    decoded = self.vae.decode(test_latent)
+
+                                decode_method = f"FLUX处理(缩放{scale:.5f})"
+                                self.log_message.emit(f"✅ FLUX特殊处理成功: {decode_method}")
+
+                                # 检查解码结果是否合理
+                                decoded_min = decoded.float().min().item()
+                                decoded_max = decoded.float().max().item()
+                                if decoded_max - decoded_min < 0.1:  # 输出变化太小
+                                    self.log_message.emit("⚠️ 输出变化过小，继续尝试其他缩放因子")
+                                    continue
+                                else:
+                                    break
+
+                            except Exception as e:
+                                self.log_message.emit(f"⚠️ FLUX缩放 {scale} 失败: {str(e)[:80]}")
+                                continue
+
+                # 如果所有方法都失败
+                if decoded is None:
+                    # 输出VAE模型的属性信息
+                    vae_attrs = []
+                    for attr in dir(self.vae):
+                        if not attr.startswith('_'):
+                            vae_attrs.append(attr)
+                    self.log_message.emit(f"🔍 VAE模型可用属性: {vae_attrs[:10]}...")
+
+                    raise ValueError("无法找到合适的解码方法，已尝试所有已知方法")
 
             # 将解码后的张量转换为图像
             if isinstance(decoded, (list, tuple)):
@@ -331,8 +719,89 @@ class VAEDecoderThread(QThread):
             elif image_np.shape[0] == 4:  # RGBA
                 image_np = np.transpose(image_np, (1, 2, 0))
 
-            # 归一化到0-255
-            image_np = (image_np * 255).clip(0, 255).astype(np.uint8)
+            # 根据VAE类型进行特殊的后处理
+            vae_filename = os.path.basename(self.vae_path).lower()
+            is_flux_vae = "flux" in vae_filename
+
+            if is_flux_vae:
+                # FLUX VAE 输出通常在 [0, 1] 范围内
+                if image_np.max() <= 1.0:
+                    self.log_message.emit("🔧 检测到FLUX输出范围[0,1]，转换为[0,255]")
+                    image_np = image_np * 255
+                elif image_np.min() >= -1.0 and image_np.max() <= 1.0:
+                    self.log_message.emit("🔧 检测到FLUX输出范围[-1,1]，转换为[0,255]")
+                    image_np = ((image_np + 1) * 127.5)
+                else:
+                    self.log_message.emit("🔧 FLUX输出需要归一化")
+                    # 归一化到0-1然后到255
+                    image_np = (image_np - image_np.min()) / (image_np.max() - image_np.min())
+                    image_np = image_np * 255
+            else:
+                # 标准SD VAE 输出通常在 [-1, 1] 范围内
+                if image_np.min() < 0:
+                    self.log_message.emit("🔧 检测到负值，应用[-1,1]到[0,255]的转换")
+                    image_np = (image_np + 1) / 2
+                    image_np = image_np * 255
+                else:
+                    self.log_message.emit("🔧 应用标准转换[0,1]到[0,255]")
+                    image_np = image_np * 255
+
+            # 确保在0-255范围内
+            image_np = np.clip(image_np, 0, 255).astype(np.uint8)
+
+            # 检查解码后的图像质量
+            import numpy as np
+            img_min = image_np.min()
+            img_max = image_np.max()
+            img_mean = image_np.mean()
+            img_std = image_np.std()
+
+            self.log_message.emit(f"📊 解码后图像统计: 范围=[{img_min:.3f}, {img_max:.3f}], 均值={img_mean:.3f}, 标准差={img_std:.3f}")
+
+            # 检查是否为噪点图像
+            is_noise = False
+            # 1. 标准差过小可能是纯色或接近纯色的图像
+            if img_std < 1.0:
+                self.log_message.emit("⚠️ 警告：图像标准差过小，可能是纯色或接近纯色")
+            # 2. 标准差过大可能是纯噪点
+            elif img_std > 80:
+                self.log_message.emit("⚠️ 警告：图像标准差过大，可能是噪点")
+                is_noise = True
+
+            # 3. 分析像素值分布判断是否为噪点
+            hist, _ = np.histogram(image_np.flatten(), bins=256, range=[0, 256])
+            hist_normalized = hist / hist.sum()
+
+            # 计算分布的均匀性（噪点通常分布更均匀）
+            entropy = -np.sum(hist_normalized * np.log(hist_normalized + 1e-8))
+            max_entropy = np.log(256)
+            uniformity = entropy / max_entropy
+
+            self.log_message.emit(f"📊 图像熵: {entropy:.2f}/{max_entropy:.2f} (均匀性: {uniformity:.2f})")
+
+            if uniformity > 0.95:
+                self.log_message.emit("⚠️ 警告：像素分布过于均匀，可能是噪点")
+                is_noise = True
+
+            # 如果检测到噪点，尝试重新解码
+            if is_noise:
+                self.log_message.emit("🔧 检测到噪点，尝试修复...")
+                # 尝试不同的后处理
+                try:
+                    # 应用高斯模糊
+                    from scipy.ndimage import gaussian_filter
+                    smoothed = np.zeros_like(image_np)
+                    for i in range(3):
+                        smoothed[..., i] = gaussian_filter(image_np[..., i], sigma=1.0)
+
+                    # 混合原图和平滑图
+                    image_np = (image_np * 0.7 + smoothed * 0.3).astype(np.uint8)
+                    self.log_message.emit("✅ 已应用高斯模糊降噪")
+                except ImportError:
+                    self.log_message.emit("⚠️ 缺少scipy，无法应用降噪")
+                except Exception as e:
+                    self.log_message.emit(f"⚠️ 降噪失败: {str(e)[:80]}")
+
 
             # 保存图像
             from PIL import Image
@@ -544,6 +1013,17 @@ class VAEDecoderUI(QMainWindow):
         # 设置窗口
         self.setWindowTitle("ComfyUI VAE解码工具")
         self.setMinimumSize(1000, 750)  # 调整高度
+        self.resize(1100, 800)
+
+        # 确保窗口在屏幕内（macOS多屏支持）
+        available_geometry = QApplication.desktop().availableGeometry()
+        if available_geometry:
+            window_rect = self.geometry()
+            # 窗口完全不在可用区域内时，居中显示
+            if not available_geometry.contains(window_rect.topLeft()):
+                x = (available_geometry.width() - window_rect.width()) // 2 + available_geometry.left()
+                y = (available_geometry.height() - window_rect.height()) // 2 + available_geometry.top()
+                self.move(x, y)
 
         # 初始化属性
         self.output_dir = "output/decoded"
@@ -589,22 +1069,25 @@ class VAEDecoderUI(QMainWindow):
         main_layout.setContentsMargins(20, 20, 20, 20)
         main_layout.setSpacing(16)
 
-        # 标题
+        # 标题 - 固定高度，不伸缩
         title_label = SubtitleLabel("ComfyUI VAE解码工具")
         title_label.setAlignment(Qt.AlignCenter)
+        title_label.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
         main_layout.addWidget(title_label)
 
-        # 创建分割器
+        # 创建分割器 - 设置为可伸缩
         splitter = QSplitter(Qt.Horizontal)
-        main_layout.addWidget(splitter)
+        splitter.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        main_layout.addWidget(splitter, stretch=1)  # 添加stretch=1让分割器占满剩余空间
 
-        # 左侧控制面板
+        # 左侧控制面板 - 固定宽度
         left_panel = self.create_control_panel()
         left_panel.setFixedWidth(350)
         splitter.addWidget(left_panel)
 
-        # 右侧选项卡面板
+        # 右侧选项卡面板 - 可伸缩
         right_panel = self.create_tab_panel()
+        right_panel.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         splitter.addWidget(right_panel)
 
     def create_control_panel(self) -> QWidget:
@@ -711,10 +1194,12 @@ class VAEDecoderUI(QMainWindow):
         """创建选项卡面板"""
         # 创建选项卡容器
         tab_container = QWidget()
+        tab_container.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         tab_layout = QVBoxLayout(tab_container)
         tab_layout.setContentsMargins(0, 0, 0, 0)
+        tab_layout.setSpacing(0)
 
-        # 创建选项卡按钮
+        # 创建选项卡按钮 - 固定高度
         tab_button_layout = QHBoxLayout()
         tab_button_layout.setContentsMargins(10, 10, 10, 0)
 
@@ -722,19 +1207,22 @@ class VAEDecoderUI(QMainWindow):
         self.file_tab_btn.setCheckable(True)
         self.file_tab_btn.setChecked(True)
         self.file_tab_btn.clicked.connect(lambda: self.switch_tab(0))
+        self.file_tab_btn.setFixedHeight(36)
         tab_button_layout.addWidget(self.file_tab_btn)
 
         self.log_tab_btn = PushButton("处理日志")
         self.log_tab_btn.setCheckable(True)
         self.log_tab_btn.clicked.connect(lambda: self.switch_tab(1))
+        self.log_tab_btn.setFixedHeight(36)
         tab_button_layout.addWidget(self.log_tab_btn)
 
         tab_button_layout.addStretch()
         tab_layout.addLayout(tab_button_layout)
 
-        # 创建内容堆栈
+        # 创建内容堆栈 - 设置为可伸缩
         from PyQt5.QtWidgets import QStackedWidget
         self.tab_stack = QStackedWidget()
+        self.tab_stack.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
 
         # 添加文件列表小部件
         self.file_widget = self.create_file_list_widget()
@@ -744,7 +1232,8 @@ class VAEDecoderUI(QMainWindow):
         self.log_widget = self.create_log_widget()
         self.tab_stack.addWidget(self.log_widget)
 
-        tab_layout.addWidget(self.tab_stack)
+        # 添加堆栈到布局，设置伸缩因子为1
+        tab_layout.addWidget(self.tab_stack, stretch=1)
 
         # 设置按钮样式
         button_style = """
@@ -773,6 +1262,7 @@ class VAEDecoderUI(QMainWindow):
     def create_file_list_widget(self) -> QWidget:
         """创建文件列表小部件"""
         widget = QWidget()
+        widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         layout = QVBoxLayout(widget)
         layout.setSpacing(12)
         layout.setContentsMargins(10, 10, 10, 10)
@@ -831,15 +1321,18 @@ class VAEDecoderUI(QMainWindow):
         scroll_area = SmoothScrollArea()
         scroll_area.setWidgetResizable(True)
         scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll_area.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
 
         # 文件卡片容器
         self.file_container = QWidget()
+        self.file_container.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.file_layout = QVBoxLayout(self.file_container)
         self.file_layout.setSpacing(8)
         self.file_layout.addStretch()
 
         scroll_area.setWidget(self.file_container)
-        layout.addWidget(scroll_area)
+        # 添加滚动区域到布局，设置伸缩因子为1
+        layout.addWidget(scroll_area, stretch=1)
 
         # 启用拖拽
         widget.setAcceptDrops(True)
@@ -893,6 +1386,7 @@ class VAEDecoderUI(QMainWindow):
     def create_log_widget(self) -> QWidget:
         """创建日志小部件"""
         widget = QWidget()
+        widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         layout = QVBoxLayout(widget)
         layout.setSpacing(12)
         layout.setContentsMargins(10, 10, 10, 10)
@@ -911,7 +1405,9 @@ class VAEDecoderUI(QMainWindow):
         # 日志文本
         self.log_text = QTextEdit()
         self.log_text.setReadOnly(True)
-        layout.addWidget(self.log_text)
+        self.log_text.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        # 添加日志文本到布局，设置伸缩因子为1
+        layout.addWidget(self.log_text, stretch=1)
 
         # 设置样式
         self.log_text.setStyleSheet("""
