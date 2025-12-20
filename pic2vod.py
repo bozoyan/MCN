@@ -662,7 +662,7 @@ class SingleVideoGenerationWorker(QThread):
                     base_url,
                     headers=headers,
                     json=bizyair_request_data,
-                    timeout=(300, 900),  # 5分钟连接超时，15分钟读取超时
+                    timeout=(300, 1200),  # 5分钟连接超时，20分钟读取超时
                     proxies=proxies
                 )
                 
