@@ -154,5 +154,11 @@
     "env": "modelscope",
     "cwd": ".",
     "cmd": "python storyboard_generator.py"
+  },
+  {
+    "title": "VAE 图片解码",
+    "env": "comflowy",
+    "cwd": ".",
+    "cmd": "python vae.py"
   }
 ]

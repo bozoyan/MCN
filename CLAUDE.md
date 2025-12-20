@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 项目概述
 
-BOZO-MCN 是一个基于 PyQt5 和 qfluentwidgets 开发的多媒体内容创作工具集，包含多个核心模块：
+BOZO-MCN 是一个基于PyQt5，使用PyQt-Fluent-Widgets[full]提供的 Fluent Design 风格，深色模型，字体为 macOS 专用字体开发的多媒体内容创作工具集，包含多个核心模块：
 
 1. **MCN.py** - 主程序，提供多媒体编辑功能
 2. **storyboard_generator.py** - AI分镜脚本与图片生成器
@@ -26,7 +26,7 @@ pip install -r requirements_storyboard.txt
 ### 核心依赖项
 
 - **PyQt5** - GUI框架
-- **qfluentwidgets** - Fluent Design风格组件
+- **PyQt-Fluent-Widgets[full]** - Fluent Design风格组件
 - **requests** - HTTP API调用
 - **Pillow** - 图像处理
 - **chardet** - 字符编码检测

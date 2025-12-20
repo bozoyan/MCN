@@ -3,7 +3,7 @@
 PyQt5>=5.15.0
 PyQt5-tools>=5.15.0
 # Fluent UI组件
-qfluentwidgets>=1.6.0
+PyQt-Fluent-Widgets[full]
 
 # 图像处理
 Pillow>=9.0.0

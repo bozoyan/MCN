@@ -20,7 +20,7 @@ def check_environment():
     
     # 检查必要的包
     required_packages = [
-        'PyQt5', 'qfluentwidgets', 'requests', 'PIL', 'openai'
+        'PyQt5', 'PyQt-Fluent-Widgets[full]', 'requests', 'PIL', 'openai'
     ]
     
     missing_packages = []

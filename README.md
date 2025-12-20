@@ -2,12 +2,12 @@
 
 ## 概述
 
-这是基于 PyQt5 和 qfluentwidgets 框架重新开发的 BOZO-MCN 多媒体编辑器，相比原始的 tkinter 版本，具有更现代化的界面、更好的用户体验和更强的性能。
+这是基于PyQt5，使用PyQt-Fluent-Widgets[full]提供的 Fluent Design 风格，深色模型，字体为 macOS 专用字体开发的 BOZO-MCN 多媒体编辑器，具有更现代化的界面、更好的用户体验和更强的性能。
 
 ## 主要特性
 
 ### 🎨 界面优化
-- **现代化设计**：使用 qfluentwidgets 提供的 Fluent Design 风格
+- **现代化设计**：使用 PyQt-Fluent-Widgets[full] 提供的 Fluent Design 风格
 - **左侧导航栏**：功能模块清晰分类，便于快速切换
 - **深色主题**：默认深色主题，长时间使用更舒适
 - **响应式布局**：界面元素自适应窗口大小
@@ -67,7 +67,7 @@
 ## 安装依赖
 
 ```bash
-pip install PyQt5 qfluentwidgets Pillow chardet requests
+pip install PyQt5 PyQt-Fluent-Widgets[full] Pillow chardet requests
 ```
 
 ## 使用方法
@@ -116,7 +116,7 @@ export AIPATH="/Volumes/AI/AI/"
 
 ## 技术栈
 
-- **UI框架**：PyQt5 + qfluentwidgets
+- **UI框架**：PyQt5 + PyQt-Fluent-Widgets[full]
 - **多媒体处理**：FFmpeg
 - **语音识别**：Whisper.cpp
 - **AI翻译**：SiliconCloud API
