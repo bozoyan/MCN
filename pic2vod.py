@@ -2987,8 +2987,6 @@ class VideoGenerationWidget(QWidget):
                 return
 
             QDesktopServices.openUrl(QUrl.fromLocalFile(file_path))
-
-            self.current_video_label.setText(f"已使用本地播放器打开: {file_name}")
             self.add_log(f"🎬 使用本地播放器打开视频: {file_name}")
 
         except Exception as e:
