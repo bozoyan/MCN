@@ -1203,6 +1203,7 @@ class TopControlBar(QWidget):
     # 信号用于触发主页面的功能
     show_size_dialog_requested = pyqtSignal() # 新增信号
     show_template_manager_requested = pyqtSignal() # 新增信号
+    show_model_settings_requested = pyqtSignal()  # 新增信号
     generate_all_requested = pyqtSignal()
     export_md_requested = pyqtSignal()
     export_images_requested = pyqtSignal()
@@ -1221,7 +1222,13 @@ class TopControlBar(QWidget):
         title = SubtitleLabel("🚀 BOZO-MCN 分镜脚本与图片生成器")
         layout.addWidget(title)
         layout.addStretch()
-        
+
+        # 0. 模型设置按钮 (新增)
+        self.model_settings_btn = PushButton(FluentIcon.SETTING, "模型设置")
+        self.model_settings_btn.setFixedHeight(36)
+        self.model_settings_btn.clicked.connect(self.show_model_settings_requested.emit)
+        layout.addWidget(self.model_settings_btn)
+
         # 1. 图片尺寸设置按钮 (新位置)
         self.size_settings_btn = PushButton(FluentIcon.SETTING, "图片尺寸设置")
         self.size_settings_btn.setFixedHeight(36)
@@ -1455,6 +1462,175 @@ class ImageControlDialog(QDialog):
         self.accept()
 
 
+# 模型设置对话框 (新增)
+class ModelSettingsDialog(QDialog):
+    """用于设置AI模型和BizyAIR App ID的对话框"""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("模型设置")
+        self.setMinimumSize(500, 400)
+        self.init_ui()
+        self.load_current_config()
+
+    def init_ui(self):
+        layout = QVBoxLayout(self)
+
+        # --- API设置 ---
+        api_group = QGroupBox("🔑 API设置")
+        api_group.setStyleSheet("QGroupBox { border: 1px solid #ccc; margin-top: 1ex; padding: 10px; }")
+        api_layout = QGridLayout(api_group)
+
+        # API密钥
+        api_layout.addWidget(QLabel("API密钥:"), 0, 0)
+        self.api_key_edit = LineEdit()
+        self.api_key_edit.setFixedHeight(32)
+        self.api_key_edit.setEchoMode(QLineEdit.Password)  # 密码模式
+        api_layout.addWidget(self.api_key_edit, 0, 1)
+
+        # API基础URL
+        api_layout.addWidget(QLabel("API基础URL:"), 1, 0)
+        self.api_url_edit = LineEdit()
+        self.api_url_edit.setFixedHeight(32)
+        api_layout.addWidget(self.api_url_edit, 1, 1)
+
+        # 文本模型
+        api_layout.addWidget(QLabel("文本模型:"), 2, 0)
+        self.text_model_edit = LineEdit()
+        self.text_model_edit.setFixedHeight(32)
+        api_layout.addWidget(self.text_model_edit, 2, 1)
+
+        # BizyAIR App ID 设置项
+        api_layout.addWidget(QLabel("BizyAIR App ID:"), 3, 0)
+        self.bizyair_app_id_combo = ComboBox()
+        self.bizyair_app_id_combo.setFixedHeight(32)
+
+        # 预定义的模型选项
+        self.bizyair_app_id_models = [
+            ("40350_Z-image模型ID_39808", 39808),
+            ("38654_flux-dev-HighRes模型ID_41528", 41528),
+        ]
+
+        # 添加预定义选项到下拉框
+        for i, (display_text, app_id) in enumerate(self.bizyair_app_id_models):
+            self.bizyair_app_id_combo.addItem(display_text)
+            self.bizyair_app_id_combo.setItemData(i, app_id)
+
+        # 添加自定义选项
+        custom_index = self.bizyair_app_id_combo.count()
+        self.bizyair_app_id_combo.addItem("➕ 自定义模型ID")
+        self.bizyair_app_id_combo.setItemData(custom_index, "custom")
+
+        # 连接信号，处理自定义选项
+        self.bizyair_app_id_combo.currentIndexChanged.connect(self.on_bizyair_app_id_changed)
+
+        api_layout.addWidget(self.bizyair_app_id_combo, 3, 1)
+
+        api_group.setLayout(api_layout)
+        layout.addWidget(api_group)
+
+        # 底部按钮
+        button_layout = QHBoxLayout()
+        save_btn = PrimaryPushButton("保存设置")
+        save_btn.clicked.connect(self.save_settings)
+        cancel_btn = PushButton("取消")
+        cancel_btn.clicked.connect(self.reject)
+
+        button_layout.addStretch()
+        button_layout.addWidget(save_btn)
+        button_layout.addWidget(cancel_btn)
+        layout.addLayout(button_layout)
+
+    def load_current_config(self):
+        """从配置管理器加载当前的设置值"""
+        self.api_key_edit.setText(config_manager.get('api.api_key', ''))
+        self.api_url_edit.setText(config_manager.get('api.base_url', 'https://api.siliconflow.cn/v1/'))
+        self.text_model_edit.setText(config_manager.get('api.text_model', 'Qwen/Qwen3-Coder-480B-A35B-Instruct'))
+
+        # 设置当前选中的值
+        current_app_id = config_manager.get('bizyair_params.web_app_id', 39808)
+        for i in range(self.bizyair_app_id_combo.count()):
+            if self.bizyair_app_id_combo.itemData(i) == current_app_id:
+                self.bizyair_app_id_combo.setCurrentIndex(i)
+                break
+
+    def on_bizyair_app_id_changed(self, index):
+        """处理BizyAIR App ID选择变化"""
+        if self.bizyair_app_id_combo.itemData(index) == "custom":
+            # 弹出对话框让用户输入自定义模型ID
+            from PyQt5.QtWidgets import QInputDialog
+            custom_id, ok = QInputDialog.getText(
+                self,
+                "自定义模型ID",
+                "请输入自定义的BizyAIR App ID (数字):",
+                QLineEdit.Normal,
+                ""
+            )
+
+            if ok and custom_id.strip():
+                try:
+                    # 验证输入是否为数字
+                    custom_id_num = int(custom_id.strip())
+                    if 1 <= custom_id_num <= 99999:
+                        # 创建自定义选项的显示文本
+                        custom_display_text = f"🔧 自定义模型ID_{custom_id_num}"
+
+                        # 检查是否已存在相同的自定义ID
+                        existing_index = -1
+                        for i in range(self.bizyair_app_id_combo.count()):
+                            if (self.bizyair_app_id_combo.itemData(i) == custom_id_num and
+                                i != index):  # 排除当前的"custom"选项
+                                existing_index = i
+                                break
+
+                        if existing_index >= 0:
+                            # 如果已存在，直接选择该选项
+                            self.bizyair_app_id_combo.blockSignals(True)
+                            self.bizyair_app_id_combo.setCurrentIndex(existing_index)
+                            self.bizyair_app_id_combo.blockSignals(False)
+                        else:
+                            # 插入新的自定义选项到"➕ 自定义模型ID"之前
+                            insert_index = self.bizyair_app_id_combo.count() - 1
+                            self.bizyair_app_id_combo.blockSignals(True)
+                            self.bizyair_app_id_combo.insertItem(insert_index, custom_display_text)
+                            self.bizyair_app_id_combo.setItemData(insert_index, custom_id_num)
+                            self.bizyair_app_id_combo.setCurrentIndex(insert_index)
+                            self.bizyair_app_id_combo.blockSignals(False)
+                    else:
+                        QMessageBox.warning(self, "输入错误", "请输入1-99999之间的数字")
+                        # 恢复到默认选项
+                        self.bizyair_app_id_combo.blockSignals(True)
+                        self.bizyair_app_id_combo.setCurrentIndex(0)  # 选择第一个预定义选项
+                        self.bizyair_app_id_combo.blockSignals(False)
+                except ValueError:
+                    QMessageBox.warning(self, "输入错误", "请输入有效的数字")
+                    # 恢复到默认选项
+                    self.bizyair_app_id_combo.blockSignals(True)
+                    self.bizyair_app_id_combo.setCurrentIndex(0)  # 选择第一个预定义选项
+                    self.bizyair_app_id_combo.blockSignals(False)
+            else:
+                # 用户取消输入，恢复到默认选项
+                self.bizyair_app_id_combo.blockSignals(True)
+                self.bizyair_app_id_combo.setCurrentIndex(0)  # 选择第一个预定义选项
+                self.bizyair_app_id_combo.blockSignals(False)
+
+    def save_settings(self):
+        """保存设置"""
+        config_manager.set('api.api_key', self.api_key_edit.text().strip())
+        config_manager.set('api.base_url', self.api_url_edit.text().strip())
+        config_manager.set('api.text_model', self.text_model_edit.text().strip())
+        # 保存BizyAIR App ID，确保不保存"custom"字符串
+        current_data = self.bizyair_app_id_combo.currentData()
+        if current_data != "custom":
+            config_manager.set('bizyair_params.web_app_id', current_data)
+
+        if config_manager.save_config():
+            QMessageBox.information(self, "保存成功", "模型设置已保存")
+            self.accept()
+        else:
+            QMessageBox.critical(self, "保存失败", "设置保存失败，请检查权限")
+
+
 # 内容页面的基类 (调整布局，使其内容居中且自适应)
 class BaseTextPage(QScrollArea):
     """用于左侧 TabWidget 的内容页面基类"""
@@ -1576,6 +1752,7 @@ class StoryboardPage(SmoothScrollArea):
         self.top_control_bar = TopControlBar()
         self.top_control_bar.show_size_dialog_requested.connect(self.show_image_control_dialog)
         self.top_control_bar.show_template_manager_requested.connect(self.show_template_manager)
+        self.top_control_bar.show_model_settings_requested.connect(self.show_model_settings_dialog)
         self.top_control_bar.generate_all_requested.connect(self.generate_all)
         self.top_control_bar.export_md_requested.connect(self.export_markdown)
         self.top_control_bar.export_images_requested.connect(self.export_all_images)
@@ -1900,6 +2077,13 @@ class StoryboardPage(SmoothScrollArea):
         if dialog.exec_() == QDialog.Accepted:
             # 对话框关闭后刷新各页面的模板列表
             self.refresh_all_template_lists()
+
+    def show_model_settings_dialog(self):
+        """显示模型设置对话框"""
+        dialog = ModelSettingsDialog(self)
+        if dialog.exec_() == QDialog.Accepted:
+            # 模型设置保存后，可以在这里添加额外的处理逻辑
+            pass
 
     def refresh_all_template_lists(self):
         """刷新所有页面的模板列表"""
@@ -2544,13 +2728,38 @@ class MainWindow(FluentWindow):
         self.text_model_edit.setText(config_manager.get('api.text_model', 'Qwen/Qwen3-Coder-480B-A35B-Instruct'))
         api_layout.addWidget(self.text_model_edit, 2, 1)
         
-        # BizyAIR App ID
+        # BizyAIR App ID 设置项
         api_layout.addWidget(QLabel("BizyAIR App ID:"), 3, 0)
-        self.bizyair_app_id_spin = QSpinBox()
-        self.bizyair_app_id_spin.setRange(1, 99999)
-        self.bizyair_app_id_spin.setValue(config_manager.get('bizyair_params.web_app_id', 39808))
-        self.bizyair_app_id_spin.setFixedHeight(32)
-        api_layout.addWidget(self.bizyair_app_id_spin, 3, 1)
+        self.bizyair_app_id_combo = ComboBox()
+        self.bizyair_app_id_combo.setFixedHeight(32)
+
+        # 预定义的模型选项
+        self.bizyair_app_id_models = [
+            ("40350_Z-image模型ID_39808", 39808),
+            ("38654_flux-dev-HighRes模型ID_41528", 41528),
+        ]
+
+        # 添加预定义选项到下拉框
+        for i, (display_text, app_id) in enumerate(self.bizyair_app_id_models):
+            self.bizyair_app_id_combo.addItem(display_text)
+            self.bizyair_app_id_combo.setItemData(i, app_id)
+
+        # 添加自定义选项
+        custom_index = self.bizyair_app_id_combo.count()
+        self.bizyair_app_id_combo.addItem("➕ 自定义模型ID")
+        self.bizyair_app_id_combo.setItemData(custom_index, "custom")
+
+        # 连接信号，处理自定义选项（在选择当前值之前连接，避免触发信号）
+        self.bizyair_app_id_combo.currentIndexChanged.connect(self.on_bizyair_app_id_changed)
+
+        # 设置当前选中的值
+        current_app_id = config_manager.get('bizyair_params.web_app_id', 39808)
+        for i in range(self.bizyair_app_id_combo.count()):
+            if self.bizyair_app_id_combo.itemData(i) == current_app_id:
+                self.bizyair_app_id_combo.setCurrentIndex(i)
+                break
+
+        api_layout.addWidget(self.bizyair_app_id_combo, 3, 1)
 
 
         api_group.setLayout(api_layout)
@@ -2652,7 +2861,10 @@ class MainWindow(FluentWindow):
         config_manager.set('api.api_key', self.api_key_edit.text().strip())
         config_manager.set('api.base_url', self.api_url_edit.text().strip())
         config_manager.set('api.text_model', self.text_model_edit.text().strip())
-        config_manager.set('bizyair_params.web_app_id', self.bizyair_app_id_spin.value())
+        # 保存BizyAIR App ID，确保不保存"custom"字符串
+        current_data = self.bizyair_app_id_combo.currentData()
+        if current_data != "custom":
+            config_manager.set('bizyair_params.web_app_id', current_data)
         
         # 更新默认图片数量，并同步到 StoryboardPage
         new_image_count = self.default_image_count_spin.value()
@@ -2679,6 +2891,66 @@ class MainWindow(FluentWindow):
                 duration=3000,
                 parent=self
             )
+
+    def on_bizyair_app_id_changed(self, index):
+        """处理BizyAIR App ID选择变化"""
+        if self.bizyair_app_id_combo.itemData(index) == "custom":
+            # 弹出对话框让用户输入自定义模型ID
+            from PyQt5.QtWidgets import QInputDialog
+            custom_id, ok = QInputDialog.getText(
+                self,
+                "自定义模型ID",
+                "请输入自定义的BizyAIR App ID (数字):",
+                QLineEdit.Normal,
+                ""
+            )
+
+            if ok and custom_id.strip():
+                try:
+                    # 验证输入是否为数字
+                    custom_id_num = int(custom_id.strip())
+                    if 1 <= custom_id_num <= 99999:
+                        # 创建自定义选项的显示文本
+                        custom_display_text = f"🔧 自定义模型ID_{custom_id_num}"
+
+                        # 检查是否已存在相同的自定义ID
+                        existing_index = -1
+                        for i in range(self.bizyair_app_id_combo.count()):
+                            if (self.bizyair_app_id_combo.itemData(i) == custom_id_num and
+                                i != index):  # 排除当前的"custom"选项
+                                existing_index = i
+                                break
+
+                        if existing_index >= 0:
+                            # 如果已存在，直接选择该选项
+                            self.bizyair_app_id_combo.blockSignals(True)
+                            self.bizyair_app_id_combo.setCurrentIndex(existing_index)
+                            self.bizyair_app_id_combo.blockSignals(False)
+                        else:
+                            # 插入新的自定义选项到"➕ 自定义模型ID"之前
+                            insert_index = self.bizyair_app_id_combo.count() - 1
+                            self.bizyair_app_id_combo.blockSignals(True)
+                            self.bizyair_app_id_combo.insertItem(insert_index, custom_display_text)
+                            self.bizyair_app_id_combo.setItemData(insert_index, custom_id_num)
+                            self.bizyair_app_id_combo.setCurrentIndex(insert_index)
+                            self.bizyair_app_id_combo.blockSignals(False)
+                    else:
+                        QMessageBox.warning(self, "输入错误", "请输入1-99999之间的数字")
+                        # 恢复到默认选项
+                        self.bizyair_app_id_combo.blockSignals(True)
+                        self.bizyair_app_id_combo.setCurrentIndex(0)  # 选择第一个预定义选项
+                        self.bizyair_app_id_combo.blockSignals(False)
+                except ValueError:
+                    QMessageBox.warning(self, "输入错误", "请输入有效的数字")
+                    # 恢复到默认选项
+                    self.bizyair_app_id_combo.blockSignals(True)
+                    self.bizyair_app_id_combo.setCurrentIndex(0)  # 选择第一个预定义选项
+                    self.bizyair_app_id_combo.blockSignals(False)
+            else:
+                # 用户取消输入，恢复到默认选项
+                self.bizyair_app_id_combo.blockSignals(True)
+                self.bizyair_app_id_combo.setCurrentIndex(0)  # 选择第一个预定义选项
+                self.bizyair_app_id_combo.blockSignals(False)
 
     def closeEvent(self, event):
         """窗口关闭时保存配置"""

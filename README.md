@@ -67,7 +67,7 @@
 ## 安装依赖
 
 ```bash
-pip install PyQt5 PyQt-Fluent-Widgets[full] Pillow chardet requests
+pip install PyQt5 'PyQt-Fluent-Widgets[full]' Pillow chardet requests
 ```
 
 ## 使用方法
