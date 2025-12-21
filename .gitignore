@@ -3,6 +3,8 @@ __pycache__/
 *.py[codz]
 *$py.class
 
+buttons.json
+
 logs
 fonts
 MCN
@@ -12,9 +14,6 @@ speech
 SRT
 
 storyboard_config.json
-
-buttons.json
-
 video_settings.json
 
 
