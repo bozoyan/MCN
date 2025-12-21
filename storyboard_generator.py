@@ -762,7 +762,7 @@ class ImageGenerationWorker(QThread):
                         "suppress_preview_output": False,
                         "input_values": input_values
                     },
-                    timeout=300 # 增加超时时间以应对生成较慢的情况
+                    timeout=1200 # 增加超时时间以应对生成较慢的情况
                 )
 
                 response.raise_for_status()
