@@ -117,4 +117,5 @@ A: 您可以拉伸设置窗口的边缘，输入框会自动适应宽度。
 ---
 
 **License**: MIT
-**Author**: Hao (Based on ComfyUI & PyQt-Fluent-Widgets)
+**Author**: BOZOYAN 嚴波設計·手拉手云 QQ/微信( **201782** )
+![](media/17662791597432/17662793975266.jpg)
