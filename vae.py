@@ -1,12 +1,17 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-ComfyUI Latent VAE 解码工具 (macOS MPS Ultimate Fix)
-修复: 在加载 VAE 之前暴力清洗权重字典，强制将 BFloat16 转为 Float32，彻底解决 MPS 报错。
+ComfyUI Latent VAE 解码工具 (Batch Save & Timer v5)
+更新日志:
+1. 支持 Latent Batch 解码 (保存所有图片，而非仅第一张)。
+2. 文件名增加 000xx 序列号。
+3. UI 卡片增加任务耗时显示。
+4. 修复 VAE 预热时的通道数报警 (自适应 4/16 通道)。
 """
 
 import os
 import sys
+import time
 import torch
 import numpy as np
 import traceback
@@ -51,10 +56,10 @@ except ImportError as e:
 try:
     from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                                 QHBoxLayout, QFileDialog, QLineEdit, QDesktopWidget)
-    from PyQt5.QtCore import Qt, QThread, pyqtSignal
+    from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer
     from PyQt5.QtGui import QDragEnterEvent, QDropEvent, QFont
     
-    # 使用基础组件以保证最大兼容性
+    # 基础组件
     from qfluentwidgets import (
         PushButton, PrimaryPushButton, CardWidget, SubtitleLabel, CaptionLabel, 
         BodyLabel, ProgressBar, ComboBox, Theme, setTheme, setThemeColor,
@@ -67,9 +72,12 @@ except ImportError:
 
 class VAEDecoderThread(QThread):
     progress = pyqtSignal(int, int)
-    finished_one = pyqtSignal(str, bool, str)
+    finished_one = pyqtSignal(str, bool, str) # 文件名, 成功与否, 消息(包含时间)
     log_message = pyqtSignal(str)
     finished_all = pyqtSignal()
+    
+    # 新增信号：通知UI某个文件开始处理了（用于UI状态更新）
+    started_processing = pyqtSignal(str) 
 
     def __init__(self, latent_files: List[str], vae_path: str, output_dir: str):
         super().__init__()
@@ -94,55 +102,54 @@ class VAEDecoderThread(QThread):
         try:
             self.log_message.emit(f"🔄 正在读取文件: {os.path.basename(self.vae_path)} ...")
             
-            # 1. 加载原始权重数据 (Dict)
             vae_data = comfy.utils.load_torch_file(self.vae_path)
             
-            # ----------------------------------------------------------
-            # 🔥 核心修复：暴力清洗权重 (Force Cast Weights)
-            # 遍历所有权重，只要发现是 BFloat16 或 Float16，立刻转为 Float32
-            # ----------------------------------------------------------
+            # --- 核心修复：清洗权重 ---
             self.log_message.emit("🧹 正在清洗权重格式 (Force Float32)...")
             new_vae_data = {}
             for k, v in vae_data.items():
                 if isinstance(v, torch.Tensor):
-                    # 检查是否为半精度/BF16
                     if v.dtype in [torch.bfloat16, torch.float16]:
-                        # 强制转为 float32
                         new_vae_data[k] = v.to(dtype=torch.float32)
                     else:
                         new_vae_data[k] = v
                 else:
                     new_vae_data[k] = v
             
-            # 替换原始数据
             vae_data = new_vae_data
-            del new_vae_data # 释放内存
+            del new_vae_data 
             
-            # 2. 初始化 VAE (此时传入的已经是纯净的 FP32 数据)
             self.log_message.emit("🏗️ 构建 VAE 模型...")
             self.vae = comfy.sd.VAE(vae_data)
             
-            # 3. 移动到 MPS
             if hasattr(self.vae, 'first_stage_model'):
                 self.vae.first_stage_model.to(self.device)
                 self.vae.device = self.device
             
-            # 4. 预热 (Warmup)
+            # --- 智能预热 (适配 SD vs FLUX) ---
             try:
-                dummy = torch.zeros((1, 4, 8, 8), device=self.device, dtype=torch.float32)
-                self.vae.decode(dummy)
-                self.log_message.emit(f"✅ VAE 就绪 ({self.device_name} FP32)")
+                # 先尝试标准 4 通道 (SD1.5, SDXL)
+                try:
+                    dummy = torch.zeros((1, 4, 8, 8), device=self.device, dtype=torch.float32)
+                    self.vae.decode(dummy)
+                    self.log_message.emit(f"✅ VAE 就绪 (SD/SDXL 4-Channel Mode)")
+                except RuntimeError as re:
+                    # 如果报错通道不匹配，尝试 16 通道 (FLUX)
+                    if "channels" in str(re):
+                        dummy = torch.zeros((1, 16, 8, 8), device=self.device, dtype=torch.float32)
+                        self.vae.decode(dummy)
+                        self.log_message.emit(f"✅ VAE 就绪 (FLUX 16-Channel Mode)")
+                    else:
+                        raise re
             except Exception as e:
-                self.log_message.emit(f"⚠️ VAE 预热警告: {e}")
+                self.log_message.emit(f"⚠️ VAE 预热非致命错误: {str(e)[:100]}...")
 
             return True
         except Exception as e:
             self.log_message.emit(f"❌ VAE 加载失败: {str(e)}")
-            # traceback.print_exc()
             return False
 
     def load_latent_data(self, file_path):
-        """兼容性文件加载器"""
         if HAS_SAFETENSORS and (file_path.endswith('.safetensors') or file_path.endswith('.latent')):
             try:
                 return load_safetensors(file_path)
@@ -154,6 +161,7 @@ class VAEDecoderThread(QThread):
             return torch.load(file_path, map_location=self.offload_device, weights_only=False)
 
     def decode_single(self, latent_file: str) -> tuple:
+        start_time = time.time() # ⏱️ 计时开始
         try:
             # 1. 读取
             try:
@@ -179,7 +187,7 @@ class VAEDecoderThread(QThread):
             if latent_tensor is None:
                 return False, "", "无有效 Tensor"
 
-            # 3. 预处理 (输入也必须是 Float32)
+            # 3. 预处理
             if latent_tensor.dim() == 3:
                 latent_tensor = latent_tensor.unsqueeze(0)
             
@@ -189,33 +197,55 @@ class VAEDecoderThread(QThread):
             with torch.no_grad():
                 decoded_result = self.vae.decode(latent_input)
 
-            # 5. 后处理
+            # 5. 后处理 (处理 Tuple)
             if isinstance(decoded_result, tuple):
                 decoded_tensor = decoded_result[0]
             else:
                 decoded_tensor = decoded_result
 
             # 移回 CPU
-            image = decoded_tensor[0].cpu().float().numpy()
+            # shape: (Batch, Channels, Height, Width)
+            decoded_cpu = decoded_tensor.cpu().float()
             del latent_input, decoded_result, decoded_tensor
 
-            # 反归一化
-            if image.min() < 0:
-                image = (image + 1.0) / 2.0
-            image = np.clip(image, 0, 1.0)
-            image = (image * 255).astype(np.uint8)
-
-            if image.shape[0] in [3, 4]: 
-                image = np.transpose(image, (1, 2, 0))
+            # --- 批量保存循环 ---
+            batch_count = decoded_cpu.shape[0]
+            base_name = os.path.splitext(os.path.basename(latent_file))[0]
+            saved_info = []
 
             from PIL import Image
-            img_obj = Image.fromarray(image)
-            
-            file_name = os.path.splitext(os.path.basename(latent_file))[0]
-            save_path = os.path.join(self.output_dir, f"{file_name}.png")
-            img_obj.save(save_path)
 
-            return True, save_path, "成功"
+            for i in range(batch_count):
+                img_tensor = decoded_cpu[i] # 取出单张 (C, H, W)
+                image = np.array(img_tensor)
+
+                # 反归一化
+                if image.min() < 0:
+                    image = (image + 1.0) / 2.0
+                image = np.clip(image, 0, 1.0)
+                image = (image * 255).astype(np.uint8)
+
+                if image.shape[0] in [3, 4]: 
+                    image = np.transpose(image, (1, 2, 0))
+
+                img_obj = Image.fromarray(image)
+                
+                # 文件命名：文件名_00000.png
+                save_name = f"{base_name}_{i:05d}.png"
+                save_path = os.path.join(self.output_dir, save_name)
+                img_obj.save(save_path)
+                saved_info.append(save_name)
+
+            end_time = time.time() # ⏱️ 计时结束
+            duration = end_time - start_time
+            
+            # 构造成功消息
+            if batch_count == 1:
+                msg = f"耗时 {duration:.2f}s"
+            else:
+                msg = f"保存 {batch_count} 张 (耗时 {duration:.2f}s)"
+
+            return True, saved_info[0], msg
 
         except Exception as e:
             return False, "", str(e)
@@ -232,24 +262,30 @@ class VAEDecoderThread(QThread):
 
         self.log_message.emit(f"🚀 开始处理 {len(self.latent_files)} 个文件...")
 
+        # 为了准确统计UI上的状态，这里我们不使用 as_completed 的无序返回
+        # 而是按顺序提交，但依然在线程池中运行
+        # 由于 MPS 限制 max_workers=1，这实际上是串行的，但不会阻塞 UI 线程
         with ThreadPoolExecutor(max_workers=1) as executor:
-            future_map = {executor.submit(self.decode_single, f): f for f in self.latent_files}
-            
-            for i, future in enumerate(as_completed(future_map)):
+            for i, file_path in enumerate(self.latent_files):
                 if not self.is_running: break
                 
-                original = future_map[future]
+                # 通知 UI 开始处理该文件 (用于变色或显示 "处理中...")
+                self.started_processing.emit(file_path)
+                
+                # 提交任务并等待结果 (因为是 max_workers=1，可以直接 result() 等待，或者用 future)
+                future = executor.submit(self.decode_single, file_path)
+                
                 try:
                     success, path, msg = future.result()
-                    self.finished_one.emit(original, success, msg if not success else path)
+                    self.finished_one.emit(file_path, success, msg)
                     
                     if success:
-                        self.log_message.emit(f"✅ 保存: {os.path.basename(path)}")
+                        self.log_message.emit(f"✅ 完成: {os.path.basename(file_path)} | {msg}")
                     else:
-                        self.log_message.emit(f"❌ 失败 {os.path.basename(original)}: {msg}")
+                        self.log_message.emit(f"❌ 失败: {os.path.basename(file_path)} | {msg}")
                     
                     # 显存清理
-                    if i % 5 == 0 and torch.backends.mps.is_available():
+                    if i % 3 == 0 and torch.backends.mps.is_available():
                         torch.mps.empty_cache()
                         
                 except Exception as e:
@@ -291,6 +327,8 @@ class LatentFileCard(CardWidget):
         layout.addLayout(info)
         
         layout.addStretch(1)
+        
+        # 状态标签
         self.status = BodyLabel("等待中")
         self.status.setStyleSheet("color: #aaa;")
         layout.addWidget(self.status)
@@ -300,23 +338,27 @@ class LatentFileCard(CardWidget):
         btn.clicked.connect(lambda: self.remove_clicked.emit(self.file_path))
         layout.addWidget(btn)
 
+    def set_processing(self):
+        self.status.setText("⏳ 处理中...")
+        self.status.setStyleSheet("color: #1890ff; font-weight: bold;")
+
     def set_status(self, status, msg=""):
         if status == "success":
-            self.status.setText("✅ 完成")
+            # 显示成功和时间
+            self.status.setText(f"✅ {msg}") # msg 包含了 "耗时 3.2s"
             self.status.setStyleSheet("color: #4cc14e;")
         elif status == "error":
             self.status.setText("❌ 失败")
             self.status.setStyleSheet("color: #ff4d4f;")
             self.setToolTip(msg)
         else:
-            self.status.setText("⏳ 处理中")
-            self.status.setStyleSheet("color: #1890ff;")
+            self.status.setText("⏳ " + msg)
 
 
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("ComfyUI Latent 解码器 (MPS Fix)")
+        self.setWindowTitle("ComfyUI Latent 解码器 (Pro)")
         self.resize(1000, 700)
         self.center_window()
         self.latent_files = []
@@ -482,11 +524,23 @@ class MainWindow(QMainWindow):
         self.prog.setRange(0, len(self.latent_files))
         
         self.th = VAEDecoderThread(self.latent_files, self.vae_map[vae], self.out_edit.text())
+        
+        # 绑定信号
+        self.th.started_processing.connect(self.on_one_start) # 新增：处理开始
+        self.th.finished_one.connect(self.on_one_done)        # 处理结束
         self.th.progress.connect(self.prog.setValue)
-        self.th.finished_one.connect(self.on_one_done)
         self.th.log_message.connect(print)
         self.th.finished_all.connect(self.on_all_done)
+        
         self.th.start()
+
+    # 新增：某个文件开始处理时，更新 UI 状态为 "处理中"
+    def on_one_start(self, path):
+        for i in range(self.list_layout.count()):
+            w = self.list_layout.itemAt(i).widget()
+            if isinstance(w, LatentFileCard) and w.file_path == path:
+                w.set_processing()
+                break
 
     def on_one_done(self, path, ok, msg):
         for i in range(self.list_layout.count()):
@@ -497,7 +551,7 @@ class MainWindow(QMainWindow):
     def on_all_done(self):
         self.start_btn.setEnabled(True)
         self.start_btn.setText("开始解码")
-        MessageBox("完成", "处理完毕", self).exec()
+        MessageBox("完成", "所有任务处理完毕！", self).exec()
 
 if __name__ == '__main__':
     QApplication.setHighDpiScaleFactorRoundingPolicy(Qt.HighDpiScaleFactorRoundingPolicy.PassThrough)
