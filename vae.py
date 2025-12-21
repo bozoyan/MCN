@@ -1,43 +1,76 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-ComfyUI Latent VAE 解码工具 (Batch Save & Timer v5)
-更新日志:
-1. 支持 Latent Batch 解码 (保存所有图片，而非仅第一张)。
-2. 文件名增加 000xx 序列号。
-3. UI 卡片增加任务耗时显示。
-4. 修复 VAE 预热时的通道数报警 (自适应 4/16 通道)。
+ComfyUI Latent VAE 解码工具 (BOZOYAN-Pro v1.1 - Fixed Imports)
+修复: 补全 QDragEnterEvent/QDropEvent 导入，解决 NameError。
+功能:
+1. 配置对话框 (路径记忆)。
+2. 硬件/精度控制 (MPS/CPU/CUDA, Float32/BFloat16)。
+3. 自动选中 ae.safetensors。
+4. 批量解码 + 计时。
 """
 
 import os
 import sys
 import time
+import json
 import torch
 import numpy as np
-import traceback
 from typing import List
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor
 
-# ================= 配置区域 =================
-# 1. ComfyUI 安装路径
-COMFYUI_PATH = "/Users/hao/comflowy/ComfyUI"
-
-# 2. VAE 模型文件夹路径
-VAE_MODELS_DIR = "/Volumes/BO/AI/models/VAE"
-
-# 3. 默认输出路径
-DEFAULT_OUTPUT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "output")
-# ===========================================
-
-# --- 环境注入 ---
-if not os.path.exists(COMFYUI_PATH):
-    print(f"❌ 严重错误: 找不到 ComfyUI 路径: {COMFYUI_PATH}")
+# --- PyQt5 & Fluent Widgets 导入 ---
+try:
+    from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
+                                QHBoxLayout, QFileDialog, QLineEdit, QDesktopWidget,
+                                QDialog, QFormLayout, QLabel)
+    from PyQt5.QtCore import Qt, QThread, pyqtSignal, QSettings
+    # 修复：补全 QDragEnterEvent, QDropEvent
+    from PyQt5.QtGui import QFont, QIcon, QDragEnterEvent, QDropEvent
+    
+    from qfluentwidgets import (
+        PushButton, PrimaryPushButton, CardWidget, SubtitleLabel, CaptionLabel, 
+        BodyLabel, ProgressBar, ComboBox, Theme, setTheme, setThemeColor,
+        SmoothScrollArea, MessageBox, ToolButton, FluentIcon
+    )
+except ImportError:
+    print("❌ 缺少界面库，请安装: pip install PyQt5 \"PyQt-Fluent-Widgets[full]\"")
     sys.exit(1)
 
-if COMFYUI_PATH not in sys.path:
-    sys.path.append(COMFYUI_PATH)
+# ================= 全局配置管理 =================
+class ConfigManager:
+    def __init__(self):
+        self.settings = QSettings("ComfyTool", "VAEDecoder")
+        
+        # 默认值
+        self.defaults = {
+            "COMFYUI_PATH": "/Users/hao/comflowy/ComfyUI",
+            "VAE_MODELS_DIR": "/Volumes/BO/AI/models/VAE",
+            "DEFAULT_OUTPUT_DIR": os.path.join(os.path.dirname(os.path.abspath(__file__)), "output")
+        }
+
+    def get(self, key):
+        return self.settings.value(key, self.defaults.get(key, ""))
+
+    def set(self, key, value):
+        self.settings.setValue(key, value)
+
+# 初始化配置
+CONFIG = ConfigManager()
+
+# 获取当前路径（用于注入环境）
+COMFYUI_PATH = CONFIG.get("COMFYUI_PATH")
+VAE_MODELS_DIR = CONFIG.get("VAE_MODELS_DIR")
+
+# --- 环境注入 ---
+if os.path.exists(COMFYUI_PATH):
+    if COMFYUI_PATH not in sys.path:
+        sys.path.append(COMFYUI_PATH)
+else:
+    print(f"⚠️ 警告: 找不到 ComfyUI 路径: {COMFYUI_PATH}，请在 GUI 设置中修正。")
 
 # --- 核心模块导入 ---
+HAS_COMFY = False
 try:
     try:
         from safetensors.torch import load_file as load_safetensors
@@ -47,39 +80,88 @@ try:
 
     import comfy.sd
     import comfy.utils
+    HAS_COMFY = True
     print("✅ 成功导入 ComfyUI 核心模块")
 except ImportError as e:
-    print(f"❌ 导入失败: {e}")
-    sys.exit(1)
+    print(f"❌ 导入失败 (如果是首次运行，请点击设置配置路径): {e}")
 
-# --- 界面库导入 ---
-try:
-    from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
-                                QHBoxLayout, QFileDialog, QLineEdit, QDesktopWidget)
-    from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer
-    from PyQt5.QtGui import QDragEnterEvent, QDropEvent, QFont
-    
-    # 基础组件
-    from qfluentwidgets import (
-        PushButton, PrimaryPushButton, CardWidget, SubtitleLabel, CaptionLabel, 
-        BodyLabel, ProgressBar, ComboBox, Theme, setTheme, setThemeColor,
-        SmoothScrollArea, MessageBox
-    )
-except ImportError:
-    print("❌ 缺少界面库")
-    sys.exit(1)
+
+class ConfigDialog(QDialog):
+    """设置对话框"""
+    config_saved = pyqtSignal()
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("环境配置")
+        self.resize(500, 300)
+        self.setStyleSheet("background-color: #2b2b2b; color: white;")
+        
+        layout = QVBoxLayout(self)
+        form_layout = QFormLayout()
+        form_layout.setSpacing(15)
+
+        # 样式
+        style = "QLineEdit { padding: 8px; border-radius: 5px; background: #333; border: 1px solid #555; color: white; }"
+        label_style = "QLabel { font-size: 14px; font-weight: bold; color: #ddd; }"
+
+        # 输入框
+        self.comfy_edit = QLineEdit(CONFIG.get("COMFYUI_PATH"))
+        self.comfy_edit.setStyleSheet(style)
+        self.comfy_edit.setMinimumWidth(300)
+        self.vae_edit = QLineEdit(CONFIG.get("VAE_MODELS_DIR"))
+        self.vae_edit.setStyleSheet(style)
+        self.vae_edit.setMinimumWidth(300)
+        self.out_edit = QLineEdit(CONFIG.get("DEFAULT_OUTPUT_DIR"))
+        self.out_edit.setStyleSheet(style)
+        self.out_edit.setMinimumWidth(300)
+
+        # 添加行
+        l1 = QLabel("ComfyUI 路径:"); l1.setStyleSheet(label_style)
+        form_layout.addRow(l1, self.comfy_edit)
+        
+        l2 = QLabel("VAE 模型路径:"); l2.setStyleSheet(label_style)
+        form_layout.addRow(l2, self.vae_edit)
+        
+        l3 = QLabel("默认输出路径:"); l3.setStyleSheet(label_style)
+        form_layout.addRow(l3, self.out_edit)
+
+        layout.addLayout(form_layout)
+        layout.addStretch(1)
+
+        # 提示
+        tips = CaptionLabel("注: 修改 ComfyUI 路径后建议重启程序。")
+        tips.setStyleSheet("color: #888;")
+        layout.addWidget(tips)
+        
+        # 按钮
+        btn_layout = QHBoxLayout()
+        cancel_btn = PushButton("取消")
+        cancel_btn.clicked.connect(self.reject)
+        
+        save_btn = PrimaryPushButton("保存配置")
+        save_btn.clicked.connect(self.save_config)
+        
+        btn_layout.addWidget(cancel_btn)
+        btn_layout.addWidget(save_btn)
+        layout.addLayout(btn_layout)
+
+    def save_config(self):
+        CONFIG.set("COMFYUI_PATH", self.comfy_edit.text())
+        CONFIG.set("VAE_MODELS_DIR", self.vae_edit.text())
+        CONFIG.set("DEFAULT_OUTPUT_DIR", self.out_edit.text())
+        self.accept()
+        self.config_saved.emit()
 
 
 class VAEDecoderThread(QThread):
     progress = pyqtSignal(int, int)
-    finished_one = pyqtSignal(str, bool, str) # 文件名, 成功与否, 消息(包含时间)
+    finished_one = pyqtSignal(str, bool, str)
     log_message = pyqtSignal(str)
     finished_all = pyqtSignal()
-    
-    # 新增信号：通知UI某个文件开始处理了（用于UI状态更新）
-    started_processing = pyqtSignal(str) 
+    started_processing = pyqtSignal(str)
 
-    def __init__(self, latent_files: List[str], vae_path: str, output_dir: str):
+    def __init__(self, latent_files: List[str], vae_path: str, output_dir: str, 
+                 device_mode: str, dtype_mode: str):
         super().__init__()
         self.latent_files = latent_files
         self.vae_path = vae_path
@@ -87,32 +169,43 @@ class VAEDecoderThread(QThread):
         self.is_running = False
         self.vae = None
         
-        # --- 强制使用 MPS + Float32 ---
-        if torch.backends.mps.is_available():
+        # --- 硬件与精度配置 ---
+        self.device_mode = device_mode # 'MPS', 'CPU', 'CUDA'
+        self.dtype_mode = dtype_mode   # 'Float32', 'BFloat16', 'Float16'
+        
+        # 解析 Device
+        if self.device_mode == "MPS" and torch.backends.mps.is_available():
             self.device = torch.device("mps")
-            self.device_name = "MPS (GPU)"
+        elif self.device_mode == "CUDA" and torch.cuda.is_available():
+            self.device = torch.device("cuda")
         else:
             self.device = torch.device("cpu")
-            self.device_name = "CPU"
             
+        # 解析 Dtype
+        if self.dtype_mode == "BFloat16":
+            self.dtype = torch.bfloat16
+        elif self.dtype_mode == "Float16":
+            self.dtype = torch.float16
+        else:
+            self.dtype = torch.float32
+
         self.offload_device = torch.device("cpu")
-        self.dtype = torch.float32 
 
     def load_vae(self):
         try:
-            self.log_message.emit(f"🔄 正在读取文件: {os.path.basename(self.vae_path)} ...")
-            
+            self.log_message.emit(f"🔄 读取 VAE: {os.path.basename(self.vae_path)}")
+            self.log_message.emit(f"⚙️ 模式: {self.device_mode} | 精度: {self.dtype_mode}")
+
             vae_data = comfy.utils.load_torch_file(self.vae_path)
             
-            # --- 核心修复：清洗权重 ---
-            self.log_message.emit("🧹 正在清洗权重格式 (Force Float32)...")
+            # --- 动态权重清洗 ---
+            # 根据用户选择的精度，强制转换权重，防止不兼容
+            self.log_message.emit(f"🧹 正在转换权重格式至 {self.dtype_mode}...")
             new_vae_data = {}
             for k, v in vae_data.items():
                 if isinstance(v, torch.Tensor):
-                    if v.dtype in [torch.bfloat16, torch.float16]:
-                        new_vae_data[k] = v.to(dtype=torch.float32)
-                    else:
-                        new_vae_data[k] = v
+                    # 总是转为目标精度
+                    new_vae_data[k] = v.to(dtype=self.dtype)
                 else:
                     new_vae_data[k] = v
             
@@ -126,23 +219,22 @@ class VAEDecoderThread(QThread):
                 self.vae.first_stage_model.to(self.device)
                 self.vae.device = self.device
             
-            # --- 智能预热 (适配 SD vs FLUX) ---
+            # --- 智能预热 ---
             try:
-                # 先尝试标准 4 通道 (SD1.5, SDXL)
-                try:
-                    dummy = torch.zeros((1, 4, 8, 8), device=self.device, dtype=torch.float32)
-                    self.vae.decode(dummy)
-                    self.log_message.emit(f"✅ VAE 就绪 (SD/SDXL 4-Channel Mode)")
-                except RuntimeError as re:
-                    # 如果报错通道不匹配，尝试 16 通道 (FLUX)
-                    if "channels" in str(re):
-                        dummy = torch.zeros((1, 16, 8, 8), device=self.device, dtype=torch.float32)
+                # 尝试预热，使用用户选择的 dtype
+                dummy = torch.zeros((1, 4, 8, 8), device=self.device, dtype=self.dtype)
+                self.vae.decode(dummy)
+                self.log_message.emit(f"✅ VAE 预热成功 (4-Channel)")
+            except RuntimeError as re:
+                if "channels" in str(re):
+                    try:
+                        dummy = torch.zeros((1, 16, 8, 8), device=self.device, dtype=self.dtype)
                         self.vae.decode(dummy)
-                        self.log_message.emit(f"✅ VAE 就绪 (FLUX 16-Channel Mode)")
-                    else:
-                        raise re
-            except Exception as e:
-                self.log_message.emit(f"⚠️ VAE 预热非致命错误: {str(e)[:100]}...")
+                        self.log_message.emit(f"✅ VAE 预热成功 (16-Channel)")
+                    except Exception as e:
+                        self.log_message.emit(f"⚠️ 预热失败(忽略): {e}")
+                else:
+                    self.log_message.emit(f"⚠️ 预热警告: {re}")
 
             return True
         except Exception as e:
@@ -161,15 +253,15 @@ class VAEDecoderThread(QThread):
             return torch.load(file_path, map_location=self.offload_device, weights_only=False)
 
     def decode_single(self, latent_file: str) -> tuple:
-        start_time = time.time() # ⏱️ 计时开始
+        start_time = time.time()
         try:
             # 1. 读取
             try:
                 latent_data = self.load_latent_data(latent_file)
             except Exception as e:
-                return False, "", f"读取失败: {str(e)[:40]}"
+                return False, "", f"读取失败: {str(e)[:20]}"
 
-            # 2. 提取 Tensor
+            # 2. 提取
             latent_tensor = None
             if isinstance(latent_data, dict):
                 for key in ['samples', 'latent', 'latents', 'latent_tensor']:
@@ -191,24 +283,23 @@ class VAEDecoderThread(QThread):
             if latent_tensor.dim() == 3:
                 latent_tensor = latent_tensor.unsqueeze(0)
             
-            latent_input = latent_tensor.to(self.device, dtype=torch.float32)
+            # 输入也要转为目标设备和精度
+            latent_input = latent_tensor.to(self.device, dtype=self.dtype)
 
             # 4. 解码
             with torch.no_grad():
                 decoded_result = self.vae.decode(latent_input)
 
-            # 5. 后处理 (处理 Tuple)
+            # 5. 后处理
             if isinstance(decoded_result, tuple):
                 decoded_tensor = decoded_result[0]
             else:
                 decoded_tensor = decoded_result
 
-            # 移回 CPU
-            # shape: (Batch, Channels, Height, Width)
             decoded_cpu = decoded_tensor.cpu().float()
             del latent_input, decoded_result, decoded_tensor
 
-            # --- 批量保存循环 ---
+            # 6. 保存
             batch_count = decoded_cpu.shape[0]
             base_name = os.path.splitext(os.path.basename(latent_file))[0]
             saved_info = []
@@ -216,10 +307,9 @@ class VAEDecoderThread(QThread):
             from PIL import Image
 
             for i in range(batch_count):
-                img_tensor = decoded_cpu[i] # 取出单张 (C, H, W)
+                img_tensor = decoded_cpu[i]
                 image = np.array(img_tensor)
 
-                # 反归一化
                 if image.min() < 0:
                     image = (image + 1.0) / 2.0
                 image = np.clip(image, 0, 1.0)
@@ -229,22 +319,13 @@ class VAEDecoderThread(QThread):
                     image = np.transpose(image, (1, 2, 0))
 
                 img_obj = Image.fromarray(image)
-                
-                # 文件命名：文件名_00000.png
                 save_name = f"{base_name}_{i:05d}.png"
                 save_path = os.path.join(self.output_dir, save_name)
                 img_obj.save(save_path)
                 saved_info.append(save_name)
 
-            end_time = time.time() # ⏱️ 计时结束
-            duration = end_time - start_time
-            
-            # 构造成功消息
-            if batch_count == 1:
-                msg = f"耗时 {duration:.2f}s"
-            else:
-                msg = f"保存 {batch_count} 张 (耗时 {duration:.2f}s)"
-
+            duration = time.time() - start_time
+            msg = f"耗时 {duration:.2f}s" if batch_count == 1 else f"保存 {batch_count} 张 ({duration:.2f}s)"
             return True, saved_info[0], msg
 
         except Exception as e:
@@ -262,17 +343,11 @@ class VAEDecoderThread(QThread):
 
         self.log_message.emit(f"🚀 开始处理 {len(self.latent_files)} 个文件...")
 
-        # 为了准确统计UI上的状态，这里我们不使用 as_completed 的无序返回
-        # 而是按顺序提交，但依然在线程池中运行
-        # 由于 MPS 限制 max_workers=1，这实际上是串行的，但不会阻塞 UI 线程
         with ThreadPoolExecutor(max_workers=1) as executor:
             for i, file_path in enumerate(self.latent_files):
                 if not self.is_running: break
                 
-                # 通知 UI 开始处理该文件 (用于变色或显示 "处理中...")
                 self.started_processing.emit(file_path)
-                
-                # 提交任务并等待结果 (因为是 max_workers=1，可以直接 result() 等待，或者用 future)
                 future = executor.submit(self.decode_single, file_path)
                 
                 try:
@@ -284,7 +359,6 @@ class VAEDecoderThread(QThread):
                     else:
                         self.log_message.emit(f"❌ 失败: {os.path.basename(file_path)} | {msg}")
                     
-                    # 显存清理
                     if i % 3 == 0 and torch.backends.mps.is_available():
                         torch.mps.empty_cache()
                         
@@ -328,7 +402,6 @@ class LatentFileCard(CardWidget):
         
         layout.addStretch(1)
         
-        # 状态标签
         self.status = BodyLabel("等待中")
         self.status.setStyleSheet("color: #aaa;")
         layout.addWidget(self.status)
@@ -344,8 +417,7 @@ class LatentFileCard(CardWidget):
 
     def set_status(self, status, msg=""):
         if status == "success":
-            # 显示成功和时间
-            self.status.setText(f"✅ {msg}") # msg 包含了 "耗时 3.2s"
+            self.status.setText(f"✅ {msg}")
             self.status.setStyleSheet("color: #4cc14e;")
         elif status == "error":
             self.status.setText("❌ 失败")
@@ -358,13 +430,15 @@ class LatentFileCard(CardWidget):
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("ComfyUI Latent 解码器 (Pro)")
-        self.resize(1000, 700)
+        self.setWindowTitle("ComfyUI Latent 解码器 ( BOZOYAN - Pro V1.1)")
+        self.resize(1000, 750)
         self.center_window()
         self.latent_files = []
         self.vae_map = {}
+        
+        # 自动加载上次的 VAE 和 输出路径 (这里简化处理，直接用 ConfigManager)
         self.init_ui()
-        self.load_vae_list()
+        self.refresh_settings() # 加载列表
 
     def center_window(self):
         qr = self.frameGeometry()
@@ -379,14 +453,43 @@ class MainWindow(QMainWindow):
         layout.setContentsMargins(20, 20, 20, 20)
         layout.setSpacing(20)
 
-        # 左侧
+        # --- 左侧控制栏 ---
         left = CardWidget()
         left.setFixedWidth(320)
         l_layout = QVBoxLayout(left)
         l_layout.setSpacing(15)
         
-        l_layout.addWidget(SubtitleLabel("控制面板"))
-        l_layout.addWidget(BodyLabel("选择 VAE:"))
+        # 标题栏 + 设置按钮
+        title_layout = QHBoxLayout()
+        title = SubtitleLabel("控制面板")
+        title.setFont(QFont("PingFang SC", 18, QFont.Bold))
+        
+        settings_btn = ToolButton(FluentIcon.SETTING)
+        settings_btn.setToolTip("配置路径")
+        settings_btn.clicked.connect(self.open_settings)
+        
+        title_layout.addWidget(title)
+        title_layout.addStretch(1)
+        title_layout.addWidget(settings_btn)
+        l_layout.addLayout(title_layout)
+        
+        # --- 硬件与精度选择 (新增) ---
+        l_layout.addWidget(BodyLabel("运行设备:"))
+        self.device_combo = ComboBox()
+        self.device_combo.addItems(["MPS", "CPU", "CUDA"])
+        self.device_combo.setCurrentText("MPS") # 默认 MPS
+        l_layout.addWidget(self.device_combo)
+        
+        l_layout.addWidget(BodyLabel("计算精度:"))
+        self.dtype_combo = ComboBox()
+        self.dtype_combo.addItems(["Float32", "BFloat16", "Float16"])
+        self.dtype_combo.setCurrentText("Float32") # 默认 Float32 (macOS 推荐)
+        l_layout.addWidget(self.dtype_combo)
+
+        l_layout.addSpacing(10)
+
+        # VAE 选择
+        l_layout.addWidget(BodyLabel("选择 VAE 模型:"))
         self.vae_combo = ComboBox()
         l_layout.addWidget(self.vae_combo)
         
@@ -396,7 +499,7 @@ class MainWindow(QMainWindow):
         
         l_layout.addSpacing(10)
         l_layout.addWidget(BodyLabel("输出位置:"))
-        self.out_edit = QLineEdit(DEFAULT_OUTPUT_DIR)
+        self.out_edit = QLineEdit(CONFIG.get("DEFAULT_OUTPUT_DIR"))
         self.out_edit.setReadOnly(True)
         self.out_edit.setStyleSheet("padding:8px;background:#333;color:#fff;border:1px solid #444;border-radius:5px;")
         l_layout.addWidget(self.out_edit)
@@ -422,7 +525,7 @@ class MainWindow(QMainWindow):
         
         layout.addWidget(left)
 
-        # 右侧
+        # --- 右侧列表 ---
         right = QWidget()
         r_layout = QVBoxLayout(right)
         r_layout.setContentsMargins(0,0,0,0)
@@ -448,18 +551,40 @@ class MainWindow(QMainWindow):
         layout.addWidget(right)
         self.setAcceptDrops(True)
 
+    def open_settings(self):
+        dlg = ConfigDialog(self)
+        dlg.config_saved.connect(self.refresh_settings)
+        dlg.exec_()
+
+    def refresh_settings(self):
+        # 刷新全局变量和界面显示
+        global COMFYUI_PATH, VAE_MODELS_DIR
+        COMFYUI_PATH = CONFIG.get("COMFYUI_PATH")
+        VAE_MODELS_DIR = CONFIG.get("VAE_MODELS_DIR")
+        self.out_edit.setText(CONFIG.get("DEFAULT_OUTPUT_DIR"))
+        self.load_vae_list()
+
     def load_vae_list(self):
         self.vae_combo.clear()
         self.vae_map = {}
         if not os.path.exists(VAE_MODELS_DIR):
-            self.vae_combo.addItem("❌ 路径错误")
+            self.vae_combo.addItem("❌ 路径错误 (请点击设置)")
             return
         
         valid = ('.safetensors', '.pt', '.pth', '.ckpt')
-        for f in os.listdir(VAE_MODELS_DIR):
-            if f.lower().endswith(valid):
-                self.vae_map[f] = os.path.join(VAE_MODELS_DIR, f)
-                self.vae_combo.addItem(f)
+        try:
+            for f in os.listdir(VAE_MODELS_DIR):
+                if f.lower().endswith(valid):
+                    self.vae_map[f] = os.path.join(VAE_MODELS_DIR, f)
+                    self.vae_combo.addItem(f)
+            
+            # --- 自动选中 ae.safetensors ---
+            index = self.vae_combo.findText("ae.safetensors")
+            if index != -1:
+                self.vae_combo.setCurrentIndex(index)
+                
+        except Exception as e:
+            self.vae_combo.addItem(f"错误: {e}")
 
     def dragEnterEvent(self, e: QDragEnterEvent):
         if e.mimeData().hasUrls(): e.accept()
@@ -510,12 +635,18 @@ class MainWindow(QMainWindow):
 
     def change_dir(self):
         d = QFileDialog.getExistingDirectory(self)
-        if d: self.out_edit.setText(d)
+        if d: 
+            self.out_edit.setText(d)
+            CONFIG.set("DEFAULT_OUTPUT_DIR", d) # 同时也保存到配置
 
     def start(self):
+        if not HAS_COMFY:
+            MessageBox("错误", "ComfyUI 模块未加载，请检查设置中的路径是否正确。", self).exec()
+            return
+            
         if not self.latent_files: return
         vae = self.vae_combo.currentText()
-        if not vae or vae.startswith("❌"): 
+        if not vae or vae.startswith("❌") or vae.startswith("错误"): 
             MessageBox("错误", "请选择有效的模型", self).exec()
             return
         
@@ -523,18 +654,26 @@ class MainWindow(QMainWindow):
         self.prog.setVisible(True)
         self.prog.setRange(0, len(self.latent_files))
         
-        self.th = VAEDecoderThread(self.latent_files, self.vae_map[vae], self.out_edit.text())
+        # 获取硬件与精度参数
+        device = self.device_combo.currentText()
+        dtype = self.dtype_combo.currentText()
         
-        # 绑定信号
-        self.th.started_processing.connect(self.on_one_start) # 新增：处理开始
-        self.th.finished_one.connect(self.on_one_done)        # 处理结束
+        self.th = VAEDecoderThread(
+            self.latent_files, 
+            self.vae_map[vae], 
+            self.out_edit.text(),
+            device,
+            dtype
+        )
+        
+        self.th.started_processing.connect(self.on_one_start)
+        self.th.finished_one.connect(self.on_one_done)
         self.th.progress.connect(self.prog.setValue)
         self.th.log_message.connect(print)
         self.th.finished_all.connect(self.on_all_done)
         
         self.th.start()
 
-    # 新增：某个文件开始处理时，更新 UI 状态为 "处理中"
     def on_one_start(self, path):
         for i in range(self.list_layout.count()):
             w = self.list_layout.itemAt(i).widget()
