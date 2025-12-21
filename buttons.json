@@ -159,6 +159,6 @@
     "title": "VAE 图片解码",
     "env": "comflowy",
     "cwd": ".",
-    "cmd": "python vae.py"
+    "cmd": "PYTHONPATH=/Users/hao/comflowy/ComfyUI:$PYTHONPATH /Users/hao/miniconda3/envs/comflowy/bin/python vae.py"
   }
 ]
