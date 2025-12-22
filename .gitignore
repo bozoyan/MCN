@@ -12,6 +12,7 @@ output
 speech
 SRT
 
+vae.json
 storyboard_config.json
 video_settings.json
 

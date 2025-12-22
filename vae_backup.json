@@ -1,0 +1,8 @@
+{
+    "COMFYUI_PATH": "/Users/hao/comflowy/ComfyUI",
+    "VAE_MODELS_DIR": "/Volumes/BO/AI/models/VAE",
+    "DEFAULT_OUTPUT_DIR": "/Users/yons/AI/MCN/output",
+    "THEME_MODE": "dark",
+    "DEVICE_MODE": "MPS",
+    "DTYPE_MODE": "Float32"
+}
