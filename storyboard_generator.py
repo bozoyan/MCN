@@ -1507,8 +1507,13 @@ class ModelSettingsDialog(QDialog):
 
         # 预定义的模型选项
         self.bizyair_app_id_models = [
-            ("40350_Z-image模型ID_39808", 39808),
-            ("38654_flux-dev-HighRes模型ID_41528", 41528),
+            ("38654_Z-image模型ID_39808", 39808),
+            ("33820_FLUX krea 文生5图模型ID_34893", 34893),
+            ("40543_F.1 Krea 生5图模型ID_41725", 41725),
+            ("40516_Real-F.1 文生5图模型ID_41697", 41697),
+            ("40372_Qwen Image 5图模型ID_41552", 41552),
+            ("40350_flux-dev-HighRes模型ID_41528", 41528),
+            ("38774_Real-NSFW 文生5图模型ID_39928", 39928),
         ]
 
         # 添加预定义选项到下拉框
@@ -2735,8 +2740,13 @@ class MainWindow(FluentWindow):
 
         # 预定义的模型选项
         self.bizyair_app_id_models = [
-            ("40350_Z-image模型ID_39808", 39808),
-            ("38654_flux-dev-HighRes模型ID_41528", 41528),
+            ("38654_Z-image模型ID_39808", 39808),
+            ("33820_FLUX krea 文生5图模型ID_34893", 34893),
+            ("40543_F.1 Krea 生5图模型ID_41725", 41725),
+            ("40516_Real-F.1 文生5图模型ID_41697", 41697),
+            ("40372_Qwen Image 5图模型ID_41552", 41552),
+            ("40350_flux-dev-HighRes模型ID_41528", 41528),
+            ("38774_Real-NSFW 文生5图模型ID_39928", 39928),
         ]
 
         # 添加预定义选项到下拉框
