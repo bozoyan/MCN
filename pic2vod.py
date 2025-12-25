@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-图片转视频生成模块 (pic2vod) - 增强且优化版
+图片转视频生成模块 (pic2vod) - 增强且优化版-V2.0.1
 基于 BizyAir API 的图片转视频功能，支持批量生成和更美观的界面
 """
 
@@ -193,6 +193,7 @@ class VideoSettingsManager:
                 "key_source": "file",  # 密钥来源：file, env, text
                 "web_app_id_single": 39386,  # 单图片转视频 Web App ID
                 "web_app_id_frames": 39388,  # 首尾帧图片转视频 Web App ID
+                "web_app_id_video": 38808,  # 视频换人物 Web App ID
                 "api_url": "https://api.bizyair.cn/w/v1/webapp/task/openapi/create"
             },
             "ui_settings": {
@@ -250,29 +251,31 @@ class VideoSettingsManager:
         settings = self.load_settings()
         return settings.get("api_settings", self.default_settings["api_settings"])
 
-    def set_api_settings(self, key_file="", web_app_id_single=39386, web_app_id_frames=39388, api_url=None, key_text="", key_source="file"):
+    def set_api_settings(self, key_file="", web_app_id_single=39386, web_app_id_frames=39388, web_app_id_video=38808, api_url=None, key_text="", key_source="file"):
         """设置API参数
-        
+
         Args:
             key_file: 密钥文件路径
             web_app_id_single: 单图片转视频 Web App ID
             web_app_id_frames: 首尾帧图片转视频 Web App ID
+            web_app_id_video: 视频换人物 Web App ID
             api_url: API 请求地址
             key_text: 密钥文本（直接输入的密钥）
             key_source: 密钥来源 (file, env, text)
         """
         settings = self.load_settings()
-        
+
         current_api_url = settings.get("api_settings", {}).get("api_url", "https://api.bizyair.cn/w/v1/webapp/task/openapi/create")
         if api_url is None:
             api_url = current_api_url
-            
+
         settings["api_settings"] = {
             "key_file": key_file,
             "key_text": key_text,
             "key_source": key_source,
             "web_app_id_single": web_app_id_single,
             "web_app_id_frames": web_app_id_frames,
+            "web_app_id_video": web_app_id_video,
             "api_url": api_url
         }
         return self.save_settings(settings)
@@ -302,6 +305,7 @@ class APIKeyManager:
         self.current_key_index = 0
         self.web_app_id_single = 39386  # 单图片转视频 Web App ID
         self.web_app_id_frames = 39388  # 首尾帧图片转视频 Web App ID
+        self.web_app_id_video = 38808  # 视频换人物 Web App ID
         self.key_source = "file"  # "file", "env" 或 "text"
 
     def load_keys_from_file(self, file_path):
@@ -590,28 +594,28 @@ class SingleVideoGenerationWorker(QThread):
                 # 首尾帧图片转视频模式
                 end_image_input = self.task.get('end_image_input', '')
                 end_image_value = end_image_input
-                
+
                 # 处理尾图（与首图类似的处理逻辑）
                 if isinstance(end_image_input, str) and not end_image_input.startswith('http') and not end_image_input.startswith('data:'):
                     end_image_path = self.task.get('end_image_path', '')
                     if end_image_path and os.path.exists(end_image_path):
                         with open(end_image_path, 'rb') as f:
                             end_image_data = f.read()
-                        
+
                         # 压缩尾图
                         max_size = 8 * 1024 * 1024
                         if len(end_image_data) > max_size:
                             self.log_message(f"⚠️ 尾图过大({len(end_image_data)}字节)，开始压缩...")
                             end_image_data = Utils.compress_image(end_image_data, self.log_updated)
-                        
+
                         import imghdr
                         detected_type = imghdr.what(None, end_image_data)
                         end_image_type = f'image/{detected_type}' if detected_type else 'image/jpeg'
-                        
+
                         end_base64_data = base64.b64encode(end_image_data).decode('utf-8')
                         end_image_value = f"data:{end_image_type};base64,{end_base64_data}"
                         self.log_message(f"✅ 尾图已转换为data URL格式 ({end_image_type})")
-                
+
                 bizyair_request_data = {
                     "web_app_id": self.api_manager.web_app_id_frames,  # 使用首尾帧 Web App ID
                     "suppress_preview_output": False,
@@ -624,6 +628,41 @@ class SingleVideoGenerationWorker(QThread):
                     }
                 }
                 self.log_message(f"📋 使用首尾帧模式，Web App ID: {self.api_manager.web_app_id_frames}")
+            elif self.video_mode == "video":
+                # 视频换人物模式
+                video_input = self.task.get('video_input', '')
+                video_value = video_input
+
+                # 处理视频输入（本地文件或URL）
+                if isinstance(video_input, str) and not video_input.startswith('http') and not video_input.startswith('data:'):
+                    video_path = self.task.get('video_path', '')
+                    if video_path and os.path.exists(video_path):
+                        # 对于本地视频文件，读取并转换为base64
+                        with open(video_path, 'rb') as f:
+                            video_data = f.read()
+
+                        # 检查视频文件大小（视频文件可能很大）
+                        max_size = 100 * 1024 * 1024  # 100MB限制
+                        if len(video_data) > max_size:
+                            self.log_message(f"⚠️ 视频文件过大({len(video_data)}字节)，可能影响上传速度")
+
+                        # 转换为base64 data URL
+                        video_base64 = base64.b64encode(video_data).decode('utf-8')
+                        video_value = f"data:video/mp4;base64,{video_base64}"
+                        self.log_message(f"✅ 视频已转换为data URL格式 (video/mp4)")
+
+                bizyair_request_data = {
+                    "web_app_id": self.api_manager.web_app_id_video,  # 使用视频换人物 Web App ID
+                    "suppress_preview_output": False,
+                    "input_values": {
+                        "196:LoadVideo.file": video_value,  # 视频文件
+                        "57:LoadImage.image": image_value,  # 目标人物图片
+                        "65:WanVideoTextEncodeCached.positive_prompt": prompt,  # 提示词
+                        "220:ImageResizeKJv2.width": width,
+                        "220:ImageResizeKJv2.height": height
+                    }
+                }
+                self.log_message(f"📋 使用视频换人物模式，Web App ID: {self.api_manager.web_app_id_video}")
             else:
                 # 单图片转视频模式（原有逻辑）
                 bizyair_request_data = {
@@ -1099,10 +1138,10 @@ class ImageDropWidget(QFrame):
                 # 转换为base64
                 with open(file_path, 'rb') as f:
                     image_data = f.read()
-                    
+
                     # 尝试压缩
                     compressed_data = Utils.compress_image(image_data)
-                    
+
                     self.base64_data = base64.b64encode(compressed_data).decode('utf-8')
 
                 self.current_image_path = file_path
@@ -1118,6 +1157,119 @@ class ImageDropWidget(QFrame):
         self.current_image_path = ""
         self.base64_data = ""
         self.current_image_data = ""
+
+# --- 7.1 视频拖拽上传小部件 ---
+class VideoDropWidget(QFrame):
+    """支持拖拽上传的视频区域"""
+    video_dropped = pyqtSignal(str, str)  # video_path, video_url_or_base64
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setAcceptDrops(True)
+        self.current_video_path = ""
+        self.video_data = ""  # 可以是URL或base64编码的视频数据
+        self.init_ui()
+
+    def init_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(15, 15, 15, 15)
+
+        # 视频显示区域（使用文本提示）
+        self.video_label = QLabel()
+        self.video_label.setFixedSize(260, 160)
+        self.video_label.setStyleSheet("""
+            QLabel {
+                border: 2px dashed #505050;
+                border-radius: 8px;
+                background-color: #2a2a2a;
+                color: #888888;
+                font-size: 13px;
+            }
+        """)
+        self.video_label.setAlignment(Qt.AlignCenter)
+        self.video_label.setText("请拖拽视频到这里\n或点击选择文件")
+        layout.addWidget(self.video_label, alignment=Qt.AlignCenter)
+
+        # 选择文件按钮
+        self.select_btn = PushButton("选择视频文件")
+        self.select_btn.setFixedHeight(32)
+        self.select_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #333333;
+                border: 1px solid #404040;
+                border-radius: 6px;
+                color: #ffffff;
+                font-size: 13px;
+                padding: 6px 12px;
+            }
+            QPushButton:hover {
+                background-color: #3a3a3a;
+                border: 1px solid #4a90e2;
+            }
+            QPushButton:pressed {
+                background-color: #2a2a2a;
+            }
+        """)
+        self.select_btn.clicked.connect(self.select_file)
+        layout.addWidget(self.select_btn)
+
+    def dragEnterEvent(self, event: QDragEnterEvent):
+        if event.mimeData().hasUrls():
+            event.acceptProposedAction()
+            self.setStyleSheet("background-color: #e3f2fd;")
+
+    def dragLeaveEvent(self, event):
+        self.setStyleSheet("")
+
+    def dropEvent(self, event: QDropEvent):
+        self.setStyleSheet("")
+        files = [u.toLocalFile() for u in event.mimeData().urls()]
+        for file_path in files:
+            if file_path.lower().endswith(('.mp4', '.avi', '.mov', '.mkv', '.webm')):
+                self.load_video(file_path)
+                break
+
+    def select_file(self):
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "选择视频文件",
+            "",
+            "视频文件 (*.mp4 *.avi *.mov *.mkv *.webm)"
+        )
+        if file_path:
+            self.load_video(file_path)
+
+    def load_video(self, file_path):
+        try:
+            self.current_video_path = file_path
+            # 对于本地视频文件，我们直接使用文件路径
+            # 也可以选择读取并编码为base64，但视频文件通常很大
+            self.video_data = file_path  # 使用本地路径
+
+            # 更新显示
+            file_name = os.path.basename(file_path)
+            self.video_label.setText(f"✅ 已加载视频:\n{file_name}")
+
+            self.video_dropped.emit(file_path, self.video_data)
+
+        except Exception as e:
+            QMessageBox.warning(self, "错误", f"加载视频失败: {str(e)}")
+
+    def load_video_from_url(self, url):
+        """从URL加载视频"""
+        try:
+            self.current_video_path = ""
+            self.video_data = url
+            self.video_label.setText(f"✅ 已加载视频URL:\n{url[:50]}...")
+            self.video_dropped.emit(url, url)
+        except Exception as e:
+            QMessageBox.warning(self, "错误", f"加载视频URL失败: {str(e)}")
+
+    def clear_video(self):
+        self.video_label.clear()
+        self.video_label.setText("请拖拽视频到这里\n或点击选择文件")
+        self.current_video_path = ""
+        self.video_data = ""
 
 # --- 8. 任务状态卡片 (TaskStatusCard) ---
 class TaskStatusCard(CardWidget):
@@ -1975,7 +2127,7 @@ class VideoGenerationWidget(QWidget):
         dialog = APISettingsDialog(self.api_manager, self)
         if dialog.exec_() == QDialog.Accepted:
             self.update_key_status()
-            self.webapp_id_label.setText(f"单图:{self.api_manager.web_app_id_single} | 首尾帧:{self.api_manager.web_app_id_frames}")
+            self.webapp_id_label.setText(f"单图:{self.api_manager.web_app_id_single} | 首尾帧:{self.api_manager.web_app_id_frames} | 换人物:{self.api_manager.web_app_id_video}")
             self.save_settings()
 
     def update_key_status(self):
@@ -2081,6 +2233,10 @@ class VideoGenerationWidget(QWidget):
         frames_tab = self.create_frames_image_tab()
         self.mode_tabs.addTab(frames_tab, "首尾帧转视频")
 
+        # 视频换人物选项卡
+        video_tab = self.create_video_replace_tab()
+        self.mode_tabs.addTab(video_tab, "视频换人物")
+
         layout.addWidget(self.mode_tabs)
 
         return panel
@@ -2173,6 +2329,134 @@ class VideoGenerationWidget(QWidget):
 
         return tab
 
+    def create_video_replace_tab(self):
+        """创建视频换人物选项卡"""
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+        layout.setSpacing(6)
+        layout.setContentsMargins(8, 8, 8, 8)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setStyleSheet("""
+            QScrollArea { background-color: #2A2A2A; border: none; }
+            QScrollBar:vertical { background-color: #2a2a2a; width: 8px; border-radius: 4px; }
+            QScrollBar::handle:vertical { background-color: #4a4a4a; border-radius: 4px; min-height: 20px; }
+            QScrollBar::handle:vertical:hover { background-color: #5a5a5a; }
+        """)
+
+        scroll_widget = QWidget()
+        scroll_widget.setStyleSheet("QWidget { background-color: #2A2A2A; }")
+        scroll_layout = QVBoxLayout(scroll_widget)
+        scroll_layout.setSpacing(6)
+
+        # 视频输入组
+        video_input_label = QLabel("源视频文件:")
+        video_input_label.setStyleSheet("color: #ffffff; font-size: 14px; font-weight: bold; padding: 5px 0;")
+        scroll_layout.addWidget(video_input_label)
+
+        # 视频输入方式选择
+        self.video_input_type_combo = ComboBox()
+        self.video_input_type_combo.addItems(["本地文件上传", "视频URL"])
+        self.video_input_type_combo.setFixedHeight(32)
+        self.video_input_type_combo.setStyleSheet("""
+            QComboBox {
+                background-color: #333333;
+                border: 1px solid #505050;
+                border-radius: 4px;
+                color: #ffffff;
+                padding: 4px 10px;
+                min-height: 20px;
+            }
+            QComboBox:hover {
+                border: 1px solid #4a90e2;
+            }
+            QComboBox::drop-down {
+                border: none;
+                background-color: #404040;
+                width: 20px;
+            }
+            QComboBox QAbstractItemView {
+                background-color: #333333;
+                border: 1px solid #505050;
+                selection-background-color: #4a90e2;
+                color: #ffffff;
+            }
+        """)
+        self.video_input_type_combo.currentIndexChanged.connect(self.on_video_input_type_changed)
+        scroll_layout.addWidget(self.video_input_type_combo)
+
+        # 视频URL输入框
+        self.video_url_widget = QWidget()
+        video_url_layout = QVBoxLayout(self.video_url_widget)
+        video_url_layout.setContentsMargins(0, 0, 0, 0)
+        self.video_url_edit = LineEdit()
+        self.video_url_edit.setFixedHeight(32)
+        self.video_url_edit.setPlaceholderText("输入视频URL地址...")
+        self.video_url_edit.setStyleSheet("""
+            QLineEdit {
+                background-color: #333333;
+                border: 1px solid #505050;
+                border-radius: 4px;
+                color: #ffffff;
+                padding: 4px 10px;
+            }
+            QLineEdit:hover {
+                border: 1px solid #4a90e2;
+            }
+        """)
+        video_url_layout.addWidget(self.video_url_edit)
+        scroll_layout.addWidget(self.video_url_widget)
+
+        # 视频文件上传组件
+        self.video_upload_widget = QWidget()
+        video_upload_layout = QVBoxLayout(self.video_upload_widget)
+        video_upload_layout.setContentsMargins(0, 0, 0, 0)
+        self.video_drop_widget = VideoDropWidget()
+        self.video_drop_widget.video_dropped.connect(self.on_video_dropped)
+        video_upload_layout.addWidget(self.video_drop_widget)
+        scroll_layout.addWidget(self.video_upload_widget)
+
+        self.video_input_type_combo.setCurrentIndex(0)
+        self.on_video_input_type_changed(0)
+
+        # 目标人物图片输入组
+        target_image_label = QLabel("目标人物图片:")
+        target_image_label.setStyleSheet("color: #ffffff; font-size: 14px; font-weight: bold; padding: 5px 0;")
+        scroll_layout.addWidget(target_image_label)
+
+        self.video_target_drop_widget = ImageDropWidget()
+        self.video_target_drop_widget.image_dropped.connect(self.on_video_target_image_dropped)
+        scroll_layout.addWidget(self.video_target_drop_widget)
+
+        # 提示词输入组
+        prompt_group = self.create_prompt_group()
+        scroll_layout.addWidget(prompt_group)
+
+        # 批量任务组（视频换人物模式）
+        batch_group_video = self.create_batch_group_video()
+        scroll_layout.addWidget(batch_group_video)
+
+        scroll.setWidget(scroll_widget)
+        layout.addWidget(scroll)
+
+        return tab
+
+    def on_video_input_type_changed(self, index):
+        """视频输入方式改变"""
+        is_url = index == 1
+        self.video_url_widget.setVisible(is_url)
+        self.video_upload_widget.setVisible(not is_url)
+
+    def on_video_dropped(self, file_path, video_data):
+        """处理视频拖拽事件"""
+        self.add_log(f"📁 已加载视频: {os.path.basename(file_path) if file_path else 'URL'}")
+
+    def on_video_target_image_dropped(self, file_path, base64_data):
+        """处理目标人物图片拖拽事件"""
+        self.add_log(f"📁 已加载目标人物图片: {os.path.basename(file_path)}")
+
     def create_image_input_group(self):
         """创建图片输入组（深色主题）"""
         group = QGroupBox("")
@@ -2261,7 +2545,42 @@ class VideoGenerationWidget(QWidget):
         layout.addLayout(add_task_layout)
 
         return group
-    
+
+    def create_batch_group_video(self):
+        """创建批量任务组（视频换人物模式）"""
+        group = QGroupBox("")
+        layout = QVBoxLayout(group)
+        layout.setSpacing(0)
+
+        self.task_list_widget_video = QWidget()
+        self.task_list_layout_video = QVBoxLayout(self.task_list_widget_video)
+        self.task_list_layout_video.setSpacing(0)
+
+        self.task_scroll_video = QScrollArea()
+        self.task_scroll_video.setWidgetResizable(True)
+        self.task_scroll_video.setFixedHeight(130)
+        self.task_scroll_video.setWidget(self.task_list_widget_video)
+
+        task_title = QLabel("待处理任务:")
+        task_title.setStyleSheet("color: #ffffff; font-size: 18px; font-weight: bold; padding: 2px 0;")
+        layout.addWidget(task_title)
+        layout.addWidget(self.task_scroll_video)
+
+        add_task_layout = QHBoxLayout()
+        self.add_task_btn_video = PushButton("+ 添加到任务列表 +")
+        self.add_task_btn_video.setFixedSize(240, 36)
+        self.add_task_btn_video.clicked.connect(self.add_to_batch_tasks_video)
+        add_task_layout.addWidget(self.add_task_btn_video)
+
+        self.clear_tasks_btn_video = PushButton("X 清空任务 X")
+        self.clear_tasks_btn_video.setFixedSize(240, 36)
+        self.clear_tasks_btn_video.clicked.connect(self.clear_batch_tasks_video)
+        add_task_layout.addWidget(self.clear_tasks_btn_video)
+
+        layout.addLayout(add_task_layout)
+
+        return group
+
     # 初始化首尾帧任务列表
     def init_frames_tasks(self):
         """初始化首尾帧任务列表"""
@@ -2604,6 +2923,113 @@ class VideoGenerationWidget(QWidget):
         self.update_task_list_display_frames()
         self.add_log("🗑️ 已清空所有首尾帧任务")
 
+    # 视频换人物模式的任务管理方法
+    def add_to_batch_tasks_video(self):
+        """添加到批量任务列表（视频换人物模式）"""
+        # 初始化视频换人物任务列表
+        if not hasattr(self, 'batch_tasks_video'):
+            self.batch_tasks_video = []
+
+        # 获取视频输入
+        if self.video_input_type_combo.currentIndex() == 1:
+            # URL输入
+            video_input = self.video_url_edit.text().strip()
+            video_path = ""
+        else:
+            # 本地文件
+            video_input = self.video_drop_widget.video_data
+            video_path = self.video_drop_widget.current_video_path
+
+        if not video_input:
+            QMessageBox.warning(self, "警告", "请先选择源视频文件")
+            return
+
+        # 获取目标人物图片
+        target_image_input = self.video_target_drop_widget.base64_data
+        if not target_image_input:
+            QMessageBox.warning(self, "警告", "请先选择目标人物图片")
+            return
+
+        prompt = self.prompt_edit.toPlainText().strip()
+        if not prompt:
+            QMessageBox.warning(self, "警告", "请输入视频换人物提示词")
+            return
+
+        task = {
+            'name': f"视频换人物任务_{len(self.batch_tasks_video)+1}",
+            'video_input': video_input,
+            'video_path': video_path,
+            'image_input': target_image_input,
+            'image_path': self.video_target_drop_widget.current_image_path,
+            'prompt': prompt,
+            'width': self.width_spin.value(),
+            'height': self.height_spin.value(),
+            'num_frames': 0,  # 视频换人物不需要帧数
+            'timestamp': datetime.now().isoformat(),
+            'video_mode': 'video'  # 标记为视频换人物模式
+        }
+
+        self.batch_tasks_video.append(task)
+        self.update_task_list_display_video()
+        self.add_log(f"📝 已添加视频换人物任务: {task['name']}")
+
+    def update_task_list_display_video(self):
+        """更新任务列表显示（视频换人物模式）"""
+        while self.task_list_layout_video.count():
+            item = self.task_list_layout_video.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
+        if hasattr(self, 'batch_tasks_video'):
+            for i, task in enumerate(self.batch_tasks_video):
+                task_card = self.create_task_card_video(task, i)
+                self.task_list_layout_video.addWidget(task_card)
+
+    def create_task_card_video(self, task, index):
+        """创建任务卡片（视频换人物模式）"""
+        card = CardWidget()
+        card.setFixedHeight(48)
+        layout = QHBoxLayout(card)
+        layout.setContentsMargins(10, 5, 10, 5)
+
+        info_layout = QVBoxLayout()
+        name_label = QLabel(task['name'])
+        name_label.setStyleSheet("font-weight: bold; color: #ffffff; font-size: 14px;")
+        info_layout.addWidget(name_label)
+
+        info_text = f"视频换人物 · {task['width']}×{task['height']}"
+        info_label = QLabel(info_text)
+        info_label.setStyleSheet("color: #cccccc; font-size: 12px;")
+        info_layout.addWidget(info_label)
+
+        layout.addLayout(info_layout)
+        layout.addStretch()
+
+        delete_btn = PushButton("X")
+        delete_btn.setFixedSize(30, 30)
+        delete_btn.clicked.connect(lambda: self.remove_task_video(index))
+        layout.addWidget(delete_btn)
+
+        return card
+
+    def remove_task_video(self, index):
+        """删除任务（视频换人物模式）"""
+        if not hasattr(self, 'batch_tasks_video'):
+            return
+        if 0 <= index < len(self.batch_tasks_video):
+            task_name = self.batch_tasks_video[index]['name']
+            del self.batch_tasks_video[index]
+            self.update_task_list_display_video()
+            self.add_log(f"🗑️ 已删除任务: {task_name}")
+
+    def clear_batch_tasks_video(self):
+        """清空批量任务（视频换人物模式）"""
+        if not hasattr(self, 'batch_tasks_video'):
+            self.batch_tasks_video = []
+        self.batch_tasks_video.clear()
+        self.update_task_list_display_video()
+        self.add_log("🗑️ 已清空所有视频换人物任务")
+
     # ... (create_result_panel, clear_task_status_cards 方法不变) ...
     def create_result_panel(self):
         """创建结果展示面板（深色主题）"""
@@ -2734,10 +3160,10 @@ class VideoGenerationWidget(QWidget):
 
     # ... (generate_single_video, generate_batch_videos, execute_concurrent_tasks 方法不变) ...
     def generate_single_video(self):
-        """生成单个视频 - 支持单图片和首尾帧两种模式"""
+        """生成单个视频 - 支持单图片、首尾帧和视频换人物三种模式"""
         # 获取当前选项卡索引
         current_tab = self.mode_tabs.currentIndex()
-        
+
         if current_tab == 0:
             # 单图片转视频模式
             input_type = self.input_type_combo.currentIndex()
@@ -2771,8 +3197,8 @@ class VideoGenerationWidget(QWidget):
             }
 
             self.execute_concurrent_tasks([task])
-            
-        else:
+
+        elif current_tab == 1:
             # 首尾帧图片转视频模式
             start_image_input = self.frames_start_drop_widget.base64_data
             end_image_input = self.frames_end_drop_widget.base64_data
@@ -2800,23 +3226,74 @@ class VideoGenerationWidget(QWidget):
 
             self.execute_concurrent_tasks([task])
 
+        else:  # current_tab == 2
+            # 视频换人物模式
+            # 获取视频输入
+            if self.video_input_type_combo.currentIndex() == 1:
+                # URL输入
+                video_input = self.video_url_edit.text().strip()
+                video_path = ""
+                if not video_input:
+                    QMessageBox.warning(self, "警告", "请输入视频URL")
+                    return
+            else:
+                # 本地文件
+                video_input = self.video_drop_widget.video_data
+                video_path = self.video_drop_widget.current_video_path
+                if not video_input:
+                    QMessageBox.warning(self, "警告", "请先选择源视频文件")
+                    return
+
+            # 获取目标人物图片
+            target_image_input = self.video_target_drop_widget.base64_data
+            if not target_image_input:
+                QMessageBox.warning(self, "警告", "请先选择目标人物图片")
+                return
+
+            prompt = self.prompt_edit.toPlainText().strip()
+            if not prompt:
+                QMessageBox.warning(self, "警告", "请输入视频换人物提示词")
+                return
+
+            timestamp = datetime.now().strftime("%H%M%S")
+            task = {
+                'name': f"视频换人物单个任务_{timestamp}",
+                'video_input': video_input,
+                'video_path': video_path,
+                'image_input': target_image_input,
+                'image_path': self.video_target_drop_widget.current_image_path,
+                'prompt': prompt,
+                'width': self.width_spin.value(),
+                'height': self.height_spin.value(),
+                'num_frames': 0,  # 视频换人物不需要帧数
+                'video_mode': 'video'
+            }
+
+            self.execute_concurrent_tasks([task])
+
     def generate_batch_videos(self):
-        """生成批量视频 - 支持单图片和首尾帧两种模式"""
+        """生成批量视频 - 支持单图片、首尾帧和视频换人物三种模式"""
         # 获取当前选项卡索引
         current_tab = self.mode_tabs.currentIndex()
-        
+
         if current_tab == 0:
             # 单图片转视频模式
             if not self.batch_tasks:
                 QMessageBox.warning(self, "警告", "请先添加任务到列表")
                 return
             self.execute_concurrent_tasks(self.batch_tasks)
-        else:
+        elif current_tab == 1:
             # 首尾帧图片转视频模式
             if not hasattr(self, 'batch_tasks_frames') or not self.batch_tasks_frames:
                 QMessageBox.warning(self, "警告", "请先添加首尾帧任务到列表")
                 return
             self.execute_concurrent_tasks(self.batch_tasks_frames)
+        else:  # current_tab == 2
+            # 视频换人物模式
+            if not hasattr(self, 'batch_tasks_video') or not self.batch_tasks_video:
+                QMessageBox.warning(self, "警告", "请先添加视频换人物任务到列表")
+                return
+            self.execute_concurrent_tasks(self.batch_tasks_video)
 
     def execute_concurrent_tasks(self, tasks):
         """真正并发执行任务 - 每个任务独立线程和API密钥"""
@@ -3031,11 +3508,12 @@ class VideoGenerationWidget(QWidget):
             # 加载 Web App ID
             self.api_manager.web_app_id_single = api_settings.get('web_app_id_single', 39386)
             self.api_manager.web_app_id_frames = api_settings.get('web_app_id_frames', 39388)
+            self.api_manager.web_app_id_video = api_settings.get('web_app_id_video', 38808)
 
             self.update_key_status()
             self.update_current_params_display()
             self.refresh_task_videos()
-            self.webapp_id_label.setText(f"单图:{self.api_manager.web_app_id_single} | 首尾帧:{self.api_manager.web_app_id_frames}")
+            self.webapp_id_label.setText(f"单图:{self.api_manager.web_app_id_single} | 首尾帧:{self.api_manager.web_app_id_frames} | 换人物:{self.api_manager.web_app_id_video}")
 
             self.add_log(f"✅ 已加载视频设置配置")
 
@@ -3065,6 +3543,7 @@ class VideoGenerationWidget(QWidget):
                 key_file=key_file_path,
                 web_app_id_single=self.api_manager.web_app_id_single,
                 web_app_id_frames=self.api_manager.web_app_id_frames,
+                web_app_id_video=self.api_manager.web_app_id_video,
                 key_text=key_text,
                 key_source=key_source
             )
@@ -3409,6 +3888,17 @@ class APISettingsDialog(QDialog):
         frames_layout.addStretch()
         webapp_layout.addLayout(frames_layout)
 
+        # 视频换人物 Web App ID
+        video_layout = QHBoxLayout()
+        video_layout.addWidget(QLabel("视频换人物 ID:"))
+        self.webapp_id_video_spin = QSpinBox()
+        self.webapp_id_video_spin.setRange(1, 99999)
+        self.webapp_id_video_spin.setValue(getattr(self.api_manager, 'web_app_id_video', 38808))
+        self.webapp_id_video_spin.setFixedWidth(150)
+        video_layout.addWidget(self.webapp_id_video_spin)
+        video_layout.addStretch()
+        webapp_layout.addLayout(video_layout)
+
         # API URL 设置
         api_url_layout = QHBoxLayout()
         api_url_layout.addWidget(QLabel("API 请求地址:"))
@@ -3575,18 +4065,21 @@ class APISettingsDialog(QDialog):
 
     def save_settings(self):
         """保存设置"""
-        # 保存两个 Web App ID
+        # 保存三个 Web App ID
         webapp_id_single = self.webapp_id_single_spin.value()
         webapp_id_frames = self.webapp_id_frames_spin.value()
+        webapp_id_video = self.webapp_id_video_spin.value()
         api_url = self.api_url_edit.text().strip()
 
         self.api_manager.web_app_id_single = webapp_id_single
         self.api_manager.web_app_id_frames = webapp_id_frames
+        self.api_manager.web_app_id_video = webapp_id_video
         self.api_manager.api_url = api_url
 
         # 更新父级管理器
         self.parent().api_manager.web_app_id_single = webapp_id_single
         self.parent().api_manager.web_app_id_frames = webapp_id_frames
+        self.parent().api_manager.web_app_id_video = webapp_id_video
         self.parent().api_manager.api_url = api_url
 
         # 处理密钥来源
@@ -3644,6 +4137,7 @@ class APISettingsDialog(QDialog):
                 key_file=key_file_to_save,
                 web_app_id_single=webapp_id_single,
                 web_app_id_frames=webapp_id_frames,
+                web_app_id_video=webapp_id_video,
                 api_url=api_url,
                 key_text=key_text_to_save,
                 key_source=key_source
@@ -3669,19 +4163,23 @@ class APISettingsDialog(QDialog):
                 key_source = api_settings.get('key_source', 'file')
                 webapp_id_single = api_settings.get('web_app_id_single', 39386)
                 webapp_id_frames = api_settings.get('web_app_id_frames', 39388)
+                webapp_id_video = api_settings.get('web_app_id_video', 38808)
                 api_url = api_settings.get('api_url', 'https://api.bizyair.cn/w/v1/webapp/task/openapi/create')
 
                 # 设置 Web App ID
                 self.webapp_id_single_spin.setValue(webapp_id_single)
                 self.webapp_id_frames_spin.setValue(webapp_id_frames)
+                self.webapp_id_video_spin.setValue(webapp_id_video)
                 self.api_url_edit.setText(api_url)
 
                 # 更新管理器
                 self.api_manager.web_app_id_single = webapp_id_single
                 self.api_manager.web_app_id_frames = webapp_id_frames
+                self.api_manager.web_app_id_video = webapp_id_video
                 self.api_manager.api_url = api_url
                 self.parent().api_manager.web_app_id_single = webapp_id_single
                 self.parent().api_manager.web_app_id_frames = webapp_id_frames
+                self.parent().api_manager.web_app_id_video = webapp_id_video
                 self.parent().api_manager.api_url = api_url
 
                 # 根据密钥来源设置界面
@@ -3746,7 +4244,7 @@ if __name__ == '__main__':
 
 
     main_window = QMainWindow()
-    main_window.setWindowTitle("图片转视频生成工具")
+    main_window.setWindowTitle("图片转视频生成工具 V2.0.1")
     main_window.setMinimumSize(1200, 800)
 
     video_widget = VideoGenerationWidget(main_window)
