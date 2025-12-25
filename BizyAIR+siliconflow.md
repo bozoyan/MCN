@@ -180,3 +180,32 @@ response = requests.post(url, headers=headers, json=data)
 result = response.json()
 print("生成结果:", result)
 ```
+
+
+### Wan Animate 视频换人物 API接口
+```python
+# Python 示例代码
+import requests
+import json
+
+url = "https://api.bizyair.cn/w/v1/webapp/task/openapi/create"
+headers = {
+    "Content-Type": "application/json",
+    "Authorization": "Bearer YOUR_API_KEY"
+}
+data = {
+      "web_app_id": 38808,
+      "suppress_preview_output": False,
+      "input_values": {
+        "196:LoadVideo.file": "https://storage.bizyair.cn/inputs/20251110/nVoV6xx5gt1G1Drq7ssDdA0NbcOPdo8I.mp4",
+        "57:LoadImage.image": "https://bizyair-prod.oss-cn-shanghai.aliyuncs.com/inputs/20251110/hBK69e7MlYf1mpjlXzyhjNxbHDvvQUn3.jpeg",
+        "65:WanVideoTextEncodeCached.positive_prompt": "一只戴着草帽熊猫，站立着跳舞",
+        "220:ImageResizeKJv2.width": 480,
+        "220:ImageResizeKJv2.height": 832
+      }
+    }
+
+response = requests.post(url, headers=headers, json=data)
+result = response.json()
+print("生成结果:", result)
+```
