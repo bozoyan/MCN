@@ -1,5 +1,33 @@
 <?php
-// 处理API路由
+// ============================================
+// PHP 内置服务器路由处理
+// ============================================
+// 这个代码块在 PHP 内置服务器模式下处理路由
+// 确保所有请求都被正确路由到这个文件
+
+if (php_sapi_name() === 'cli-server') {
+    // 获取请求的 URI
+    $uri = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);
+
+    // 如果请求的是实际存在的静态文件，直接提供
+    static $staticExtensions = [
+        'css', 'js', 'png', 'jpg', 'jpeg', 'gif', 'ico', 'svg',
+        'woff', 'woff2', 'ttf', 'eot', 'woff', 'otf', 'map', 'html', 'htm'
+    ];
+
+    $ext = pathinfo($uri, PATHINFO_EXTENSION);
+    if (in_array(strtolower($ext), $staticExtensions)) {
+        $filePath = __DIR__ . $uri;
+        if (file_exists($filePath)) {
+            // 返回 false 让 PHP 内置服务器处理静态文件
+            return false;
+        }
+    }
+}
+
+// ============================================
+// API 路由处理
+// ============================================
 $request_uri = $_SERVER['REQUEST_URI'];
 $path_parts = parse_url($request_uri);
 $path = explode('/', trim($path_parts['path'], '/'));
@@ -1444,8 +1472,8 @@ if ($path[0] === 'api') {
             filename += '.json';
 
             try {
-                // 保存到服务器
-                const response = await fetch(`http://127.0.0.1:8004/api/config/${encodeFilename(filename)}`, {
+                // 保存到服务器（使用相对路径）
+                const response = await fetch(`/api/config/${encodeFilename(filename)}`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json'
@@ -1470,8 +1498,8 @@ if ($path[0] === 'api') {
             fileListEl.innerHTML = '<div style="padding:10px; color:#888; font-size:10px;">加载中...</div>';
 
             try {
-                // 从 PHP API 获取文件列表
-                const response = await fetch('http://127.0.0.1:8004/api/configs');
+                // 从 PHP API 获取文件列表（使用相对路径）
+                const response = await fetch('/api/configs');
                 if (!response.ok) {
                     throw new Error('无法连接到配置服务器，请确保服务器已启动');
                 }
@@ -1529,7 +1557,7 @@ if ($path[0] === 'api') {
             importBtn.style.display = 'block';
 
             try {
-                const response = await fetch(`http://127.0.0.1:8004/api/config/${encodeFilename(filename)}`);
+                const response = await fetch(`/api/config/${encodeFilename(filename)}`);
                 if (!response.ok) {
                     throw new Error(`无法加载文件: ${filename}`);
                 }
@@ -1570,7 +1598,7 @@ if ($path[0] === 'api') {
                 // 如果文件名改变了，需要先删除旧文件
                 if (newFilename !== currentConfigFile) {
                     // 删除旧文件
-                    await fetch(`http://127.0.0.1:8004/api/config/${encodeFilename(currentConfigFile)}`, {
+                    await fetch(`/api/config/${encodeFilename(currentConfigFile)}`, {
                         method: 'DELETE'
                     });
                     // 更新当前文件名
@@ -1578,7 +1606,7 @@ if ($path[0] === 'api') {
                 }
 
                 // 发送到服务器保存
-                const response = await fetch(`http://127.0.0.1:8004/api/config/${encodeFilename(newFilename)}`, {
+                const response = await fetch(`/api/config/${encodeFilename(newFilename)}`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json'
@@ -1653,7 +1681,7 @@ if ($path[0] === 'api') {
             }
 
             try {
-                const response = await fetch(`http://127.0.0.1:8004/api/config/${encodeFilename(currentConfigFile)}`, {
+                const response = await fetch(`/api/config/${encodeFilename(currentConfigFile)}`, {
                     method: 'DELETE'
                 });
 

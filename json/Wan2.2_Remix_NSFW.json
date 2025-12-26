@@ -1,0 +1,11 @@
+{
+  "web_app_id": 41863,
+  "suppress_preview_output": true,
+  "input_values": {
+    "106:LoadImage.image": "https://bizyair-prod.oss-cn-shanghai.aliyuncs.com/inputs/20251226/aZTdFaAYwSRXQCdXm6EMUtR3ddn4qXuq.png",
+    "6:CLIPTextEncode.text": "the girl standing removes her dress",
+    "107:WanImageToVideo.width": 720,
+    "107:WanImageToVideo.height": 1280,
+    "107:WanImageToVideo.length": 81
+  }
+}
