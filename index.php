@@ -689,19 +689,49 @@ if ($path[0] === 'api') {
         // --- Global State ---
         let currentMode = 'canvas';
         let apiKey = localStorage.getItem('id_works_api_key') || '';
-        let canvasScale = 1.0; 
+        let canvasScale = 1.0;
         let nodeScale = 1, nodePanX = 0, nodePanY = 0;
         let nodes = [];
-        let currentWebAppId = 39419; 
-        
-        let strokeCanvas = document.createElement('canvas'); 
-        let canvasImages = []; 
+        let currentWebAppId = 39419;
+
+        let strokeCanvas = document.createElement('canvas');
+        let canvasImages = [];
         let selectedImageIndex = -1;
         let isDraggingImage = false;
         let dragStart = { x: 0, y: 0 };
         let strokeHistory = [];
-        
+
         let timerInterval = null; // Timer handle
+
+        // --- API Configuration ---
+        const API_TIMEOUT = 1200 * 1000; // 20 minutes timeout (in milliseconds)
+
+        /**
+         * Fetch with timeout support
+         * @param {string} url - The URL to fetch
+         * @param {object} options - Fetch options
+         * @param {number} timeout - Timeout in milliseconds (default: API_TIMEOUT)
+         * @returns {Promise<Response>} - Fetch response
+         */
+        async function fetchWithTimeout(url, options = {}, timeout = API_TIMEOUT) {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), timeout);
+
+            try {
+                const response = await fetch(url, {
+                    ...options,
+                    signal: controller.signal
+                });
+                clearTimeout(timeoutId);
+                return response;
+            } catch (error) {
+                clearTimeout(timeoutId);
+                if (error.name === 'AbortError') {
+                    throw new Error(`请求超时（${timeout / 1000}秒）`);
+                }
+                throw error;
+            }
+        }
 
         // CodeMirror 编辑器实例
         let jsonEditor = null;
@@ -1150,7 +1180,7 @@ if ($path[0] === 'api') {
                 // 确保API密钥格式正确（添加Bearer前缀）
               const authKey = apiKey.startsWith('Bearer ') ? apiKey : `Bearer ${apiKey}`;
 
-              const res = await fetch('https://api.bizyair.cn/w/v1/webapp/task/openapi/create', {
+              const res = await fetchWithTimeout('https://api.bizyair.cn/w/v1/webapp/task/openapi/create', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -1732,7 +1762,7 @@ if ($path[0] === 'api') {
                 // 确保API密钥格式正确（添加Bearer前缀）
                 const authKey = apiKey.startsWith('Bearer ') ? apiKey : `Bearer ${apiKey}`;
 
-                const res = await fetch(`https://api.bizyair.cn/w/v1/webapp/task/${requestId}/status`, {
+                const res = await fetchWithTimeout(`https://api.bizyair.cn/w/v1/webapp/task/${requestId}/status`, {
                     headers: {
                         'Authorization': authKey
                     }
