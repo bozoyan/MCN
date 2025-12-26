@@ -66,6 +66,24 @@ def start_php_server():
     """启动PHP开发服务器"""
     print("\n🌐 启动PHP开发服务器...")
 
+    # 检查 BizyAIR 目录是否存在
+    bizyair_dir = os.path.join(os.getcwd(), 'BizyAIR')
+    if not os.path.exists(bizyair_dir):
+        print(f"❌ BizyAIR 目录不存在: {bizyair_dir}")
+        print("请确保 BizyAIR 文件夹在当前目录下")
+        return None
+
+    print(f"📁 BizyAIR 目录: {bizyair_dir}")
+
+    # 检查 BizyAIR 目录中是否有 index.php
+    index_php = os.path.join(bizyair_dir, 'index.php')
+    if not os.path.exists(index_php):
+        print(f"❌ BizyAIR 目录中未找到 index.php")
+        print(f"期望位置: {index_php}")
+        return None
+
+    print(f"✅ 找到 index.php")
+
     # 检查是否安装了PHP
     try:
         subprocess.run(['php', '--version'], capture_output=True, check=True)
@@ -76,23 +94,24 @@ def start_php_server():
 
     # 启动PHP服务器
     try:
-        # 在后台启动PHP服务器
+        # 在后台启动PHP服务器，工作目录设置为 BizyAIR 文件夹
         if platform.system() == "Windows":
             # Windows系统
-            php_cmd = ['start', '/B', 'php', '-S', '127.0.0.1:8004']
+            php_cmd = ['start', '/B', 'php', '-S', '127.0.0.1:8004', 'index.php']
         else:
             # macOS/Linux系统
-            php_cmd = ['php', '-S', '127.0.0.1:8004']
+            php_cmd = ['php', '-S', '127.0.0.1:8004', 'index.php']
 
-        # 启动服务器进程
+        # 启动服务器进程，工作目录为 BizyAIR 文件夹
         php_process = subprocess.Popen(
             php_cmd,
-            cwd=os.getcwd(),
+            cwd=bizyair_dir,  # 关键：设置工作目录为 BizyAIR 文件夹
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE
         )
 
         print("✅ PHP服务器正在启动在 http://127.0.0.1:8004")
+        print(f"📂 工作目录: {bizyair_dir}")
         print("⏳ 等待服务器启动...")
 
         # 等待2秒让服务器完全启动
