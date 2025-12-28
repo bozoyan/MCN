@@ -786,7 +786,7 @@ class SingleVideoGenerationWorker(QThread):
 
     def check_video_status(self, request_id):
         """查询BizyAir任务状态 (合并原 check_video_status_bizyair)"""
-        max_attempts = 120  # 最大尝试次数（10分钟）
+        max_attempts = 360  # 最大尝试次数（30分钟）
         check_interval = 5  # 检查间隔5秒
 
         for attempt in range(max_attempts):
@@ -843,7 +843,7 @@ class SingleVideoGenerationWorker(QThread):
             if attempt < max_attempts - 1:
                 time.sleep(check_interval)
 
-        self.log_message(f"⏰ 视频生成超时 ({max_attempts * check_interval}秒)")
+        self.log_message(f"⏰ 视频生成超时 ({max_attempts * check_interval // 60}分钟)")
         return None
 
     def cancel(self):
