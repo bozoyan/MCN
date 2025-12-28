@@ -1586,7 +1586,7 @@ class VideoResultCard(CardWidget):
         # 提示词
         prompt_text = self.video_data.get('prompt', '')
         if prompt_text:
-            prompt_preview = prompt_text[:80] + "..." if len(prompt_text) > 80 else prompt_text
+            prompt_preview = prompt_text[:120] + "..." if len(prompt_text) > 80 else prompt_text
             prompt_label = CaptionLabel(f"提示词: {prompt_preview}")
             prompt_label.setStyleSheet("color: #888888; font-size: 11px;")
             prompt_label.setWordWrap(True)
@@ -2627,13 +2627,22 @@ class VideoGenerationWidget(QWidget):
 
     def create_prompt_group(self):
         """创建提示词输入组（无标题无边框）"""
-        self.prompt_edit = QTextEdit()
-        self.prompt_edit.setPlaceholderText("输入视频生成的提示词，例如：美女跳舞、风景变化等...")
-        self.prompt_edit.setMinimumHeight(40)
-        self.prompt_edit.setMaximumHeight(200)
-        self.prompt_edit.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        self.prompt_edit.setStyleSheet("padding: 10px; background: #202020; border-radius: 4px;font-size:18px; margin-right:20px;")
-        return self.prompt_edit
+        prompt_edit = QTextEdit()
+        prompt_edit.setPlaceholderText("输入视频生成的提示词，例如：美女跳舞、风景变化等...")
+        prompt_edit.setMinimumHeight(40)
+        prompt_edit.setMaximumHeight(200)
+        prompt_edit.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        prompt_edit.setStyleSheet("padding: 10px; background: #202020; border-radius: 4px;font-size:18px; margin-right:20px;")
+
+        # 根据调用位置返回不同的引用
+        # 如果 self.prompt_edit 还不存在,说明是第一次调用(单图片选项卡)
+        # 如果 self.prompt_edit_video 还不存在但 self.prompt_edit 存在,说明是第二次调用(视频换人物选项卡)
+        if not hasattr(self, 'prompt_edit'):
+            self.prompt_edit = prompt_edit
+        elif not hasattr(self, 'prompt_edit_video'):
+            self.prompt_edit_video = prompt_edit
+
+        return prompt_edit
         
     def create_actions_group(self):
         """创建操作按钮组（深色主题）"""
@@ -2802,7 +2811,7 @@ class VideoGenerationWidget(QWidget):
         name_label.setStyleSheet("font-weight: bold; color: #ffffff; font-size: 14px;")
         info_layout.addWidget(name_label)
 
-        prompt_label = QLabel(f"提示词: {task['prompt'][:50]}...")
+        prompt_label = QLabel(f"提示词: {task['prompt'][:30]}...")
         prompt_label.setStyleSheet("color: #cccccc; font-size: 12px;")
         info_layout.addWidget(prompt_label)
 
@@ -2950,7 +2959,8 @@ class VideoGenerationWidget(QWidget):
             QMessageBox.warning(self, "警告", "请先选择目标人物图片")
             return
 
-        prompt = self.prompt_edit.toPlainText().strip()
+        # 使用视频换人物选项卡的提示词输入框
+        prompt = self.prompt_edit_video.toPlainText().strip() if hasattr(self, 'prompt_edit_video') else ""
         if not prompt:
             QMessageBox.warning(self, "警告", "请输入视频换人物提示词")
             return
@@ -3167,7 +3177,7 @@ class VideoGenerationWidget(QWidget):
         if current_tab == 0:
             # 单图片转视频模式
             input_type = self.input_type_combo.currentIndex()
-            prompt = self.prompt_edit.toPlainText().strip()
+            prompt = self.prompt_edit.toPlainText().strip() if hasattr(self, 'prompt_edit') else ""
 
             if input_type == 1:
                 image_input = self.image_url_edit.text().strip()
@@ -3250,7 +3260,8 @@ class VideoGenerationWidget(QWidget):
                 QMessageBox.warning(self, "警告", "请先选择目标人物图片")
                 return
 
-            prompt = self.prompt_edit.toPlainText().strip()
+            # 使用视频换人物选项卡的提示词输入框
+            prompt = self.prompt_edit_video.toPlainText().strip() if hasattr(self, 'prompt_edit_video') else ""
             if not prompt:
                 QMessageBox.warning(self, "警告", "请输入视频换人物提示词")
                 return
