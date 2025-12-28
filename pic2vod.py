@@ -184,8 +184,8 @@ class VideoSettingsManager:
             "video_params": {
                 "width": 480,
                 "height": 854,
-                "duration": 5,
-                "num_frames": 81
+                "duration": 5,  # 降低到5秒
+                "num_frames": 81  # 5秒 × 16 + 1 = 81帧
             },
             "api_settings": {
                 "key_file": "",
@@ -763,7 +763,14 @@ class SingleVideoGenerationWorker(QThread):
                 error_msg = f"API请求失败: HTTP {response.status_code}"
                 try:
                     error_detail = response.json()
-                    error_msg += f" - {error_detail.get('message', '未知错误')}"
+                    detail_msg = error_detail.get('message', '未知错误')
+                    error_msg += f" - {detail_msg}"
+
+                    # 特殊处理API超时错误
+                    if response.status_code == 500 and '最大读取时长' in detail_msg:
+                        self.log_message(f"⚠️ API云端处理超时(服务器限制约10-20分钟)")
+                        self.log_message(f"💡 建议: 减少视频时长/帧数,或降低分辨率")
+                        error_msg = "API云端处理超时(已达到最大时长),建议使用更短的视频或更低分辨率"
                 except:
                     error_msg += f" - {response.text[:200]}"
                 self.log_message(f"❌ {error_msg}")
@@ -965,8 +972,8 @@ class ConcurrentBatchManager(QObject):
             # 获取视频模式（默认为单图片模式）
             video_mode = task.get('video_mode', 'single')
 
-            # 计算延迟时间（第一个任务0秒，后续任务间隔3秒）
-            delay_seconds = (current_batch_index - 1) * 3
+            # 计算延迟时间（第一个任务0秒，后续任务间隔20秒）
+            delay_seconds = (current_batch_index - 1) * 20
 
             # 添加到调度器
             self.scheduler.add_scheduled_task(delay_seconds, task, task_id, api_key, video_mode)
@@ -976,7 +983,7 @@ class ConcurrentBatchManager(QObject):
 
         # 启动调度器（在独立线程中运行，不阻塞主线程）
         self.scheduler.start()
-        self.log_message(f"⏰ 任务调度器已启动，{new_tasks_count}个任务将在3秒间隔内并发执行")
+        self.log_message(f"⏰ 任务调度器已启动，{new_tasks_count}个任务将在20秒间隔内并发执行")
 
         self.task_counter += new_tasks_count
 
