@@ -699,7 +699,14 @@ class ImageGenerationWorker(QThread):
         self.image_urls = [''] * self.image_count
         self.web_app_id = config_manager.get('bizyair_params.web_app_id', 39808)
         self.start_time = None
+        self.time_update_timer = None  # 时间更新定时器
         # 移除在子线程中创建的QTimer，使用信号机制替代
+
+    def update_time(self):
+        """更新运行时间"""
+        if self.start_time:
+            elapsed = time.time() - self.start_time
+            self.time_updated.emit(f"运行时间: {elapsed:.1f}秒")
 
     def run(self):
         """运行图片生成"""
@@ -717,21 +724,17 @@ class ImageGenerationWorker(QThread):
                 "Authorization": f"Bearer {api_key}",
                 "Content-Type": "application/json",
             }
-            
+
             batch_size = 5
-            
+
             # 计算需要发送的批次数量，每个批次 5 张
-            num_batches = (self.image_count + batch_size - 1) // batch_size 
-            
+            num_batches = (self.image_count + batch_size - 1) // batch_size
+
             final_urls = []
-            
+
             for batch_index in range(num_batches):
                 if self.is_cancelled:
                     break
-
-                # 发送时间更新信号
-                elapsed = time.time() - self.start_time
-                self.time_updated.emit(f"运行时间: {elapsed:.1f}秒")
 
                 start_index = batch_index * batch_size
                 end_index = min((batch_index + 1) * batch_size, len(self.prompts))
@@ -750,54 +753,85 @@ class ImageGenerationWorker(QThread):
                     # 注意：BizyAIR API 的 prompt 索引从 prompt_1 到 prompt_5
                     input_values[f"42:easy promptList.prompt_{i+1}"] = prompt
 
-                # 提交任务
+                # 提交任务前更新时间
+                self.update_time()
+
                 progress = int(batch_index / num_batches * 10) # 提交阶段占前 10%
                 self.progress_updated.emit(progress, f"正在提交 BizyAIR 第 {batch_index+1}/{num_batches} 批任务...")
 
-                response = requests.post(
-                    base_url,
-                    headers=common_headers,
-                    json={
-                        "web_app_id": self.web_app_id,
-                        "suppress_preview_output": False,
-                        "input_values": input_values
-                    },
-                    timeout=1200 # 增加超时时间以应对生成较慢的情况
-                )
+                # 启动时间更新线程 - 在等待API响应时持续更新时间
+                import threading
+                stop_time_update = threading.Event()
 
-                response.raise_for_status()
-                result = response.json()
+                def time_update_thread():
+                    """时间更新线程"""
+                    while not stop_time_update.is_set():
+                        self.update_time()
+                        stop_time_update.wait(1.0)  # 每秒更新一次
 
-                if result.get("status") == "Success" and result.get("outputs"):
-                    outputs = result["outputs"]
+                # 启动时间更新线程
+                time_thread = threading.Thread(target=time_update_thread, daemon=True)
+                time_thread.start()
 
-                    # 处理当前批次实际生成的图片
-                    for i, output in enumerate(outputs):
-                        global_index = start_index + i
-                        if global_index < self.image_count and output.get("object_url"):
-                            img_url = output["object_url"]
-                            final_urls.append(img_url)
-                            self.image_generated.emit(global_index, None, img_url)
+                try:
+                    response = requests.post(
+                        base_url,
+                        headers=common_headers,
+                        json={
+                            "web_app_id": self.web_app_id,
+                            "suppress_preview_output": False,
+                            "input_values": input_values
+                        },
+                        timeout=1200 # 增加超时时间以应对生成较慢的情况
+                    )
 
-                            # 更新进度 (10% + 已完成百分比 * 90%)
-                            progress = 10 + int(len(final_urls) / self.image_count * 90)
-                            self.progress_updated.emit(progress, f"已生成 {len(final_urls)}/{self.image_count} 张图片 URL")
-                else:
-                    logger.error(f"第 {batch_index+1} 批图片生成失败: {result}")
-                    # 即使失败，也继续下一批次
-                    for _ in range(batch_size):
-                        if start_index + _ < self.image_count:
-                             final_urls.append('') # 添加空URL占位
+                    # 停止时间更新线程
+                    stop_time_update.set()
+                    time_thread.join(timeout=0.5)
+
+                    response.raise_for_status()
+                    result = response.json()
+
+                    if result.get("status") == "Success" and result.get("outputs"):
+                        outputs = result["outputs"]
+
+                        # 处理当前批次实际生成的图片
+                        for i, output in enumerate(outputs):
+                            global_index = start_index + i
+                            if global_index < self.image_count and output.get("object_url"):
+                                img_url = output["object_url"]
+                                final_urls.append(img_url)
+                                self.image_generated.emit(global_index, None, img_url)
+
+                                # 更新进度和运行时间
+                                progress = 10 + int(len(final_urls) / self.image_count * 90)
+                                self.progress_updated.emit(progress, f"已生成 {len(final_urls)}/{self.image_count} 张图片 URL")
+                                self.update_time()
+                    else:
+                        logger.error(f"第 {batch_index+1} 批图片生成失败: {result}")
+                        # 即使失败，也继续下一批次
+                        for _ in range(batch_size):
+                            if start_index + _ < self.image_count:
+                                 final_urls.append('') # 添加空URL占位
+
+                except Exception as e:
+                    # 确保停止时间更新线程
+                    stop_time_update.set()
+                    if time_thread.is_alive():
+                        time_thread.join(timeout=0.5)
+                    raise e
 
             # 最终返回
             if not self.is_cancelled:
                 total_time = time.time() - self.start_time if self.start_time else 0
                 self.progress_updated.emit(100, f"图片生成完成! 总耗时: {total_time:.1f}秒")
+                self.time_updated.emit(f"运行时间: {total_time:.1f}秒")
                 # 只返回实际需要的 URL 数量
                 self.finished.emit(True, [], final_urls[:self.image_count])
             else:
                 total_time = time.time() - self.start_time if self.start_time else 0
                 self.progress_updated.emit(0, f"任务已取消! 耗时: {total_time:.1f}秒")
+                self.time_updated.emit(f"运行时间: {total_time:.1f}秒")
                 self.finished.emit(False, [], final_urls[:self.image_count])
 
         except Exception as e:
@@ -1791,6 +1825,12 @@ class StoryboardPage(SmoothScrollArea):
         self.generated_prompts_edit.setPlaceholderText("这里将显示生成的绘图提示词，您可以编辑修改...")
         self.generated_prompts_edit.setFont(QFont("font/Light.otf", 18))
 
+        # 自定义提示词前缀输入框
+        self.custom_prompt_prefix_edit = LineEdit()
+        self.custom_prompt_prefix_edit.setPlaceholderText("输入自定义提示词前缀 (如: lora模型名、角色描述等)，将自动添加到每个提示词前面")
+        self.custom_prompt_prefix_edit.setFixedHeight(35)
+        self.custom_prompt_prefix_edit.setFont(QFont("font/Light.otf", 16))
+
         # 进度条和按钮 (原 left_panel 按钮)
         self.generate_title_btn = PrimaryPushButton(FluentIcon.ADD, "生成分镜标题")
         self.title_progress = ProgressBar()
@@ -1798,7 +1838,7 @@ class StoryboardPage(SmoothScrollArea):
         self.summary_progress = ProgressBar()
         self.generate_prompt_btn = PrimaryPushButton(FluentIcon.LINK, "生成绘图提示词")
         self.prompt_progress = ProgressBar()
-        
+
         self.generate_title_btn.clicked.connect(self.generate_titles)
         self.generate_summary_btn.clicked.connect(self.generate_summaries)
         self.generate_prompt_btn.clicked.connect(self.generate_prompts)
@@ -1887,12 +1927,46 @@ class StoryboardPage(SmoothScrollArea):
         summary_page = BaseTextPage("📝 分镜描述生成", self.summary_output_edit, summary_btn_layout, "story_summary")
         tab_widget.addTab(summary_page, "分镜描述")
 
-        # 3. 绘图提示词页 (按钮/进度条移入 BaseTextPage)
+        # 3. 绘图提示词页 (添加自定义前缀输入框)
         prompt_btn_layout = QHBoxLayout()
         self.prompt_progress.setFixedHeight(10)
         prompt_btn_layout.addWidget(self.prompt_progress)
         prompt_btn_layout.addWidget(self.generate_prompt_btn)
-        prompt_page = BaseTextPage("🎨 绘图提示词", self.generated_prompts_edit, prompt_btn_layout, "image_prompt")
+
+        # 创建自定义绘图提示词页面,继承BaseTextPage但添加前缀输入框
+        class CustomPromptPage(BaseTextPage):
+            """自定义绘图提示词页面,添加前缀输入框"""
+            def __init__(self, title, input_widget, button_layout, template_type, main_window=None):
+                super().__init__(title, input_widget, button_layout, template_type, main_window)
+
+                # 在模板选择后面添加前缀输入框
+                if hasattr(self, 'template_selection_widget') and main_window:
+                    # 获取内部widget和layout
+                    internal_widget = self.widget()
+                    if internal_widget:
+                        internal_layout = internal_widget.layout()
+
+                        # 创建前缀输入框组
+                        prefix_group = QGroupBox("🔧 自定义提示词前缀")
+                        prefix_layout = QVBoxLayout()
+                        prefix_label = QLabel("提示词前缀 (将自动添加到每个提示词前面):")
+                        prefix_label.setStyleSheet("font-size: 13px; color: #666;")
+                        prefix_layout.addWidget(prefix_label)
+
+                        # 使用主窗口的前缀输入框
+                        if hasattr(main_window, 'custom_prompt_prefix_edit'):
+                            prefix_layout.addWidget(main_window.custom_prompt_prefix_edit)
+
+                        prefix_help_label = QLabel("💡 例如: lora模型权重、角色固定描述、风格关键词等")
+                        prefix_help_label.setStyleSheet("color: #999; font-size: 11px; margin: 3px 0;")
+                        prefix_layout.addWidget(prefix_help_label)
+                        prefix_group.setLayout(prefix_layout)
+
+                        # 在模板选择后面插入前缀组
+                        template_index = internal_layout.indexOf(self.template_selection_widget)
+                        internal_layout.insertWidget(template_index + 1, prefix_group)
+
+        prompt_page = CustomPromptPage("🎨 绘图提示词", self.generated_prompts_edit, prompt_btn_layout, "image_prompt", self)
         tab_widget.addTab(prompt_page, "绘图提示词")
 
         # 保存页面对象引用
@@ -1963,7 +2037,7 @@ class StoryboardPage(SmoothScrollArea):
         self.image_scroll_area.setWidget(self.image_scroll_widget)
         self.image_scroll_area.setWidgetResizable(True)
 
-        self.image_scroll_area.setFixedHeight(620) #高度
+        self.image_scroll_area.setFixedHeight(550) #图片区域高度
 
         preview_layout.addWidget(self.image_scroll_area)
 
@@ -2246,6 +2320,11 @@ class StoryboardPage(SmoothScrollArea):
             if hasattr(self, 'all_generation_step') and self.all_generation_step == 2:
                 self.top_control_bar.set_generate_enabled(True)
 
+    def update_prompt_template_label(self):
+        """更新绘图提示词模板标签 (已由BaseTextPage处理)"""
+        # 此方法已不再需要,由BaseTextPage的update_current_template_label处理
+        pass
+
     def generate_prompts(self):
         """生成绘图提示词 (单次 API 调用)"""
         summary_text = self.summary_output_edit.toPlainText().strip()
@@ -2253,14 +2332,15 @@ class StoryboardPage(SmoothScrollArea):
             QMessageBox.warning(self, "警告", "请先生成分镜描述")
             return
 
-        # 使用选择的模板，如果没有选择则使用默认模板
+        # 使用prompt_page的模板选择器
         selected_template = self.prompt_page.get_selected_template()
         if selected_template:
             system_prompt = selected_template.get('template', '')
         else:
-            template = config_manager.get_template('image_prompt')
-            system_prompt = template.get('template', '')
-        
+            # 使用默认模板
+            default_template = config_manager.get_template('image_prompt')
+            system_prompt = default_template.get('template', '') if default_template else ''
+
         # 将所有分镜描述作为一次性输入内容
         input_content = "请根据以下分镜描述内容生成 AI 绘图提示词，每个提示词一行，中间空一行，无需序号和中文解释：\n\n" + summary_text
 
@@ -2411,24 +2491,39 @@ class StoryboardPage(SmoothScrollArea):
         """开始图片生成"""
         # 重新初始化图片预览小部件以确保数量正确
         self.init_image_widgets()
-        
+
+        # 获取自定义提示词前缀
+        custom_prefix = ""
+        if hasattr(self, 'custom_prompt_prefix_edit'):
+            custom_prefix = self.custom_prompt_prefix_edit.text().strip()
+
+        # 将前缀添加到每个提示词前面
+        final_prompts = []
+        for prompt in self.current_prompts:
+            if custom_prefix:
+                # 将前缀添加到提示词前面,用空格分隔
+                final_prompt = f"{custom_prefix} {prompt}".strip()
+            else:
+                final_prompt = prompt
+            final_prompts.append(final_prompt)
+
         # 启动图片生成 (批量一次性发送)
         self.generate_images_btn.setEnabled(False)
         self.top_control_bar.set_generate_enabled(False) # 禁用一键生成按钮和导出按钮
         self.image_progress.setValue(0)
         self.image_status_label.setText("准备生成图片...")
-        
+
         # 获取图片数量（从配置中读取）
         image_count = config_manager.get('ui.default_image_count', 10)
 
-        # 创建图片生成worker
+        # 创建图片生成worker,使用添加了前缀的提示词
         self.image_worker = ImageGenerationWorker(
-            self.current_prompts,
+            final_prompts,  # 使用添加了前缀的提示词
             width,
             height,
             image_count
         )
-        
+
         # 连接信号
         self.image_worker.progress_updated.connect(self.on_batch_image_progress)
         self.image_worker.image_generated.connect(self.on_batch_image_url_received)
