@@ -972,8 +972,8 @@ class ConcurrentBatchManager(QObject):
             # 获取视频模式（默认为单图片模式）
             video_mode = task.get('video_mode', 'single')
 
-            # 计算延迟时间（第一个任务0秒，后续任务间隔30秒）
-            delay_seconds = (current_batch_index - 1) * 30
+            # 计算延迟时间（第一个任务0秒，后续任务间隔60秒）
+            delay_seconds = (current_batch_index - 1) * 60
 
             # 添加到调度器
             self.scheduler.add_scheduled_task(delay_seconds, task, task_id, api_key, video_mode)
@@ -983,7 +983,7 @@ class ConcurrentBatchManager(QObject):
 
         # 启动调度器（在独立线程中运行，不阻塞主线程）
         self.scheduler.start()
-        self.log_message(f"⏰ 任务调度器已启动，{new_tasks_count}个任务将在30秒间隔内并发执行")
+        self.log_message(f"⏰ 任务调度器已启动，{new_tasks_count}个任务将在60秒间隔内并发执行")
 
         self.task_counter += new_tasks_count
 
