@@ -793,8 +793,8 @@ class SingleVideoGenerationWorker(QThread):
 
     def check_video_status(self, request_id):
         """查询BizyAir任务状态 (合并原 check_video_status_bizyair)"""
-        max_attempts = 360  # 最大尝试次数（30分钟）
-        check_interval = 5  # 检查间隔5秒
+        max_attempts = 240  # 最大尝试次数（20分钟）
+        check_interval = 10  # 检查间隔10秒
 
         for attempt in range(max_attempts):
             if self.is_cancelled:
