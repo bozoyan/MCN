@@ -459,95 +459,101 @@ class SingleVideoGenerationWorker(QThread):
             height = self.task.get('height', 854)
             num_frames = self.task.get('num_frames', 81)
 
-            self.progress_updated.emit(10, "处理图片数据...", self.task_id)
-            
             # 准备输出目录
             output_dir = "output"
             if not os.path.exists(output_dir):
                 os.makedirs(output_dir)
-            
+
             # 统一文件名生成逻辑：[原文件名]_[时间戳]
             timestamp_str = datetime.now().strftime("%H%M%S")
             base_filename = f"task_{self.task_id}_{timestamp_str}"
-            
-            # 尝试提取文件名作为基础名
-            if isinstance(image_input, str):
-                if image_input.startswith('http'):
-                     try:
-                        url_path = image_input.split('?')[0] # 去除参数
-                        name = os.path.basename(url_path)
-                        name_without_ext = os.path.splitext(name)[0]
-                        if name_without_ext:
-                            # 过滤非法字符
-                            clean_name = re.sub(r'[^\w\-_]', '_', name_without_ext)
-                            base_filename = f"{clean_name}_{timestamp_str}"
-                     except:
-                        pass
-                elif not image_input.startswith('data:'):
-                    # 本地文件
-                    image_path = self.task.get('image_path', '')
-                    if image_path:
-                        name = os.path.basename(image_path)
-                        name_without_ext = os.path.splitext(name)[0]
-                        clean_name = re.sub(r'[^\w\-_]', '_', name_without_ext)
-                        base_filename = f"{clean_name}_{timestamp_str}"
 
             image_save_path = ""
-            
-            # 图像格式检查和转换（优化并统一处理本地文件和纯base64）
             image_value = image_input
             image_data = None
 
-            if isinstance(image_input, str):
-                if image_input.startswith('http'):
-                    self.log_message(f"🌐 使用网络图片URL: {image_input}")
-                    # 下载图片用于缩略图
-                    try:
-                        resp = requests.get(image_input, timeout=30)
-                        if resp.status_code == 200:
-                            image_data = resp.content
-                    except Exception as e:
-                        self.log_message(f"⚠️ 下载网络图片失败(仅影响缩略图): {e}")
+            # Sora2文生视频模式不需要图片输入,跳过图片处理
+            if self.video_mode == "sora_t2v":
+                self.log_message(f"📝 Sora2文生视频模式 - 仅使用文本提示词")
+                self.progress_updated.emit(10, "准备文本生成...", self.task_id)
+            else:
+                # 其他模式需要处理图片数据
+                self.progress_updated.emit(10, "处理图片数据...", self.task_id)
 
-                elif not image_input.startswith('data:'):
-                    # 可能是纯base64或本地文件内容
-                    image_path = self.task.get('image_path', '')
-                    image_type = 'image/jpeg' 
+                # 尝试提取文件名作为基础名
+                if isinstance(image_input, str):
+                    if image_input.startswith('http'):
+                         try:
+                            url_path = image_input.split('?')[0] # 去除参数
+                            name = os.path.basename(url_path)
+                            name_without_ext = os.path.splitext(name)[0]
+                            if name_without_ext:
+                                # 过滤非法字符
+                                clean_name = re.sub(r'[^\w\-_]', '_', name_without_ext)
+                                base_filename = f"{clean_name}_{timestamp_str}"
+                         except:
+                            pass
+                    elif not image_input.startswith('data:'):
+                        # 本地文件
+                        image_path = self.task.get('image_path', '')
+                        if image_path:
+                            name = os.path.basename(image_path)
+                            name_without_ext = os.path.splitext(name)[0]
+                            clean_name = re.sub(r'[^\w\-_]', '_', name_without_ext)
+                            base_filename = f"{clean_name}_{timestamp_str}"
 
-                    if image_path and os.path.exists(image_path):
-                        # 本地文件路径
-                        with open(image_path, 'rb') as f:
-                            image_data = f.read()
-                        self.log_message(f"📁 从本地路径加载图片: {image_path}")
-                    elif image_input:
-                        # 纯 base64 数据
+                # 图像格式检查和转换（优化并统一处理本地文件和纯base64）
+
+                if isinstance(image_input, str):
+                    if image_input.startswith('http'):
+                        self.log_message(f"🌐 使用网络图片URL: {image_input}")
+                        # 下载图片用于缩略图
                         try:
-                            image_data = base64.b64decode(image_input)
-                            self.log_message(f"📝 识别为纯 Base64 数据")
-                        except:
-                            self.log_message(f"⚠️ 无法识别的图片输入格式")
-                            self.task_finished.emit(False, "图片输入格式错误", {}, self.task_id)
-                            return
-                    
-                    if image_data:
-                        # 压缩图片
-                        max_size = 8 * 1024 * 1024 # 8MB 限制
-                        if len(image_data) > max_size:
-                            self.log_message(f"⚠️ 图片过大({len(image_data)}字节)，开始压缩...")
-                            image_data = Utils.compress_image(image_data, self.log_updated)
-                            
-                        import imghdr
-                        detected_type = imghdr.what(None, image_data)
-                        if detected_type:
-                            image_type = f'image/{detected_type}'
+                            resp = requests.get(image_input, timeout=30)
+                            if resp.status_code == 200:
+                                image_data = resp.content
+                        except Exception as e:
+                            self.log_message(f"⚠️ 下载网络图片失败(仅影响缩略图): {e}")
 
-                        base64_data = base64.b64encode(image_data).decode('utf-8')
-                        image_value = f"data:{image_type};base64,{base64_data}"
-                        self.log_message(f"✅ 已转换为data URL格式 ({image_type})")
-                    else:
-                        self.log_message(f"❌ 无法获取有效的图片数据")
-                        self.task_finished.emit(False, "无法获取有效的图片数据", {}, self.task_id)
-                        return
+                    elif not image_input.startswith('data:'):
+                        # 可能是纯base64或本地文件内容
+                        image_path = self.task.get('image_path', '')
+                        image_type = 'image/jpeg'
+
+                        if image_path and os.path.exists(image_path):
+                            # 本地文件路径
+                            with open(image_path, 'rb') as f:
+                                image_data = f.read()
+                            self.log_message(f"📁 从本地路径加载图片: {image_path}")
+                        elif image_input:
+                            # 纯 base64 数据
+                            try:
+                                image_data = base64.b64decode(image_input)
+                                self.log_message(f"📝 识别为纯 Base64 数据")
+                            except:
+                                self.log_message(f"⚠️ 无法识别的图片输入格式")
+                                self.task_finished.emit(False, "图片输入格式错误", {}, self.task_id)
+                                return
+
+                        if image_data:
+                            # 压缩图片
+                            max_size = 8 * 1024 * 1024 # 8MB 限制
+                            if len(image_data) > max_size:
+                                self.log_message(f"⚠️ 图片过大({len(image_data)}字节)，开始压缩...")
+                                image_data = Utils.compress_image(image_data, self.log_updated)
+
+                            import imghdr
+                            detected_type = imghdr.what(None, image_data)
+                            if detected_type:
+                                image_type = f'image/{detected_type}'
+
+                            base64_data = base64.b64encode(image_data).decode('utf-8')
+                            image_value = f"data:{image_type};base64,{base64_data}"
+                            self.log_message(f"✅ 已转换为data URL格式 ({image_type})")
+                        else:
+                            self.log_message(f"❌ 无法获取有效的图片数据")
+                            self.task_finished.emit(False, "无法获取有效的图片数据", {}, self.task_id)
+                            return
             
             # 保存缩略图
             if image_data:
