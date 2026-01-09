@@ -191,7 +191,7 @@ class VideoSettingsManager:
                 "key_file": "",
                 "key_text": "",  # 密钥文本（直接输入的密钥）
                 "key_source": "file",  # 密钥来源：file, env, text
-                "web_app_id_single": 39386,  # 单图片转视频 Web App ID
+                "web_app_id_single": 41538,  # 单图片转视频 Web App ID
                 "web_app_id_frames": 39388,  # 首尾帧图片转视频 Web App ID
                 "web_app_id_video": 38808,  # 视频换人物 Web App ID
                 "api_url": "https://api.bizyair.cn/w/v1/webapp/task/openapi/create"
@@ -251,7 +251,7 @@ class VideoSettingsManager:
         settings = self.load_settings()
         return settings.get("api_settings", self.default_settings["api_settings"])
 
-    def set_api_settings(self, key_file="", web_app_id_single=39386, web_app_id_frames=39388, web_app_id_video=38808, api_url=None, key_text="", key_source="file"):
+    def set_api_settings(self, key_file="", web_app_id_single=41538, web_app_id_frames=39388, web_app_id_video=38808, api_url=None, key_text="", key_source="file"):
         """设置API参数
 
         Args:
@@ -303,7 +303,7 @@ class APIKeyManager:
         self.key_file = ""
         self.key_text = ""  # 密钥文本
         self.current_key_index = 0
-        self.web_app_id_single = 39386  # 单图片转视频 Web App ID
+        self.web_app_id_single = 41538  # 单图片转视频 Web App ID
         self.web_app_id_frames = 39388  # 首尾帧图片转视频 Web App ID
         self.web_app_id_video = 38808  # 视频换人物 Web App ID
         self.key_source = "file"  # "file", "env" 或 "text"
@@ -972,8 +972,8 @@ class ConcurrentBatchManager(QObject):
             # 获取视频模式（默认为单图片模式）
             video_mode = task.get('video_mode', 'single')
 
-            # 计算延迟时间（第一个任务0秒，后续任务间隔60秒）
-            delay_seconds = (current_batch_index - 1) * 60
+            # 计算延迟时间（第一个任务0秒，后续任务间隔20秒）
+            delay_seconds = (current_batch_index - 1) * 20
 
             # 添加到调度器
             self.scheduler.add_scheduled_task(delay_seconds, task, task_id, api_key, video_mode)
@@ -983,7 +983,7 @@ class ConcurrentBatchManager(QObject):
 
         # 启动调度器（在独立线程中运行，不阻塞主线程）
         self.scheduler.start()
-        self.log_message(f"⏰ 任务调度器已启动，{new_tasks_count}个任务将在60秒间隔内并发执行")
+        self.log_message(f"⏰ 任务调度器已启动，{new_tasks_count}个任务将在20秒间隔内并发执行")
 
         self.task_counter += new_tasks_count
 
@@ -3524,7 +3524,7 @@ class VideoGenerationWidget(QWidget):
                 self.key_file_path = None
 
             # 加载 Web App ID
-            self.api_manager.web_app_id_single = api_settings.get('web_app_id_single', 39386)
+            self.api_manager.web_app_id_single = api_settings.get('web_app_id_single', 41538)
             self.api_manager.web_app_id_frames = api_settings.get('web_app_id_frames', 39388)
             self.api_manager.web_app_id_video = api_settings.get('web_app_id_video', 38808)
 
@@ -3889,7 +3889,7 @@ class APISettingsDialog(QDialog):
         single_layout.addWidget(QLabel("单图片转视频 ID:"))
         self.webapp_id_single_spin = QSpinBox()
         self.webapp_id_single_spin.setRange(1, 99999)
-        self.webapp_id_single_spin.setValue(getattr(self.api_manager, 'web_app_id_single', 39386))
+        self.webapp_id_single_spin.setValue(getattr(self.api_manager, 'web_app_id_single', 41538))
         self.webapp_id_single_spin.setFixedWidth(150)
         single_layout.addWidget(self.webapp_id_single_spin)
         single_layout.addStretch()
@@ -4179,7 +4179,7 @@ class APISettingsDialog(QDialog):
                 key_file = api_settings.get('key_file', '')
                 key_text = api_settings.get('key_text', '')
                 key_source = api_settings.get('key_source', 'file')
-                webapp_id_single = api_settings.get('web_app_id_single', 39386)
+                webapp_id_single = api_settings.get('web_app_id_single', 41538)
                 webapp_id_frames = api_settings.get('web_app_id_frames', 39388)
                 webapp_id_video = api_settings.get('web_app_id_video', 38808)
                 api_url = api_settings.get('api_url', 'https://api.bizyair.cn/w/v1/webapp/task/openapi/create')
