@@ -798,7 +798,9 @@ class SingleVideoGenerationWorker(QThread):
                         'task_name': task_name,
                         'timestamp': datetime.now().isoformat(),
                         'base_filename': base_filename,  # 传递统一的基础文件名
-                        'thumbnail_path': image_save_path
+                        'thumbnail_path': image_save_path,
+                        'video_mode': self.video_mode,  # 添加视频模式
+                        'aspect_ratio': self.task.get('aspect_ratio', '9:16')  # 添加宽高比
                     }
 
                     self.progress_updated.emit(100, "任务完成！", self.task_id)
@@ -1395,12 +1397,25 @@ class TaskStatusCard(CardWidget):
         # 第二行：任务参数
         params_layout = QHBoxLayout()
 
-        # 帧数、尺寸信息
-        width = self.task_params.get('width', 480)
-        height = self.task_params.get('height', 854)
-        num_frames = self.task_params.get('num_frames', 81)
+        # 根据视频模式显示不同的参数信息
+        video_mode = self.task_params.get('video_mode', 'single')
 
-        params_text = f"{width}×{height} · {num_frames}帧"
+        if video_mode in ['sora_t2v', 'sora_i2v']:
+            # Sora2 模式：显示宽高比
+            aspect_ratio = self.task_params.get('aspect_ratio', '9:16')
+            aspect_map = {
+                '9:16': '竖屏 (9:16)',
+                '16:9': '横屏 (16:9)',
+                '1:1': '方形 (1:1)'
+            }
+            params_text = aspect_map.get(aspect_ratio, aspect_ratio)
+        else:
+            # 其他模式：显示帧数、尺寸信息
+            width = self.task_params.get('width', 480)
+            height = self.task_params.get('height', 854)
+            num_frames = self.task_params.get('num_frames', 81)
+            params_text = f"{width}×{height} · {num_frames}帧"
+
         self.params_label = CaptionLabel(params_text)
         self.params_label.setStyleSheet("color: #888888; font-size: 12px;")
         params_layout.addWidget(self.params_label)
@@ -1631,15 +1646,32 @@ class VideoResultCard(CardWidget):
         # 视频信息
         info_layout = QHBoxLayout()
 
-        size_label = CaptionLabel(f"尺寸: {self.video_data.get('width', 480)}×{self.video_data.get('height', 854)}")
-        size_label.setStyleSheet("color: #cccccc; font-size: 12px;")
-        info_layout.addWidget(size_label)
+        # 根据视频模式显示不同的参数信息
+        video_mode = self.video_data.get('video_mode', 'single')
 
-        info_layout.addSpacing(15)
+        if video_mode in ['sora_t2v', 'sora_i2v']:
+            # Sora2 模式：显示宽高比
+            aspect_ratio = self.video_data.get('aspect_ratio', '9:16')
+            aspect_map = {
+                '9:16': '竖屏 (9:16)',
+                '16:9': '横屏 (16:9)',
+                '1:1': '方形 (1:1)'
+            }
+            params_text = f"宽高比: {aspect_map.get(aspect_ratio, aspect_ratio)}"
+            params_label = CaptionLabel(params_text)
+            params_label.setStyleSheet("color: #cccccc; font-size: 12px;")
+            info_layout.addWidget(params_label)
+        else:
+            # 其他模式：显示尺寸和帧数
+            size_label = CaptionLabel(f"尺寸: {self.video_data.get('width', 480)}×{self.video_data.get('height', 854)}")
+            size_label.setStyleSheet("color: #cccccc; font-size: 12px;")
+            info_layout.addWidget(size_label)
 
-        frames_label = CaptionLabel(f"帧数: {self.video_data.get('num_frames', 81)}帧")
-        frames_label.setStyleSheet("color: #cccccc; font-size: 12px;")
-        info_layout.addWidget(frames_label)
+            info_layout.addSpacing(15)
+
+            frames_label = CaptionLabel(f"帧数: {self.video_data.get('num_frames', 81)}帧")
+            frames_label.setStyleSheet("color: #cccccc; font-size: 12px;")
+            info_layout.addWidget(frames_label)
 
         info_layout.addStretch()
 
