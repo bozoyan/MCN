@@ -3674,7 +3674,9 @@ class VideoGenerationWidget(QWidget):
             'width': task.get('width', 480),
             'height': task.get('height', 854),
             'num_frames': task.get('num_frames', 81),
-            'prompt': task.get('prompt', '')
+            'prompt': task.get('prompt', ''),
+            'video_mode': task.get('video_mode', 'single'),
+            'aspect_ratio': task.get('aspect_ratio', '9:16')
         }
 
         card = TaskStatusCard(
