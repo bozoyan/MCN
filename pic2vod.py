@@ -736,14 +736,20 @@ class SingleVideoGenerationWorker(QThread):
             # --- API请求和错误处理统一 ---
             try:
                 # 禁用代理设置，确保国内API免受全局代理影响
-                proxies = {"http": None, "https": None}
-                
-                response = requests.post(
+                # 明确禁用所有代理（包括 http、https、socks）
+                session = requests.Session()
+                session.trust_env = False  # 禁用从环境变量读取代理设置
+                session.proxies = {
+                    "http": None,
+                    "https": None,
+                    "no_proxy": None
+                }
+
+                response = session.post(
                     base_url,
                     headers=headers,
                     json=bizyair_request_data,
-                    timeout=(300, 1200),  # 5分钟连接超时，20分钟读取超时
-                    proxies=proxies
+                    timeout=(300, 1200)  # 5分钟连接超时，20分钟读取超时
                 )
                 
                 self.log_message(f"📡 API响应状态: {response.status_code}")
@@ -849,11 +855,19 @@ class SingleVideoGenerationWorker(QThread):
                 }
 
                 # BizyAir查询任务状态的API端点
-                response = requests.get(
+                # 禁用代理设置，确保国内API免受全局代理影响
+                session = requests.Session()
+                session.trust_env = False  # 禁用从环境变量读取代理设置
+                session.proxies = {
+                    "http": None,
+                    "https": None,
+                    "no_proxy": None
+                }
+
+                response = session.get(
                     f"https://api.bizyair.cn/w/v1/webapp/task/openapi/query?request_id={request_id}",
                     headers=headers,
-                    timeout=30,
-                    proxies={"http": None, "https": None}  # 禁用代理
+                    timeout=30
                 )
                 
                 response.raise_for_status() # 抛出 HTTPError 4xx/5xx
@@ -1886,7 +1900,14 @@ class VideoDownloadWorker(QThread):
             self.log_updated.emit(f"🎬 开始下载视频: {self.filename}")
 
             # 使用requests下载文件 (禁用代理)
-            response = requests.get(self.video_url, stream=True, timeout=300, proxies={"http": None, "https": None})
+            session = requests.Session()
+            session.trust_env = False  # 禁用从环境变量读取代理设置
+            session.proxies = {
+                "http": None,
+                "https": None,
+                "no_proxy": None
+            }
+            response = session.get(self.video_url, stream=True, timeout=300)
             response.raise_for_status()
 
             total_size = int(response.headers.get('content-length', 0))
