@@ -194,6 +194,8 @@ class VideoSettingsManager:
                 "web_app_id_single": 39386,  # 单图片转视频 Web App ID
                 "web_app_id_frames": 39388,  # 首尾帧图片转视频 Web App ID
                 "web_app_id_video": 38808,  # 视频换人物 Web App ID
+                "web_app_id_sora_t2v": 42921,  # Sora2 文生视频 Web App ID
+                "web_app_id_sora_i2v": 42936,  # Sora2 图生视频 Web App ID
                 "api_url": "https://api.bizyair.cn/w/v1/webapp/task/openapi/create"
             },
             "ui_settings": {
@@ -251,7 +253,7 @@ class VideoSettingsManager:
         settings = self.load_settings()
         return settings.get("api_settings", self.default_settings["api_settings"])
 
-    def set_api_settings(self, key_file="", web_app_id_single=39386, web_app_id_frames=39388, web_app_id_video=38808, api_url=None, key_text="", key_source="file"):
+    def set_api_settings(self, key_file="", web_app_id_single=39386, web_app_id_frames=39388, web_app_id_video=38808, web_app_id_sora_t2v=42921, web_app_id_sora_i2v=42936, api_url=None, key_text="", key_source="file"):
         """设置API参数
 
         Args:
@@ -259,6 +261,8 @@ class VideoSettingsManager:
             web_app_id_single: 单图片转视频 Web App ID
             web_app_id_frames: 首尾帧图片转视频 Web App ID
             web_app_id_video: 视频换人物 Web App ID
+            web_app_id_sora_t2v: Sora2 文生视频 Web App ID
+            web_app_id_sora_i2v: Sora2 图生视频 Web App ID
             api_url: API 请求地址
             key_text: 密钥文本（直接输入的密钥）
             key_source: 密钥来源 (file, env, text)
@@ -276,6 +280,8 @@ class VideoSettingsManager:
             "web_app_id_single": web_app_id_single,
             "web_app_id_frames": web_app_id_frames,
             "web_app_id_video": web_app_id_video,
+            "web_app_id_sora_t2v": web_app_id_sora_t2v,
+            "web_app_id_sora_i2v": web_app_id_sora_i2v,
             "api_url": api_url
         }
         return self.save_settings(settings)
@@ -306,6 +312,8 @@ class APIKeyManager:
         self.web_app_id_single = 39386  # 单图片转视频 Web App ID
         self.web_app_id_frames = 39388  # 首尾帧图片转视频 Web App ID
         self.web_app_id_video = 38808  # 视频换人物 Web App ID
+        self.web_app_id_sora_t2v = 42921  # Sora2 文生视频 Web App ID
+        self.web_app_id_sora_i2v = 42936  # Sora2 图生视频 Web App ID
         self.key_source = "file"  # "file", "env" 或 "text"
 
     def load_keys_from_file(self, file_path):
@@ -663,6 +671,33 @@ class SingleVideoGenerationWorker(QThread):
                     }
                 }
                 self.log_message(f"📋 使用视频换人物模式，Web App ID: {self.api_manager.web_app_id_video}")
+            elif self.video_mode == "sora_t2v":
+                # Sora2 文生视频模式
+                aspect_ratio = self.task.get('aspect_ratio', '9:16')
+
+                bizyair_request_data = {
+                    "web_app_id": self.api_manager.web_app_id_sora_t2v,  # 使用 Sora2 文生视频 Web App ID
+                    "suppress_preview_output": True,
+                    "input_values": {
+                        "57:BizyAir_Sora_V2_T2V_API.prompt": prompt,
+                        "57:BizyAir_Sora_V2_T2V_API.aspect_ratio": aspect_ratio
+                    }
+                }
+                self.log_message(f"📋 使用Sora2文生视频模式，Web App ID: {self.api_manager.web_app_id_sora_t2v}, 宽高比: {aspect_ratio}")
+            elif self.video_mode == "sora_i2v":
+                # Sora2 图生视频模式
+                aspect_ratio = self.task.get('aspect_ratio', '9:16')
+
+                bizyair_request_data = {
+                    "web_app_id": self.api_manager.web_app_id_sora_i2v,  # 使用 Sora2 图生视频 Web App ID
+                    "suppress_preview_output": True,
+                    "input_values": {
+                        "18:LoadImage.image": image_value,  # data URL 或 URL 格式
+                        "6:CR Prompt Text.prompt": prompt,
+                        "54:BizyAir_Sora_V2_I2V_API.aspect_ratio": aspect_ratio
+                    }
+                }
+                self.log_message(f"📋 使用Sora2图生视频模式，Web App ID: {self.api_manager.web_app_id_sora_i2v}, 宽高比: {aspect_ratio}")
             else:
                 # 单图片转视频模式（原有逻辑）
                 bizyair_request_data = {
@@ -2134,7 +2169,7 @@ class VideoGenerationWidget(QWidget):
         dialog = APISettingsDialog(self.api_manager, self)
         if dialog.exec_() == QDialog.Accepted:
             self.update_key_status()
-            self.webapp_id_label.setText(f"单图:{self.api_manager.web_app_id_single} | 首尾帧:{self.api_manager.web_app_id_frames} | 换人物:{self.api_manager.web_app_id_video}")
+            self.webapp_id_label.setText(f"单图:{self.api_manager.web_app_id_single} | 首尾帧:{self.api_manager.web_app_id_frames} | 换人物:{self.api_manager.web_app_id_video} | Sora2文生:{self.api_manager.web_app_id_sora_t2v} | Sora2图生:{self.api_manager.web_app_id_sora_i2v}")
             self.save_settings()
 
     def update_key_status(self):
@@ -2243,6 +2278,14 @@ class VideoGenerationWidget(QWidget):
         # 视频换人物选项卡
         video_tab = self.create_video_replace_tab()
         self.mode_tabs.addTab(video_tab, "视频换人物")
+
+        # Sora2文生视频选项卡
+        sora_t2v_tab = self.create_sora_t2v_tab()
+        self.mode_tabs.addTab(sora_t2v_tab, "Sora2文生视频")
+
+        # Sora2图生视频选项卡
+        sora_i2v_tab = self.create_sora_i2v_tab()
+        self.mode_tabs.addTab(sora_i2v_tab, "Sora2图生视频")
 
         layout.addWidget(self.mode_tabs)
 
@@ -2450,6 +2493,88 @@ class VideoGenerationWidget(QWidget):
 
         return tab
 
+    def create_sora_t2v_tab(self):
+        """创建Sora2文生视频选项卡"""
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+        layout.setSpacing(6)
+        layout.setContentsMargins(8, 8, 8, 8)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setStyleSheet("""
+            QScrollArea { background-color: #2A2A2A; border: none; }
+            QScrollBar:vertical { background-color: #2a2a2a; width: 8px; border-radius: 4px; }
+            QScrollBar::handle:vertical { background-color: #4a4a4a; border-radius: 4px; min-height: 20px; }
+            QScrollBar::handle:vertical:hover { background-color: #5a5a5a; }
+        """)
+
+        scroll_widget = QWidget()
+        scroll_widget.setStyleSheet("QWidget { background-color: #2A2A2A; }")
+        scroll_layout = QVBoxLayout(scroll_widget)
+        scroll_layout.setSpacing(6)
+
+        # 提示词输入组
+        prompt_group = self.create_sora_prompt_group()
+        scroll_layout.addWidget(prompt_group)
+
+        # 宽高比选择组
+        aspect_group = self.create_sora_aspect_ratio_group()
+        scroll_layout.addWidget(aspect_group)
+
+        # 批量任务组（Sora2文生视频模式）
+        batch_group_sora_t2v = self.create_batch_group_sora_t2v()
+        scroll_layout.addWidget(batch_group_sora_t2v)
+
+        scroll.setWidget(scroll_widget)
+        layout.addWidget(scroll)
+
+        return tab
+
+    def create_sora_i2v_tab(self):
+        """创建Sora2图生视频选项卡"""
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+        layout.setSpacing(6)
+        layout.setContentsMargins(8, 8, 8, 8)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setStyleSheet("""
+            QScrollArea { background-color: #2A2A2A; border: none; }
+            QScrollBar:vertical { background-color: #2a2a2a; width: 8px; border-radius: 4px; }
+            QScrollBar::handle:vertical { background-color: #4a4a4a; border-radius: 4px; min-height: 20px; }
+            QScrollBar::handle:vertical:hover { background-color: #5a5a5a; }
+        """)
+
+        scroll_widget = QWidget()
+        scroll_widget.setStyleSheet("QWidget { background-color: #2A2A2A; }")
+        scroll_layout = QVBoxLayout(scroll_widget)
+        scroll_layout.setSpacing(6)
+
+        # 图片输入组
+        image_group = self.create_image_input_group()
+        scroll_layout.addWidget(image_group)
+
+        # 提示词输入组
+        prompt_group = self.create_sora_prompt_group()
+        scroll_layout.addWidget(prompt_group)
+
+        # 宽高比选择组
+        aspect_group = self.create_sora_aspect_ratio_group()
+        scroll_layout.addWidget(aspect_group)
+
+        # 批量任务组（Sora2图生视频模式）
+        batch_group_sora_i2v = self.create_batch_group_sora_i2v()
+        scroll_layout.addWidget(batch_group_sora_i2v)
+
+        scroll.setWidget(scroll_widget)
+        layout.addWidget(scroll)
+
+        return tab
+
     def on_video_input_type_changed(self, index):
         """视频输入方式改变"""
         is_url = index == 1
@@ -2650,6 +2775,136 @@ class VideoGenerationWidget(QWidget):
             self.prompt_edit_video = prompt_edit
 
         return prompt_edit
+
+    def create_sora_prompt_group(self):
+        """创建Sora2提示词输入组（无标题无边框）"""
+        prompt_edit = QTextEdit()
+        prompt_edit.setPlaceholderText("输入Sora2视频生成的提示词，描述你想要的视频内容...")
+        prompt_edit.setMinimumHeight(80)
+        prompt_edit.setMaximumHeight(200)
+        prompt_edit.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        prompt_edit.setStyleSheet("padding: 10px; background: #202020; border-radius: 4px;font-size:16px; margin-right:20px;")
+
+        # 根据调用位置返回不同的引用
+        if not hasattr(self, 'sora_prompt_edit_t2v'):
+            self.sora_prompt_edit_t2v = prompt_edit
+        elif not hasattr(self, 'sora_prompt_edit_i2v'):
+            self.sora_prompt_edit_i2v = prompt_edit
+
+        return prompt_edit
+
+    def create_sora_aspect_ratio_group(self):
+        """创建Sora2宽高比选择组"""
+        group = QGroupBox("")
+        layout = QVBoxLayout(group)
+        layout.setSpacing(0)
+
+        # 宽高比选择标签
+        aspect_label = QLabel("视频宽高比:")
+        aspect_label.setStyleSheet("color: #ffffff; font-size: 14px; font-weight: bold; padding: 5px 0;")
+        layout.addWidget(aspect_label)
+
+        # 宽高比下拉框
+        self.sora_aspect_combo = ComboBox()
+        self.sora_aspect_combo.addItems(["9:16 (竖屏)", "16:9 (横屏)", "1:1 (方形)"])
+        self.sora_aspect_combo.setFixedHeight(32)
+        self.sora_aspect_combo.setStyleSheet("""
+            QComboBox {
+                background-color: #333333;
+                border: 1px solid #505050;
+                border-radius: 4px;
+                color: #ffffff;
+                padding: 4px 10px;
+                min-height: 20px;
+            }
+            QComboBox:hover {
+                border: 1px solid #4a90e2;
+            }
+            QComboBox::drop-down {
+                border: none;
+                background-color: #404040;
+                width: 20px;
+            }
+            QComboBox QAbstractItemView {
+                background-color: #333333;
+                border: 1px solid #505050;
+                selection-background-color: #4a90e2;
+                color: #ffffff;
+            }
+        """)
+        layout.addWidget(self.sora_aspect_combo)
+
+        return group
+
+    def create_batch_group_sora_t2v(self):
+        """创建批量任务组（Sora2文生视频模式）"""
+        group = QGroupBox("")
+        layout = QVBoxLayout(group)
+        layout.setSpacing(0)
+
+        self.task_list_widget_sora_t2v = QWidget()
+        self.task_list_layout_sora_t2v = QVBoxLayout(self.task_list_widget_sora_t2v)
+        self.task_list_layout_sora_t2v.setSpacing(0)
+
+        self.task_scroll_sora_t2v = QScrollArea()
+        self.task_scroll_sora_t2v.setWidgetResizable(True)
+        self.task_scroll_sora_t2v.setFixedHeight(130)
+        self.task_scroll_sora_t2v.setWidget(self.task_list_widget_sora_t2v)
+
+        task_title = QLabel("待处理任务:")
+        task_title.setStyleSheet("color: #ffffff; font-size: 18px; font-weight: bold; padding: 2px 0;")
+        layout.addWidget(task_title)
+        layout.addWidget(self.task_scroll_sora_t2v)
+
+        add_task_layout = QHBoxLayout()
+        self.add_task_btn_sora_t2v = PushButton("+ 添加到任务列表 +")
+        self.add_task_btn_sora_t2v.setFixedSize(240, 36)
+        self.add_task_btn_sora_t2v.clicked.connect(self.add_to_batch_tasks_sora_t2v)
+        add_task_layout.addWidget(self.add_task_btn_sora_t2v)
+
+        self.clear_tasks_btn_sora_t2v = PushButton("X 清空任务 X")
+        self.clear_tasks_btn_sora_t2v.setFixedSize(240, 36)
+        self.clear_tasks_btn_sora_t2v.clicked.connect(self.clear_batch_tasks_sora_t2v)
+        add_task_layout.addWidget(self.clear_tasks_btn_sora_t2v)
+
+        layout.addLayout(add_task_layout)
+
+        return group
+
+    def create_batch_group_sora_i2v(self):
+        """创建批量任务组（Sora2图生视频模式）"""
+        group = QGroupBox("")
+        layout = QVBoxLayout(group)
+        layout.setSpacing(0)
+
+        self.task_list_widget_sora_i2v = QWidget()
+        self.task_list_layout_sora_i2v = QVBoxLayout(self.task_list_widget_sora_i2v)
+        self.task_list_layout_sora_i2v.setSpacing(0)
+
+        self.task_scroll_sora_i2v = QScrollArea()
+        self.task_scroll_sora_i2v.setWidgetResizable(True)
+        self.task_scroll_sora_i2v.setFixedHeight(130)
+        self.task_scroll_sora_i2v.setWidget(self.task_list_widget_sora_i2v)
+
+        task_title = QLabel("待处理任务:")
+        task_title.setStyleSheet("color: #ffffff; font-size: 18px; font-weight: bold; padding: 2px 0;")
+        layout.addWidget(task_title)
+        layout.addWidget(self.task_scroll_sora_i2v)
+
+        add_task_layout = QHBoxLayout()
+        self.add_task_btn_sora_i2v = PushButton("+ 添加到任务列表 +")
+        self.add_task_btn_sora_i2v.setFixedSize(240, 36)
+        self.add_task_btn_sora_i2v.clicked.connect(self.add_to_batch_tasks_sora_i2v)
+        add_task_layout.addWidget(self.add_task_btn_sora_i2v)
+
+        self.clear_tasks_btn_sora_i2v = PushButton("X 清空任务 X")
+        self.clear_tasks_btn_sora_i2v.setFixedSize(240, 36)
+        self.clear_tasks_btn_sora_i2v.clicked.connect(self.clear_batch_tasks_sora_i2v)
+        add_task_layout.addWidget(self.clear_tasks_btn_sora_i2v)
+
+        layout.addLayout(add_task_layout)
+
+        return group
         
     def create_actions_group(self):
         """创建操作按钮组（深色主题）"""
@@ -3047,6 +3302,186 @@ class VideoGenerationWidget(QWidget):
         self.update_task_list_display_video()
         self.add_log("🗑️ 已清空所有视频换人物任务")
 
+    # Sora2文生视频模式的任务管理方法
+    def add_to_batch_tasks_sora_t2v(self):
+        """添加到批量任务列表（Sora2文生视频模式）"""
+        # 初始化任务列表
+        if not hasattr(self, 'batch_tasks_sora_t2v'):
+            self.batch_tasks_sora_t2v = []
+
+        prompt = self.sora_prompt_edit_t2v.toPlainText().strip() if hasattr(self, 'sora_prompt_edit_t2v') else ""
+
+        if not prompt:
+            QMessageBox.warning(self, "警告", "请输入视频生成提示词")
+            return
+
+        # 获取宽高比
+        aspect_map = {0: "9:16", 1: "16:9", 2: "1:1"}
+        aspect_ratio = aspect_map.get(self.sora_aspect_combo.currentIndex(), "9:16")
+
+        task = {
+            'name': f"Sora2文生视频任务_{len(self.batch_tasks_sora_t2v)+1}",
+            'prompt': prompt,
+            'aspect_ratio': aspect_ratio,
+            'timestamp': datetime.now().isoformat(),
+            'video_mode': 'sora_t2v'  # 标记为Sora2文生视频模式
+        }
+
+        self.batch_tasks_sora_t2v.append(task)
+        self.update_task_list_display_sora_t2v()
+        self.add_log(f"📝 已添加Sora2文生视频任务: {task['name']}")
+
+    def update_task_list_display_sora_t2v(self):
+        """更新任务列表显示（Sora2文生视频模式）"""
+        while self.task_list_layout_sora_t2v.count():
+            item = self.task_list_layout_sora_t2v.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
+        if hasattr(self, 'batch_tasks_sora_t2v'):
+            for i, task in enumerate(self.batch_tasks_sora_t2v):
+                task_card = self.create_task_card_sora_t2v(task, i)
+                self.task_list_layout_sora_t2v.addWidget(task_card)
+
+    def create_task_card_sora_t2v(self, task, index):
+        """创建任务卡片（Sora2文生视频模式）"""
+        card = CardWidget()
+        card.setFixedHeight(48)
+        layout = QHBoxLayout(card)
+        layout.setContentsMargins(10, 5, 10, 5)
+
+        info_layout = QVBoxLayout()
+        name_label = QLabel(task['name'])
+        name_label.setStyleSheet("font-weight: bold; color: #ffffff; font-size: 14px;")
+        info_layout.addWidget(name_label)
+
+        info_text = f"Sora2文生视频 · {task.get('aspect_ratio', '9:16')}"
+        info_label = QLabel(info_text)
+        info_label.setStyleSheet("color: #cccccc; font-size: 12px;")
+        info_layout.addWidget(info_label)
+
+        layout.addLayout(info_layout)
+        layout.addStretch()
+
+        delete_btn = PushButton("X")
+        delete_btn.setFixedSize(30, 30)
+        delete_btn.clicked.connect(lambda: self.remove_task_sora_t2v(index))
+        layout.addWidget(delete_btn)
+
+        return card
+
+    def remove_task_sora_t2v(self, index):
+        """删除任务（Sora2文生视频模式）"""
+        if not hasattr(self, 'batch_tasks_sora_t2v'):
+            return
+        if 0 <= index < len(self.batch_tasks_sora_t2v):
+            task_name = self.batch_tasks_sora_t2v[index]['name']
+            del self.batch_tasks_sora_t2v[index]
+            self.update_task_list_display_sora_t2v()
+            self.add_log(f"🗑️ 已删除任务: {task_name}")
+
+    def clear_batch_tasks_sora_t2v(self):
+        """清空批量任务（Sora2文生视频模式）"""
+        if not hasattr(self, 'batch_tasks_sora_t2v'):
+            self.batch_tasks_sora_t2v = []
+        self.batch_tasks_sora_t2v.clear()
+        self.update_task_list_display_sora_t2v()
+        self.add_log("🗑️ 已清空所有Sora2文生视频任务")
+
+    # Sora2图生视频模式的任务管理方法
+    def add_to_batch_tasks_sora_i2v(self):
+        """添加到批量任务列表（Sora2图生视频模式）"""
+        # 初始化任务列表
+        if not hasattr(self, 'batch_tasks_sora_i2v'):
+            self.batch_tasks_sora_i2v = []
+
+        image_input = self.get_current_image_input()
+
+        if not image_input:
+            QMessageBox.warning(self, "警告", "请先选择图片")
+            return
+
+        prompt = self.sora_prompt_edit_i2v.toPlainText().strip() if hasattr(self, 'sora_prompt_edit_i2v') else ""
+
+        if not prompt:
+            QMessageBox.warning(self, "警告", "请输入视频生成提示词")
+            return
+
+        # 获取宽高比
+        aspect_map = {0: "9:16", 1: "16:9", 2: "1:1"}
+        aspect_ratio = aspect_map.get(self.sora_aspect_combo.currentIndex(), "9:16")
+
+        task = {
+            'name': f"Sora2图生视频任务_{len(self.batch_tasks_sora_i2v)+1}",
+            'image_input': image_input,
+            'image_path': self.drop_widget.current_image_path if self.input_type_combo.currentIndex() == 0 else '',
+            'prompt': prompt,
+            'aspect_ratio': aspect_ratio,
+            'timestamp': datetime.now().isoformat(),
+            'video_mode': 'sora_i2v'  # 标记为Sora2图生视频模式
+        }
+
+        self.batch_tasks_sora_i2v.append(task)
+        self.update_task_list_display_sora_i2v()
+        self.add_log(f"📝 已添加Sora2图生视频任务: {task['name']}")
+
+    def update_task_list_display_sora_i2v(self):
+        """更新任务列表显示（Sora2图生视频模式）"""
+        while self.task_list_layout_sora_i2v.count():
+            item = self.task_list_layout_sora_i2v.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
+        if hasattr(self, 'batch_tasks_sora_i2v'):
+            for i, task in enumerate(self.batch_tasks_sora_i2v):
+                task_card = self.create_task_card_sora_i2v(task, i)
+                self.task_list_layout_sora_i2v.addWidget(task_card)
+
+    def create_task_card_sora_i2v(self, task, index):
+        """创建任务卡片（Sora2图生视频模式）"""
+        card = CardWidget()
+        card.setFixedHeight(48)
+        layout = QHBoxLayout(card)
+        layout.setContentsMargins(10, 5, 10, 5)
+
+        info_layout = QVBoxLayout()
+        name_label = QLabel(task['name'])
+        name_label.setStyleSheet("font-weight: bold; color: #ffffff; font-size: 14px;")
+        info_layout.addWidget(name_label)
+
+        info_text = f"Sora2图生视频 · {task.get('aspect_ratio', '9:16')}"
+        info_label = QLabel(info_text)
+        info_label.setStyleSheet("color: #cccccc; font-size: 12px;")
+        info_layout.addWidget(info_label)
+
+        layout.addLayout(info_layout)
+        layout.addStretch()
+
+        delete_btn = PushButton("X")
+        delete_btn.setFixedSize(30, 30)
+        delete_btn.clicked.connect(lambda: self.remove_task_sora_i2v(index))
+        layout.addWidget(delete_btn)
+
+        return card
+
+    def remove_task_sora_i2v(self, index):
+        """删除任务（Sora2图生视频模式）"""
+        if not hasattr(self, 'batch_tasks_sora_i2v'):
+            return
+        if 0 <= index < len(self.batch_tasks_sora_i2v):
+            task_name = self.batch_tasks_sora_i2v[index]['name']
+            del self.batch_tasks_sora_i2v[index]
+            self.update_task_list_display_sora_i2v()
+            self.add_log(f"🗑️ 已删除任务: {task_name}")
+
+    def clear_batch_tasks_sora_i2v(self):
+        """清空批量任务（Sora2图生视频模式）"""
+        if not hasattr(self, 'batch_tasks_sora_i2v'):
+            self.batch_tasks_sora_i2v = []
+        self.batch_tasks_sora_i2v.clear()
+        self.update_task_list_display_sora_i2v()
+        self.add_log("🗑️ 已清空所有Sora2图生视频任务")
+
     # ... (create_result_panel, clear_task_status_cards 方法不变) ...
     def create_result_panel(self):
         """创建结果展示面板（深色主题）"""
@@ -3177,7 +3612,7 @@ class VideoGenerationWidget(QWidget):
 
     # ... (generate_single_video, generate_batch_videos, execute_concurrent_tasks 方法不变) ...
     def generate_single_video(self):
-        """生成单个视频 - 支持单图片、首尾帧和视频换人物三种模式"""
+        """生成单个视频 - 支持单图片、首尾帧、视频换人物、Sora2文生视频、Sora2图生视频五种模式"""
         # 获取当前选项卡索引
         current_tab = self.mode_tabs.currentIndex()
 
@@ -3243,7 +3678,7 @@ class VideoGenerationWidget(QWidget):
 
             self.execute_concurrent_tasks([task])
 
-        else:  # current_tab == 2
+        elif current_tab == 2:
             # 视频换人物模式
             # 获取视频输入
             if self.video_input_type_combo.currentIndex() == 1:
@@ -3289,8 +3724,68 @@ class VideoGenerationWidget(QWidget):
 
             self.execute_concurrent_tasks([task])
 
+        elif current_tab == 3:
+            # Sora2文生视频模式
+            prompt = self.sora_prompt_edit_t2v.toPlainText().strip() if hasattr(self, 'sora_prompt_edit_t2v') else ""
+
+            if not prompt:
+                QMessageBox.warning(self, "警告", "请输入视频生成提示词")
+                return
+
+            # 获取宽高比
+            aspect_map = {0: "9:16", 1: "16:9", 2: "1:1"}
+            aspect_ratio = aspect_map.get(self.sora_aspect_combo.currentIndex(), "9:16")
+
+            timestamp = datetime.now().strftime("%H%M%S")
+            task = {
+                'name': f"Sora2文生视频单个任务_{timestamp}",
+                'prompt': prompt,
+                'aspect_ratio': aspect_ratio,
+                'timestamp': datetime.now().isoformat(),
+                'video_mode': 'sora_t2v'
+            }
+
+            self.execute_concurrent_tasks([task])
+
+        elif current_tab == 4:
+            # Sora2图生视频模式
+            input_type = self.input_type_combo.currentIndex()
+            prompt = self.sora_prompt_edit_i2v.toPlainText().strip() if hasattr(self, 'sora_prompt_edit_i2v') else ""
+
+            if input_type == 1:
+                image_input = self.image_url_edit.text().strip()
+                if not image_input:
+                    QMessageBox.warning(self, "警告", "请输入图片URL")
+                    return
+            else:
+                if not hasattr(self.drop_widget, 'base64_data') or not self.drop_widget.base64_data:
+                    QMessageBox.warning(self, "警告", "请先上传图片文件")
+                    return
+                image_input = self.drop_widget.base64_data
+
+            if not prompt:
+                QMessageBox.warning(self, "警告", "请输入视频生成提示词")
+                return
+
+            # 获取宽高比
+            aspect_map = {0: "9:16", 1: "16:9", 2: "1:1"}
+            aspect_ratio = aspect_map.get(self.sora_aspect_combo.currentIndex(), "9:16")
+
+            timestamp = datetime.now().strftime("%H%M%S")
+            task = {
+                'name': f"Sora2图生视频单个任务_{timestamp}",
+                'image_input': image_input,
+                'image_path': self.drop_widget.current_image_path if self.input_type_combo.currentIndex() == 0 else '',
+                'prompt': prompt,
+                'aspect_ratio': aspect_ratio,
+                'timestamp': datetime.now().isoformat(),
+                'video_mode': 'sora_i2v'
+            }
+
+            self.execute_concurrent_tasks([task])
+
     def generate_batch_videos(self):
-        """生成批量视频 - 支持单图片、首尾帧和视频换人物三种模式"""
+        """生成批量视频 - 支持单图片、首尾帧、视频换人物、Sora2文生视频、Sora2图生视频五种模式"""
         # 获取当前选项卡索引
         current_tab = self.mode_tabs.currentIndex()
 
@@ -3306,12 +3801,24 @@ class VideoGenerationWidget(QWidget):
                 QMessageBox.warning(self, "警告", "请先添加首尾帧任务到列表")
                 return
             self.execute_concurrent_tasks(self.batch_tasks_frames)
-        else:  # current_tab == 2
+        elif current_tab == 2:
             # 视频换人物模式
             if not hasattr(self, 'batch_tasks_video') or not self.batch_tasks_video:
                 QMessageBox.warning(self, "警告", "请先添加视频换人物任务到列表")
                 return
             self.execute_concurrent_tasks(self.batch_tasks_video)
+        elif current_tab == 3:
+            # Sora2文生视频模式
+            if not hasattr(self, 'batch_tasks_sora_t2v') or not self.batch_tasks_sora_t2v:
+                QMessageBox.warning(self, "警告", "请先添加Sora2文生视频任务到列表")
+                return
+            self.execute_concurrent_tasks(self.batch_tasks_sora_t2v)
+        elif current_tab == 4:
+            # Sora2图生视频模式
+            if not hasattr(self, 'batch_tasks_sora_i2v') or not self.batch_tasks_sora_i2v:
+                QMessageBox.warning(self, "警告", "请先添加Sora2图生视频任务到列表")
+                return
+            self.execute_concurrent_tasks(self.batch_tasks_sora_i2v)
 
     def execute_concurrent_tasks(self, tasks):
         """真正并发执行任务 - 每个任务独立线程和API密钥"""
@@ -3527,11 +4034,13 @@ class VideoGenerationWidget(QWidget):
             self.api_manager.web_app_id_single = api_settings.get('web_app_id_single', 39386)
             self.api_manager.web_app_id_frames = api_settings.get('web_app_id_frames', 39388)
             self.api_manager.web_app_id_video = api_settings.get('web_app_id_video', 38808)
+            self.api_manager.web_app_id_sora_t2v = api_settings.get('web_app_id_sora_t2v', 42921)
+            self.api_manager.web_app_id_sora_i2v = api_settings.get('web_app_id_sora_i2v', 42936)
 
             self.update_key_status()
             self.update_current_params_display()
             self.refresh_task_videos()
-            self.webapp_id_label.setText(f"单图:{self.api_manager.web_app_id_single} | 首尾帧:{self.api_manager.web_app_id_frames} | 换人物:{self.api_manager.web_app_id_video}")
+            self.webapp_id_label.setText(f"单图:{self.api_manager.web_app_id_single} | 首尾帧:{self.api_manager.web_app_id_frames} | 换人物:{self.api_manager.web_app_id_video} | Sora2文生:{self.api_manager.web_app_id_sora_t2v} | Sora2图生:{self.api_manager.web_app_id_sora_i2v}")
 
             self.add_log(f"✅ 已加载视频设置配置")
 
@@ -3562,6 +4071,8 @@ class VideoGenerationWidget(QWidget):
                 web_app_id_single=self.api_manager.web_app_id_single,
                 web_app_id_frames=self.api_manager.web_app_id_frames,
                 web_app_id_video=self.api_manager.web_app_id_video,
+                web_app_id_sora_t2v=self.api_manager.web_app_id_sora_t2v,
+                web_app_id_sora_i2v=self.api_manager.web_app_id_sora_i2v,
                 key_text=key_text,
                 key_source=key_source
             )
@@ -3917,6 +4428,28 @@ class APISettingsDialog(QDialog):
         video_layout.addStretch()
         webapp_layout.addLayout(video_layout)
 
+        # Sora2文生视频 Web App ID
+        sora_t2v_layout = QHBoxLayout()
+        sora_t2v_layout.addWidget(QLabel("Sora2文生视频 ID:"))
+        self.webapp_id_sora_t2v_spin = QSpinBox()
+        self.webapp_id_sora_t2v_spin.setRange(1, 99999)
+        self.webapp_id_sora_t2v_spin.setValue(getattr(self.api_manager, 'web_app_id_sora_t2v', 42921))
+        self.webapp_id_sora_t2v_spin.setFixedWidth(150)
+        sora_t2v_layout.addWidget(self.webapp_id_sora_t2v_spin)
+        sora_t2v_layout.addStretch()
+        webapp_layout.addLayout(sora_t2v_layout)
+
+        # Sora2图生视频 Web App ID
+        sora_i2v_layout = QHBoxLayout()
+        sora_i2v_layout.addWidget(QLabel("Sora2图生视频 ID:"))
+        self.webapp_id_sora_i2v_spin = QSpinBox()
+        self.webapp_id_sora_i2v_spin.setRange(1, 99999)
+        self.webapp_id_sora_i2v_spin.setValue(getattr(self.api_manager, 'web_app_id_sora_i2v', 42936))
+        self.webapp_id_sora_i2v_spin.setFixedWidth(150)
+        sora_i2v_layout.addWidget(self.webapp_id_sora_i2v_spin)
+        sora_i2v_layout.addStretch()
+        webapp_layout.addLayout(sora_i2v_layout)
+
         # API URL 设置
         api_url_layout = QHBoxLayout()
         api_url_layout.addWidget(QLabel("API 请求地址:"))
@@ -4083,21 +4616,27 @@ class APISettingsDialog(QDialog):
 
     def save_settings(self):
         """保存设置"""
-        # 保存三个 Web App ID
+        # 保存五个 Web App ID
         webapp_id_single = self.webapp_id_single_spin.value()
         webapp_id_frames = self.webapp_id_frames_spin.value()
         webapp_id_video = self.webapp_id_video_spin.value()
+        webapp_id_sora_t2v = self.webapp_id_sora_t2v_spin.value()
+        webapp_id_sora_i2v = self.webapp_id_sora_i2v_spin.value()
         api_url = self.api_url_edit.text().strip()
 
         self.api_manager.web_app_id_single = webapp_id_single
         self.api_manager.web_app_id_frames = webapp_id_frames
         self.api_manager.web_app_id_video = webapp_id_video
+        self.api_manager.web_app_id_sora_t2v = webapp_id_sora_t2v
+        self.api_manager.web_app_id_sora_i2v = webapp_id_sora_i2v
         self.api_manager.api_url = api_url
 
         # 更新父级管理器
         self.parent().api_manager.web_app_id_single = webapp_id_single
         self.parent().api_manager.web_app_id_frames = webapp_id_frames
         self.parent().api_manager.web_app_id_video = webapp_id_video
+        self.parent().api_manager.web_app_id_sora_t2v = webapp_id_sora_t2v
+        self.parent().api_manager.web_app_id_sora_i2v = webapp_id_sora_i2v
         self.parent().api_manager.api_url = api_url
 
         # 处理密钥来源
@@ -4156,6 +4695,8 @@ class APISettingsDialog(QDialog):
                 web_app_id_single=webapp_id_single,
                 web_app_id_frames=webapp_id_frames,
                 web_app_id_video=webapp_id_video,
+                web_app_id_sora_t2v=webapp_id_sora_t2v,
+                web_app_id_sora_i2v=webapp_id_sora_i2v,
                 api_url=api_url,
                 key_text=key_text_to_save,
                 key_source=key_source
@@ -4182,22 +4723,30 @@ class APISettingsDialog(QDialog):
                 webapp_id_single = api_settings.get('web_app_id_single', 39386)
                 webapp_id_frames = api_settings.get('web_app_id_frames', 39388)
                 webapp_id_video = api_settings.get('web_app_id_video', 38808)
+                webapp_id_sora_t2v = api_settings.get('web_app_id_sora_t2v', 42921)
+                webapp_id_sora_i2v = api_settings.get('web_app_id_sora_i2v', 42936)
                 api_url = api_settings.get('api_url', 'https://api.bizyair.cn/w/v1/webapp/task/openapi/create')
 
                 # 设置 Web App ID
                 self.webapp_id_single_spin.setValue(webapp_id_single)
                 self.webapp_id_frames_spin.setValue(webapp_id_frames)
                 self.webapp_id_video_spin.setValue(webapp_id_video)
+                self.webapp_id_sora_t2v_spin.setValue(webapp_id_sora_t2v)
+                self.webapp_id_sora_i2v_spin.setValue(webapp_id_sora_i2v)
                 self.api_url_edit.setText(api_url)
 
                 # 更新管理器
                 self.api_manager.web_app_id_single = webapp_id_single
                 self.api_manager.web_app_id_frames = webapp_id_frames
                 self.api_manager.web_app_id_video = webapp_id_video
+                self.api_manager.web_app_id_sora_t2v = webapp_id_sora_t2v
+                self.api_manager.web_app_id_sora_i2v = webapp_id_sora_i2v
                 self.api_manager.api_url = api_url
                 self.parent().api_manager.web_app_id_single = webapp_id_single
                 self.parent().api_manager.web_app_id_frames = webapp_id_frames
                 self.parent().api_manager.web_app_id_video = webapp_id_video
+                self.parent().api_manager.web_app_id_sora_t2v = webapp_id_sora_t2v
+                self.parent().api_manager.web_app_id_sora_i2v = webapp_id_sora_i2v
                 self.parent().api_manager.api_url = api_url
 
                 # 根据密钥来源设置界面
