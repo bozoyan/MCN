@@ -754,8 +754,8 @@ class SingleVideoGenerationWorker(QThread):
                     "no_proxy": None
                 }
 
-                # 统一使用较短的超时时间（5分钟），所有模式都通过 request_id 进行异步查询
-                request_timeout = (60, 300)  # 1分钟连接超时，5分钟读取超时
+                # 统一使用超时时间（20分钟），所有模式都通过 request_id 进行异步查询
+                request_timeout = (60, 1200)  # 1分钟连接超时，20分钟读取超时
 
                 response = session.post(
                     base_url,
@@ -1454,8 +1454,7 @@ class TaskStatusCard(CardWidget):
             aspect_ratio = self.task_params.get('aspect_ratio', '9:16')
             aspect_map = {
                 '9:16': '竖屏 (9:16)',
-                '16:9': '横屏 (16:9)',
-                '1:1': '方形 (1:1)'
+                '16:9': '横屏 (16:9)'
             }
             params_text = aspect_map.get(aspect_ratio, aspect_ratio)
         else:
@@ -1703,8 +1702,7 @@ class VideoResultCard(CardWidget):
             aspect_ratio = self.video_data.get('aspect_ratio', '9:16')
             aspect_map = {
                 '9:16': '竖屏 (9:16)',
-                '16:9': '横屏 (16:9)',
-                '1:1': '方形 (1:1)'
+                '16:9': '横屏 (16:9)'
             }
             params_text = f"宽高比: {aspect_map.get(aspect_ratio, aspect_ratio)}"
             params_label = CaptionLabel(params_text)
