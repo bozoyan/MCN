@@ -729,10 +729,19 @@ class SingleVideoGenerationWorker(QThread):
             api_url = default_api_url
             if hasattr(self.api_manager, 'api_url') and self.api_manager.api_url:
                 api_url = self.api_manager.api_url
-            
+
             base_url = api_url
-            self.log_message(f"📤 发送BizyAir API请求: {base_url}")
-            
+
+            # 显示超时策略信息
+            if self.video_mode in ["sora_t2v", "sora_i2v"]:
+                self.log_message(f"📤 发送BizyAir API请求 (Sora2异步模式): {base_url}")
+                self.log_message(f"⏱️ 超时策略: 短超时(5分钟)快速获取request_id")
+                self.log_message(f"🔄 查询策略: 前5分钟低频(每60秒)，后期高频(每20秒)，最长等待60分钟")
+            else:
+                self.log_message(f"📤 发送BizyAir API请求 (同步模式): {base_url}")
+                self.log_message(f"⏱️ 超时策略: 短超时(5分钟)快速获取request_id")
+                self.log_message(f"🔄 查询策略: 前3分钟低频(每30秒)，后期高频(每10秒)，最长等待30分钟")
+
             # --- API请求和错误处理统一 ---
             try:
                 # 禁用代理设置，确保国内API免受全局代理影响
@@ -745,11 +754,14 @@ class SingleVideoGenerationWorker(QThread):
                     "no_proxy": None
                 }
 
+                # 统一使用较短的超时时间（5分钟），所有模式都通过 request_id 进行异步查询
+                request_timeout = (60, 300)  # 1分钟连接超时，5分钟读取超时
+
                 response = session.post(
                     base_url,
                     headers=headers,
                     json=bizyair_request_data,
-                    timeout=(300, 1200)  # 5分钟连接超时，20分钟读取超时
+                    timeout=request_timeout
                 )
                 
                 self.log_message(f"📡 API响应状态: {response.status_code}")
@@ -842,13 +854,39 @@ class SingleVideoGenerationWorker(QThread):
 
     def check_video_status(self, request_id):
         """查询BizyAir任务状态 (合并原 check_video_status_bizyair)"""
-        max_attempts = 180  # 最大尝试次数（30分钟）
-        check_interval = 10  # 检查间隔10秒
+        # 根据视频模式设置不同的查询参数
+        if self.video_mode in ["sora_t2v", "sora_i2v"]:
+            # Sora2 模式：智能延迟查询策略
+            # 前5分钟使用较低频率查询（每60秒），5分钟后高频查询（每20秒）
+            # 这样可以大幅减少 API 调用次数，同时确保及时发现任务完成
+            max_attempts = 240  # 最大尝试次数（60分钟）
+            early_phase_interval = 60  # 前5分钟每60秒查询一次
+            late_phase_interval = 20   # 5分钟后每20秒查询一次
+            early_phase_duration = 300  # 前期阶段持续5分钟（300秒）
+        else:
+            # 其他模式：前3分钟低频，3分钟后高频
+            max_attempts = 210  # 最大尝试次数（30分钟）
+            early_phase_interval = 30  # 前3分钟每30秒查询一次
+            late_phase_interval = 10   # 3分钟后每10秒查询一次
+            early_phase_duration = 180  # 前期阶段持续3分钟（180秒）
+
+        # 累计时间
+        elapsed_time_total = 0  # 总累计时间
 
         for attempt in range(max_attempts):
             if self.is_cancelled:
                 self.log_message("⏹️ 任务已取消")
                 return None
+
+            # 确定当前查询间隔
+            if elapsed_time_total < early_phase_duration:
+                # 前期阶段：低频查询
+                check_interval = early_phase_interval
+                phase = "前期"
+            else:
+                # 后期阶段：高频查询
+                check_interval = late_phase_interval
+                phase = "后期"
 
             try:
                 headers = {
@@ -871,7 +909,7 @@ class SingleVideoGenerationWorker(QThread):
                     headers=headers,
                     timeout=30
                 )
-                
+
                 response.raise_for_status() # 抛出 HTTPError 4xx/5xx
 
                 data = response.json()
@@ -883,7 +921,7 @@ class SingleVideoGenerationWorker(QThread):
                     f"检查进度... ({status.capitalize()})",
                     self.task_id
                 )
-                
+
                 if status == 'success' and 'outputs' in data:
                     outputs = data['outputs']
                     if outputs and len(outputs) > 0:
@@ -898,7 +936,13 @@ class SingleVideoGenerationWorker(QThread):
                     return None
 
                 else:
-                    self.log_message(f"⏳ 视频生成中... ({status.capitalize()}) - 第{attempt+1}次检查")
+                    # 显示更详细的进度信息
+                    elapsed_minutes = elapsed_time_total // 60
+                    elapsed_seconds = elapsed_time_total % 60
+                    if self.video_mode in ["sora_t2v", "sora_i2v"]:
+                        self.log_message(f"⏳ Sora2视频生成中... ({status.capitalize()}) - 已等待 {elapsed_minutes}分{elapsed_seconds}秒 ({phase}阶段·第{attempt+1}次检查)")
+                    else:
+                        self.log_message(f"⏳ 视频生成中... ({status.capitalize()}) - 已等待 {elapsed_minutes}分{elapsed_seconds}秒 ({phase}阶段·第{attempt+1}次检查)")
 
             except requests.exceptions.RequestException as e:
                 self.log_message(f"⚠️ 状态查询异常: {str(e)}")
@@ -906,8 +950,13 @@ class SingleVideoGenerationWorker(QThread):
             # 如果不是最后一次尝试，等待后继续
             if attempt < max_attempts - 1:
                 time.sleep(check_interval)
+                # 累加总等待时间
+                elapsed_time_total += check_interval
 
-        self.log_message(f"⏰ 视频生成超时 ({max_attempts * check_interval // 60}分钟)")
+        # 计算实际超时时间（分钟）
+        timeout_minutes = elapsed_time_total // 60
+
+        self.log_message(f"⏰ 视频生成超时 ({timeout_minutes}分钟)")
         return None
 
     def cancel(self):
