@@ -2061,7 +2061,7 @@ class VideoGenerationWidget(QWidget):
         layout.addSpacing(10)
 
         # 打开文件夹按钮
-        self.open_output_btn = PushButton("打开文件夹")
+        self.open_output_btn = PushButton("打开")
         self.open_output_btn.setFixedSize(100, 32)
         self.open_output_btn.clicked.connect(self.open_output_folder)
         self.open_output_btn.setStyleSheet("""
@@ -2108,7 +2108,7 @@ class VideoGenerationWidget(QWidget):
         """)
         layout.addWidget(self.webapp_id_label)
 
-        self.settings_btn = PushButton("API 密钥设置")
+        self.settings_btn = PushButton("密钥设置")
         self.settings_btn.setFixedSize(130, 32)
         self.settings_btn.clicked.connect(self.show_api_settings_dialog)
         self.settings_btn.setStyleSheet("""
@@ -2269,23 +2269,23 @@ class VideoGenerationWidget(QWidget):
 
         # 单图片转视频选项卡
         single_tab = self.create_single_image_tab()
-        self.mode_tabs.addTab(single_tab, "单图片转视频")
+        self.mode_tabs.addTab(single_tab, "单图片")
 
         # 首尾帧图片转视频选项卡
         frames_tab = self.create_frames_image_tab()
-        self.mode_tabs.addTab(frames_tab, "首尾帧转视频")
+        self.mode_tabs.addTab(frames_tab, "首尾帧")
 
         # 视频换人物选项卡
         video_tab = self.create_video_replace_tab()
-        self.mode_tabs.addTab(video_tab, "视频换人物")
+        self.mode_tabs.addTab(video_tab, "换人物")
 
         # Sora2文生视频选项卡
         sora_t2v_tab = self.create_sora_t2v_tab()
-        self.mode_tabs.addTab(sora_t2v_tab, "Sora2文生视频")
+        self.mode_tabs.addTab(sora_t2v_tab, "Sora2文生")
 
         # Sora2图生视频选项卡
         sora_i2v_tab = self.create_sora_i2v_tab()
-        self.mode_tabs.addTab(sora_i2v_tab, "Sora2图生视频")
+        self.mode_tabs.addTab(sora_i2v_tab, "Sora2图生")
 
         layout.addWidget(self.mode_tabs)
 
@@ -2806,7 +2806,7 @@ class VideoGenerationWidget(QWidget):
 
         # 宽高比下拉框
         self.sora_aspect_combo = ComboBox()
-        self.sora_aspect_combo.addItems(["9:16 (竖屏)", "16:9 (横屏)", "1:1 (方形)"])
+        self.sora_aspect_combo.addItems(["9:16 (竖屏)", "16:9 (横屏)"])
         self.sora_aspect_combo.setFixedHeight(32)
         self.sora_aspect_combo.setStyleSheet("""
             QComboBox {
@@ -3316,7 +3316,7 @@ class VideoGenerationWidget(QWidget):
             return
 
         # 获取宽高比
-        aspect_map = {0: "9:16", 1: "16:9", 2: "1:1"}
+        aspect_map = {0: "9:16", 1: "16:9"}
         aspect_ratio = aspect_map.get(self.sora_aspect_combo.currentIndex(), "9:16")
 
         task = {
@@ -3408,7 +3408,7 @@ class VideoGenerationWidget(QWidget):
             return
 
         # 获取宽高比
-        aspect_map = {0: "9:16", 1: "16:9", 2: "1:1"}
+        aspect_map = {0: "9:16", 1: "16:9"}
         aspect_ratio = aspect_map.get(self.sora_aspect_combo.currentIndex(), "9:16")
 
         task = {
@@ -3733,7 +3733,7 @@ class VideoGenerationWidget(QWidget):
                 return
 
             # 获取宽高比
-            aspect_map = {0: "9:16", 1: "16:9", 2: "1:1"}
+            aspect_map = {0: "9:16", 1: "16:9"}
             aspect_ratio = aspect_map.get(self.sora_aspect_combo.currentIndex(), "9:16")
 
             timestamp = datetime.now().strftime("%H%M%S")
@@ -3768,7 +3768,7 @@ class VideoGenerationWidget(QWidget):
                 return
 
             # 获取宽高比
-            aspect_map = {0: "9:16", 1: "16:9", 2: "1:1"}
+            aspect_map = {0: "9:16", 1: "16:9"}
             aspect_ratio = aspect_map.get(self.sora_aspect_combo.currentIndex(), "9:16")
 
             timestamp = datetime.now().strftime("%H%M%S")
