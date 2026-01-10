@@ -11,6 +11,7 @@ temp
 output
 speech
 SRT
+API
 
 vae.json
 storyboard_config.json
