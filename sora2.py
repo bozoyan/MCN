@@ -26,7 +26,7 @@ from PyQt5.QtCore import QThread, pyqtSignal, Qt, QUrl, QCoreApplication
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
                             QTextEdit, QPushButton, QComboBox,
                             QProgressBar, QMessageBox, QFileDialog,
-                            QGroupBox, QSplitter, QFrame,
+                            QGroupBox, QSplitter, QFrame, QRadioButton,
                             QScrollArea, QDialog, QSizePolicy)
 from PyQt5.QtGui import QPixmap, QDragEnterEvent, QDropEvent, QDesktopServices
 
@@ -692,44 +692,94 @@ class Sora2ImageDropWidget(QFrame):
     def init_ui(self):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(15, 15, 15, 15)
+        layout.setSpacing(10)
 
+        # 创建一个容器来整合拖拽区域和按钮
+        container = QFrame()
+        container.setFixedSize(280, 200)
+        container.setStyleSheet("""
+            QFrame {
+                border: 2px dashed #606060;
+                border-radius: 10px;
+                background-color: #252525;
+            }
+            QFrame:hover {
+                border: 2px dashed #4a90e2;
+                background-color: #2a2a3a;
+            }
+        """)
+
+        container_layout = QVBoxLayout(container)
+        container_layout.setContentsMargins(10, 10, 10, 10)
+        container_layout.setSpacing(10)
+
+        # 图片预览标签
         self.image_label = QLabel()
-        self.image_label.setFixedSize(260, 160)
+        self.image_label.setFixedSize(260, 140)
         self.image_label.setStyleSheet("""
             QLabel {
-                border: 2px dashed #505050;
-                border-radius: 8px;
-                background-color: #2a2a2a;
+                border: none;
+                border-radius: 6px;
+                background-color: #1e1e1e;
                 color: #888888;
-                font-size: 13px;
+                font-size: 12px;
             }
         """)
         self.image_label.setAlignment(Qt.AlignCenter)
-        self.image_label.setText("请拖拽图片到这里\n或点击选择文件")
-        layout.addWidget(self.image_label, alignment=Qt.AlignCenter)
+        self.image_label.setText("📁\n\n拖拽图片到这里\n或点击下方按钮选择")
+        self.image_label.setCursor(Qt.PointingHandCursor)
+        self.image_label.mousePressEvent = self.select_file
 
-        self.select_btn = PushButton("选择图片文件")
+        container_layout.addWidget(self.image_label, alignment=Qt.AlignCenter)
+
+        # 选择按钮
+        self.select_btn = PushButton("📷 选择图片")
         self.select_btn.setFixedHeight(32)
+        self.select_btn.setStyleSheet("""
+            PushButton {
+                background-color: #3a3a3a;
+                color: #ffffff;
+                border: 1px solid #505050;
+                border-radius: 6px;
+                font-size: 12px;
+            }
+            PushButton:hover {
+                background-color: #4a4a4a;
+                border: 1px solid #606060;
+            }
+            PushButton:pressed {
+                background-color: #2a2a2a;
+            }
+        """)
         self.select_btn.clicked.connect(self.select_file)
-        layout.addWidget(self.select_btn)
+        container_layout.addWidget(self.select_btn)
+
+        # 使容器可点击
+        container.mousePressEvent = self.on_container_clicked
+
+        layout.addWidget(container, alignment=Qt.AlignCenter)
+
+    def on_container_clicked(self, event):
+        """容器点击事件"""
+        # 如果点击的不是按钮，则触发选择文件
+        self.select_file()
 
     def dragEnterEvent(self, event: QDragEnterEvent):
         if event.mimeData().hasUrls():
             event.acceptProposedAction()
-            self.setStyleSheet("background-color: #e3f2fd;")
 
     def dragLeaveEvent(self, event):
-        self.setStyleSheet("")
+        pass
 
     def dropEvent(self, event: QDropEvent):
-        self.setStyleSheet("")
         files = [u.toLocalFile() for u in event.mimeData().urls()]
         for file_path in files:
             if file_path.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp')):
                 self.load_image(file_path)
                 break
 
-    def select_file(self):
+    def select_file(self, event=None):
+        """选择图片文件"""
         file_path, _ = QFileDialog.getOpenFileName(
             self,
             "选择图片文件",
@@ -740,11 +790,13 @@ class Sora2ImageDropWidget(QFrame):
             self.load_image(file_path)
 
     def load_image(self, file_path):
+        """加载图片并显示"""
         try:
             pixmap = QPixmap(file_path)
             if not pixmap.isNull():
+                # 缩放图片以适应标签大小
                 scaled_pixmap = pixmap.scaled(
-                    300, 200,
+                    250, 130,
                     Qt.KeepAspectRatio,
                     Qt.SmoothTransformation
                 )
@@ -763,8 +815,9 @@ class Sora2ImageDropWidget(QFrame):
             QMessageBox.warning(self, "错误", f"加载图片失败: {str(e)}")
 
     def clear_image(self):
+        """清除图片"""
         self.image_label.clear()
-        self.image_label.setText("请拖拽图片到这里\n或点击选择文件")
+        self.image_label.setText("📁\n\n拖拽图片到这里\n或点击下方按钮选择")
         self.current_image_path = ""
         self.base64_data = ""
         self.current_image_data = ""
@@ -795,7 +848,7 @@ class Sora2TaskStatusCard(CardWidget):
         self.setFixedHeight(145)
         self.setStyleSheet("""
             CardWidget {
-                background-color: #1e1e1e;
+                background-color: #2A2A2A;
                 border: 1px solid #404040;
                 border-radius: 8px;
                 margin: 2px;
@@ -1060,11 +1113,11 @@ class Sora2VideoGenerationWidget(QWidget):
         return bar
 
     def create_control_panel(self):
-        """Create left control panel"""
+        """创建左侧控制面板"""
         panel = QFrame()
         panel.setStyleSheet("""
             QFrame {
-                background-color: #1e1e1e;
+                background-color: #2A2A2A;
                 border-radius: 8px;
                 margin: 2px;
             }
@@ -1073,38 +1126,44 @@ class Sora2VideoGenerationWidget(QWidget):
         layout.setSpacing(15)
         layout.setContentsMargins(15, 15, 15, 15)
 
-        # Video mode selection
-        mode_group = QGroupBox("生成模式")
-        mode_group.setStyleSheet("""
-            QGroupBox {
-                color: #ffffff;
-                font-size: 14px;
-                font-weight: bold;
-                border: 1px solid #404040;
-                border-radius: 6px;
-                margin-top: 10px;
-                padding-top: 10px;
-            }
-            QGroupBox::title {
-                subcontrol-origin: margin;
-                left: 10px;
-                padding: 0 5px;
-            }
-        """)
-        mode_layout = QVBoxLayout()
+        # 视频模式和宽高比选择（同一行）
+        mode_ratio_widget = QWidget()
+        mode_ratio_layout = QHBoxLayout(mode_ratio_widget)
+        mode_ratio_layout.setContentsMargins(0, 0, 0, 0)
+        mode_ratio_layout.setSpacing(15)
 
+        # 视频模式选择
         self.video_mode_combo = ComboBox()
         self.video_mode_combo.addItems(["文生视频", "图生视频"])
         self.video_mode_combo.setFixedHeight(35)
         self.video_mode_combo.currentIndexChanged.connect(self.on_video_mode_changed)
-        mode_layout.addWidget(self.video_mode_combo)
-        mode_group.setLayout(mode_layout)
-        layout.addWidget(mode_group)
+        mode_ratio_layout.addWidget(self.video_mode_combo, 1)
 
-        # Image upload (only for i2v mode)
-        self.image_group = QGroupBox("上传图片")
-        self.image_group.setStyleSheet(mode_group.styleSheet())
-        image_layout = QVBoxLayout()
+        # 宽高比选择
+        ratio_widget = QWidget()
+        ratio_layout = QHBoxLayout(ratio_widget)
+        ratio_layout.setContentsMargins(0, 0, 0, 0)
+        ratio_layout.setSpacing(20)
+
+        self.aspect_ratio_9_16 = QRadioButton("9:16 (竖屏)")
+        self.aspect_ratio_9_16.setChecked(True)
+        self.aspect_ratio_9_16.setStyleSheet("QRadioButton { color: #ffffff; font-size: 13px; }")
+
+        self.aspect_ratio_16_9 = QRadioButton("16:9 (横屏)")
+        self.aspect_ratio_16_9.setStyleSheet("QRadioButton { color: #ffffff; font-size: 13px; }")
+
+        ratio_layout.addWidget(self.aspect_ratio_9_16)
+        ratio_layout.addWidget(self.aspect_ratio_16_9)
+
+        mode_ratio_layout.addWidget(ratio_widget, 1)
+        layout.addWidget(mode_ratio_widget)
+
+        # 图片上传区域（仅图生视频模式显示）
+        # 使用容器以便控制显示/隐藏
+        self.image_container = QWidget()
+        image_layout = QVBoxLayout(self.image_container)
+        image_layout.setContentsMargins(0, 0, 0, 0)
+        image_layout.setSpacing(10)
 
         self.image_drop_widget = Sora2ImageDropWidget()
         image_layout.addWidget(self.image_drop_widget)
@@ -1113,52 +1172,48 @@ class Sora2VideoGenerationWidget(QWidget):
         clear_image_btn.clicked.connect(self.clear_image)
         image_layout.addWidget(clear_image_btn)
 
-        self.image_group.setLayout(image_layout)
-        self.image_group.setVisible(False)
-        layout.addWidget(self.image_group)
+        self.image_container.setVisible(False)
+        layout.addWidget(self.image_container)
 
-        # Prompt input
-        prompt_group = QGroupBox("视频提示词")
-        prompt_group.setStyleSheet(mode_group.styleSheet())
-        prompt_layout = QVBoxLayout()
-
+        # 视频提示词输入
         self.prompt_edit = QTextEdit()
         self.prompt_edit.setPlaceholderText("请输入视频生成提示词，例如：\n- 美丽的日落场景，海浪轻轻拍打着沙滩\n- 可爱的猫咪在阳光下玩耍\n- 科幻风格未来城市，霓虹灯闪烁")
-        self.prompt_edit.setMinimumHeight(120)
-        prompt_layout.addWidget(self.prompt_edit)
-        prompt_group.setLayout(prompt_layout)
-        layout.addWidget(prompt_group)
+        self.prompt_edit.setFixedHeight(120)
+        self.prompt_edit.setStyleSheet("""
+            QTextEdit {
+                margin-top:-130px;
+                margin-bottom:20px;
+                font-size: 18px;
+                line-height: 1.5;
+                padding: 8px;
+                background: #1e1e1e;
+                border-radius: 4px;
+            }
+        """)
+        layout.addWidget(self.prompt_edit)
 
-        # Video parameters
-        params_group = QGroupBox("视频参数")
-        params_group.setStyleSheet(mode_group.styleSheet())
-        params_layout = QVBoxLayout()
-
-        params_layout.addWidget(QLabel("宽高比："))
-        self.aspect_ratio_combo = ComboBox()
-        self.aspect_ratio_combo.addItems(["9:16", "16:9", "1:1", "4:3", "3:4", "21:9"])
-        self.aspect_ratio_combo.setFixedHeight(35)
-        params_layout.addWidget(self.aspect_ratio_combo)
-
-        params_group.setLayout(params_layout)
-        layout.addWidget(params_group)
-
-        # Batch tasks
-        batch_group = QGroupBox("批量任务")
-        batch_group.setStyleSheet(mode_group.styleSheet())
-        batch_layout = QVBoxLayout()
+        # 批量任务
+        batch_label = QLabel("批量任务")
+        batch_label.setStyleSheet("QLabel { color: #ffffff; font-size: 14px; font-weight: bold; }")
+        layout.addWidget(batch_label)
 
         self.batch_list = QTextEdit()
         self.batch_list.setPlaceholderText("批量任务格式（每行一个任务）：\n提示词1\n提示词2\n提示词3\n\n注：图生视频模式格式：图片路径|提示词")
         self.batch_list.setMinimumHeight(150)
-        batch_layout.addWidget(self.batch_list)
+        self.batch_list.setStyleSheet("""
+            QTextEdit {
+                font-size: 18px;
+                line-height: 1.5;
+                padding: 8px;
+                background: #1e1e1e;
+                border-radius: 4px;
+            }
+        """)
+        layout.addWidget(self.batch_list)
 
         load_batch_file_btn = PushButton("从文件加载")
         load_batch_file_btn.clicked.connect(self.load_batch_from_file)
-        batch_layout.addWidget(load_batch_file_btn)
-
-        batch_group.setLayout(batch_layout)
-        layout.addWidget(batch_group)
+        layout.addWidget(load_batch_file_btn)
 
         layout.addStretch()
 
@@ -1260,11 +1315,24 @@ class Sora2VideoGenerationWidget(QWidget):
         return panel
 
     def on_video_mode_changed(self, index):
-        """Video mode changed event"""
+        """视频模式切换事件"""
         if index == 1:
-            self.image_group.setVisible(True)
+            self.image_container.setVisible(True)
         else:
-            self.image_group.setVisible(False)
+            self.image_container.setVisible(False)
+
+    def set_aspect_ratio(self, ratio):
+        """Set aspect ratio"""
+        if ratio == "9:16":
+            self.aspect_ratio_9_16.setChecked(True)
+            self.aspect_ratio_16_9.setChecked(False)
+        else:
+            self.aspect_ratio_9_16.setChecked(False)
+            self.aspect_ratio_16_9.setChecked(True)
+
+    def get_aspect_ratio(self):
+        """Get current aspect ratio"""
+        return "9:16" if self.aspect_ratio_9_16.isChecked() else "16:9"
 
     def clear_image(self):
         """Clear uploaded image"""
@@ -1320,7 +1388,7 @@ class Sora2VideoGenerationWidget(QWidget):
             QMessageBox.warning(self, "警告", "图生视频模式需要上传图片")
             return
 
-        aspect_ratio = self.aspect_ratio_combo.currentText()
+        aspect_ratio = self.get_aspect_ratio()
 
         task = {
             'name': f'Sora2_{"图生视频" if video_mode == "i2v" else "文生视频"}_{datetime.now().strftime("%H%M%S")}',
@@ -1356,7 +1424,7 @@ class Sora2VideoGenerationWidget(QWidget):
             return
 
         video_mode = "i2v" if self.video_mode_combo.currentIndex() == 1 else "t2v"
-        aspect_ratio = self.aspect_ratio_combo.currentText()
+        aspect_ratio = self.get_aspect_ratio()
 
         lines = [line.strip() for line in batch_text.split('\n') if line.strip()]
         task_map = {}
@@ -1542,6 +1610,16 @@ class Sora2VideoGenerationWidget(QWidget):
             "https://api.bizyair.cn/w/v1/webapp/task/openapi/create")
         self.api_manager.web_app_id_t2v = api_settings.get("web_app_id_t2v", 42921)
         self.api_manager.web_app_id_i2v = api_settings.get("web_app_id_i2v", 42936)
+
+        # 加载视频参数
+        video_params = self.settings_manager.get_video_params()
+        aspect_ratio = video_params.get("aspect_ratio", "9:16")
+        self.set_aspect_ratio(aspect_ratio)
+
+        # 加载UI设置
+        ui_settings = self.settings_manager.load_settings().get("ui_settings", {})
+        video_mode = ui_settings.get("video_mode", "t2v")
+        self.video_mode_combo.setCurrentIndex(0 if video_mode == "t2v" else 1)
 
         key_source = api_settings.get("key_source", "file")
         self.api_manager.set_key_source(key_source)
