@@ -2772,6 +2772,20 @@ class MainWindow(FluentWindow):
         except ImportError as e:
             print(f"无法导入视频生成模块: {e}")
 
+        # 添加Sora2视频生成页面
+        try:
+            from sora2 import Sora2VideoGenerationWidget
+            self.sora2_video_generation_page = Sora2VideoGenerationWidget()
+            self.sora2_video_generation_page.setObjectName("sora2_video_generation_page")
+            self.addSubInterface(
+                self.sora2_video_generation_page,
+                FluentIcon.ROBOT,
+                "Sora2生成",
+                NavigationItemPosition.TOP
+            )
+        except ImportError as e:
+            print(f"无法导入Sora2视频生成模块: {e}")
+
         self.addSubInterface(
             self.create_settings_page(),
             FluentIcon.SETTING,

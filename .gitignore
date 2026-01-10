@@ -15,7 +15,7 @@ SRT
 vae.json
 storyboard_config.json
 video_settings.json
-
+sora2_settings.json
 
 # C extensions
 *.so

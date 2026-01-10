@@ -1,0 +1,1779 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Sora2 Video Generation Module (sora2) - Based on BizyAir API
+Supports both text-to-video and image-to-video modes
+"""
+
+import os
+import sys
+import json
+import time
+import requests
+import base64
+import traceback
+from datetime import datetime
+from PyQt5.QtCore import QObject, QTimer
+
+try:
+    from PIL import Image
+    import io
+    HAS_PIL = True
+except ImportError:
+    HAS_PIL = False
+
+from PyQt5.QtCore import QThread, pyqtSignal, Qt, QUrl, QCoreApplication
+from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
+                            QTextEdit, QPushButton, QComboBox,
+                            QProgressBar, QMessageBox, QFileDialog,
+                            QGroupBox, QSplitter, QFrame,
+                            QScrollArea, QDialog, QSizePolicy)
+from PyQt5.QtGui import QPixmap, QDragEnterEvent, QDropEvent, QDesktopServices
+
+import qfluentwidgets as qf
+from qfluentwidgets import (FluentIcon, CardWidget,
+                          PrimaryPushButton, PushButton, LineEdit, ComboBox,
+                          ProgressBar, InfoBar, InfoBarPosition,
+                          StrongBodyLabel, CaptionLabel, Theme)
+
+# ==================== Utils ====================
+class Utils:
+    """工具方法集合"""
+
+    LOG_DIR = "logs"
+
+    @staticmethod
+    def log_message(message, log_updated_signal=None, task_name=None):
+        """记录日志消息"""
+        if not os.path.exists(Utils.LOG_DIR):
+            os.makedirs(Utils.LOG_DIR)
+
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        task_prefix = f"[{task_name}] " if task_name else ""
+        log_entry = f"[{timestamp}] {task_prefix}{message}"
+
+        if log_updated_signal:
+            log_updated_signal.emit(log_entry)
+
+        log_file = os.path.join(Utils.LOG_DIR, "sora2_generation.log")
+        try:
+            with open(log_file, "a", encoding="utf-8") as f:
+                f.write(log_entry + "\n")
+        except Exception as e:
+            print(f"Failed to write log: {e}")
+
+    @staticmethod
+    def compress_image(image_data, log_updated_signal=None):
+        """压缩图片数据"""
+        if not HAS_PIL:
+            Utils.log_message("PIL not installed, skip compression", log_updated_signal)
+            return image_data
+
+        try:
+            image = Image.open(io.BytesIO(image_data))
+
+            if image.mode in ('RGBA', 'LA', 'P'):
+                background = Image.new('RGB', image.size, (255, 255, 255))
+                if image.mode == 'P':
+                    image = image.convert('RGBA')
+                background.paste(image, mask=image.split()[-1] if image.mode == 'RGBA' else None)
+                image = background.convert('RGB')
+
+            max_dimension = 1280
+            width, height = image.size
+
+            if max(width, height) > max_dimension:
+                ratio = max_dimension / max(width, height)
+                new_size = tuple(int(dim * ratio) for dim in image.size)
+                image = image.resize(new_size, Image.Resampling.LANCZOS)
+                Utils.log_message(f"Image resized: {width}x{height} -> {new_size[0]}x{new_size[1]}", log_updated_signal)
+
+            output = io.BytesIO()
+            image.save(output, format='JPEG', quality=85, optimize=True)
+            compressed_data = output.getvalue()
+            output.close()
+
+            Utils.log_message(f"Image compressed: {len(image_data)} -> {len(compressed_data)} bytes", log_updated_signal)
+            return compressed_data
+
+        except Exception as e:
+            Utils.log_message(f"Compression failed, using original: {str(e)}", log_updated_signal)
+            return image_data
+
+# ==================== Settings Manager ====================
+class Sora2SettingsManager:
+    """Sora2 视频设置管理器"""
+
+    def __init__(self, config_file="sora2_settings.json"):
+        self.config_file = config_file
+        self.default_settings = {
+            "video_params": {
+                "aspect_ratio": "9:16",
+                "duration": 5
+            },
+            "api_settings": {
+                "key_file": "",
+                "key_text": "",
+                "key_source": "file",
+                "web_app_id_t2v": 42921,
+                "web_app_id_i2v": 42936,
+                "api_url": "https://api.bizyair.cn/w/v1/webapp/task/openapi/create"
+            },
+            "ui_settings": {
+                "last_export_dir": "output",
+                "video_mode": "t2v"
+            }
+        }
+
+    def load_settings(self):
+        """加载设置"""
+        try:
+            if os.path.exists(self.config_file):
+                with open(self.config_file, 'r', encoding='utf-8') as f:
+                    settings = json.load(f)
+                return self._merge_settings(self.default_settings, settings)
+            else:
+                return self.default_settings.copy()
+        except Exception as e:
+            print(f"Failed to load Sora2 settings: {e}")
+            return self.default_settings.copy()
+
+    def save_settings(self, settings):
+        """保存设置"""
+        try:
+            with open(self.config_file, 'w', encoding='utf-8') as f:
+                json.dump(settings, f, ensure_ascii=False, indent=2)
+            return True
+        except Exception as e:
+            print(f"Failed to save Sora2 settings: {e}")
+            return False
+
+    def get_video_params(self):
+        """获取视频参数"""
+        settings = self.load_settings()
+        return settings.get("video_params", self.default_settings["video_params"])
+
+    def set_video_params(self, aspect_ratio="9:16", duration=5):
+        """设置视频参数"""
+        settings = self.load_settings()
+        settings["video_params"] = {
+            "aspect_ratio": aspect_ratio,
+            "duration": duration
+        }
+        return self.save_settings(settings)
+
+    def get_api_settings(self):
+        """获取 API 设置"""
+        settings = self.load_settings()
+        return settings.get("api_settings", self.default_settings["api_settings"])
+
+    def set_api_settings(self, key_file="", web_app_id_t2v=42921, web_app_id_i2v=42936,
+                        api_url=None, key_text="", key_source="file"):
+        """设置 API 参数"""
+        settings = self.load_settings()
+
+        current_api_url = settings.get("api_settings", {}).get("api_url",
+            "https://api.bizyair.cn/w/v1/webapp/task/openapi/create")
+        if api_url is None:
+            api_url = current_api_url
+
+        settings["api_settings"] = {
+            "key_file": key_file,
+            "key_text": key_text,
+            "key_source": key_source,
+            "web_app_id_t2v": web_app_id_t2v,
+            "web_app_id_i2v": web_app_id_i2v,
+            "api_url": api_url
+        }
+        return self.save_settings(settings)
+
+    def _merge_settings(self, defaults, loaded):
+        """合并设置"""
+        result = defaults.copy()
+        for key, value in loaded.items():
+            if key in result:
+                if isinstance(value, dict) and isinstance(result[key], dict):
+                    result[key] = {**result[key], **value}
+                else:
+                    result[key] = value
+            else:
+                result[key] = value
+        return result
+
+# ==================== API Key Manager ====================
+class Sora2APIKeyManager:
+    """Sora2 API 密钥管理器"""
+
+    def __init__(self):
+        self.api_keys = []
+        self.key_file = ""
+        self.key_text = ""
+        self.current_key_index = 0
+        self.web_app_id_t2v = 42921
+        self.web_app_id_i2v = 42936
+        self.key_source = "file"
+
+    def load_keys_from_file(self, file_path):
+        """从文件加载 API 密钥"""
+        try:
+            if os.path.exists(file_path):
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    keys = [line.strip() for line in f.readlines()
+                           if line.strip() and not line.strip().startswith('#')]
+                self.api_keys = [key for key in keys if len(key) > 10]
+                self.key_file = file_path
+                return True
+        except Exception as e:
+            print(f"Failed to load API key file: {e}")
+        return False
+
+    def load_keys_from_text(self, key_text):
+        """从文本加载 API 密钥"""
+        try:
+            if key_text:
+                keys = [line.strip() for line in key_text.split('\n')
+                       if line.strip() and not line.strip().startswith('#')]
+                self.api_keys = [key for key in keys if len(key) > 10]
+                self.key_text = key_text
+                return True
+        except Exception as e:
+            print(f"Failed to load API key text: {e}")
+        return False
+
+    def get_next_key(self):
+        """获取下一个可用的 API 密钥"""
+        if self.key_source == "env":
+            return os.getenv('SiliconCloud_API_KEY')
+        elif self.key_source == "text":
+            if not self.api_keys:
+                return None
+            if self.current_key_index >= len(self.api_keys):
+                self.current_key_index = 0
+            key = self.api_keys[self.current_key_index]
+            self.current_key_index += 1
+            return key
+        else:
+            if not self.api_keys:
+                return None
+            if self.current_key_index >= len(self.api_keys):
+                self.current_key_index = 0
+            key = self.api_keys[self.current_key_index]
+            self.current_key_index += 1
+            return key
+
+    def get_available_keys_count(self):
+        """获取可用密钥数量"""
+        if self.key_source == "env":
+            env_key = os.getenv('SiliconCloud_API_KEY')
+            return 1 if env_key else 0
+        elif self.key_source == "text":
+            return len(self.api_keys)
+        else:
+            return len(self.api_keys)
+
+    def get_all_keys(self):
+        """获取所有可用的 API 密钥"""
+        if self.key_source == "env":
+            env_key = os.getenv('SiliconCloud_API_KEY')
+            return [env_key] if env_key else []
+        elif self.key_source == "text":
+            return self.api_keys
+        else:
+            return self.api_keys
+
+    def set_key_source(self, source):
+        """设置密钥来源"""
+        self.key_source = source
+        self.current_key_index = 0
+
+    def get_key_source(self):
+        """获取当前密钥来源"""
+        return self.key_source
+
+    def get_key_source_display(self):
+        """获取密钥来源显示文本"""
+        if self.key_source == "env":
+            return "系统变量"
+        elif self.key_source == "text":
+            return "密钥文本"
+        else:
+            return "文件密钥"
+
+# ==================== Video Generation Worker ====================
+class Sora2VideoGenerationWorker(QThread):
+    """Sora2 单个视频生成工作线程"""
+    progress_updated = pyqtSignal(int, str, str)
+    task_finished = pyqtSignal(bool, str, dict, str)
+    time_updated = pyqtSignal(str, str)
+    log_updated = pyqtSignal(str)
+
+    def __init__(self, task, task_id, api_key, api_manager):
+        super().__init__()
+        self.task = task
+        self.task_id = task_id
+        self.api_key = api_key
+        self.api_manager = api_manager
+        self.start_time = None
+        self.is_cancelled = False
+
+    def log_message(self, message):
+        """记录日志消息"""
+        task_name = self.task.get('name', f'Task {self.task_id}')
+        Utils.log_message(message, self.log_updated, task_name)
+
+    def run(self):
+        """运行 Sora2 视频生成任务"""
+        self.start_time = time.time()
+        task_name = self.task.get('name', f'Task {self.task_id}')
+
+        try:
+            self.log_message(f"Starting Sora2 video generation: {task_name}")
+            self.progress_updated.emit(5, "Initializing task...", self.task_id)
+
+            if not self.api_key:
+                self.log_message("API key not configured or empty")
+                self.task_finished.emit(False, "API key not configured", {}, self.task_id)
+                return
+
+            prompt = self.task.get('prompt', '')
+            video_mode = self.task.get('video_mode', 't2v')
+            aspect_ratio = self.task.get('aspect_ratio', '9:16')
+            image_input = self.task.get('image_input', '')
+
+            self.log_message(f"Mode: {'文生视频' if video_mode == 't2v' else '图生视频'}")
+            self.log_message(f"Aspect Ratio: {aspect_ratio}")
+
+            output_dir = "output"
+            if not os.path.exists(output_dir):
+                os.makedirs(output_dir)
+
+            timestamp_str = datetime.now().strftime("%H%M%S")
+            base_filename = f"sora2_{video_mode}_{timestamp_str}"
+
+            if video_mode == "i2v":
+                if not image_input:
+                    self.log_message("图生视频 mode requires an image")
+                    self.task_finished.emit(False, "图生视频 mode requires an image", {}, self.task_id)
+                    return
+
+                image_value = image_input
+                if isinstance(image_input, str) and not image_input.startswith('http') and not image_input.startswith('data:'):
+                    image_path = self.task.get('image_path', '')
+                    if image_path and os.path.exists(image_path):
+                        with open(image_path, 'rb') as f:
+                            image_data = f.read()
+
+                        max_size = 8 * 1024 * 1024
+                        if len(image_data) > max_size:
+                            self.log_message(f"Image too large ({len(image_data)} bytes), compressing...")
+                            image_data = Utils.compress_image(image_data, self.log_updated)
+
+                        import imghdr
+                        detected_type = imghdr.what(None, image_data)
+                        image_type = f'image/{detected_type}' if detected_type else 'image/jpeg'
+
+                        base64_data = base64.b64encode(image_data).decode('utf-8')
+                        image_value = f"data:{image_type};base64,{base64_data}"
+                        self.log_message(f"Converted to data URL format ({image_type})")
+                    else:
+                        self.log_message("Cannot read image file")
+                        self.task_finished.emit(False, "Cannot read image file", {}, self.task_id)
+                        return
+
+                self.progress_updated.emit(30, "Preparing image-to-video request...", self.task_id)
+
+                bizyair_request_data = {
+                    "web_app_id": self.api_manager.web_app_id_i2v,
+                    "suppress_preview_output": True,
+                    "input_values": {
+                        "18:LoadImage.image": image_value,
+                        "6:CR Prompt Text.prompt": prompt,
+                        "54:BizyAir_Sora_V2_I2V_API.aspect_ratio": aspect_ratio
+                    }
+                }
+                self.log_message(f"Using 图生视频 mode, Web App ID: {self.api_manager.web_app_id_i2v}")
+
+            else:
+                self.progress_updated.emit(30, "Preparing text-to-video request...", self.task_id)
+
+                bizyair_request_data = {
+                    "web_app_id": self.api_manager.web_app_id_t2v,
+                    "suppress_preview_output": True,
+                    "input_values": {
+                        "57:BizyAir_Sora_V2_T2V_API.prompt": prompt,
+                        "57:BizyAir_Sora_V2_T2V_API.aspect_ratio": aspect_ratio
+                    }
+                }
+                self.log_message(f"Using 文生视频 mode, Web App ID: {self.api_manager.web_app_id_t2v}")
+
+            headers = {
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {self.api_key}"
+            }
+
+            api_url = "https://api.bizyair.cn/w/v1/webapp/task/openapi/create"
+            if hasattr(self.api_manager, 'api_url') and self.api_manager.api_url:
+                api_url = self.api_manager.api_url
+
+            self.log_message(f"Sending BizyAir API request: {api_url}")
+            self.progress_updated.emit(40, "Sending API request...", self.task_id)
+
+            try:
+                proxies = {"http": None, "https": None}
+
+                response = requests.post(
+                    api_url,
+                    headers=headers,
+                    json=bizyair_request_data,
+                    timeout=(300, 1200),
+                    proxies=proxies
+                )
+
+                self.log_message(f"API response status: {response.status_code}")
+                response.raise_for_status()
+
+                result_data = response.json()
+                self.log_message(f"API response: {json.dumps(result_data, ensure_ascii=False, indent=2)}")
+
+                request_id = result_data.get('request_id')
+                status = result_data.get('status', '').lower()
+
+                if not request_id:
+                    error_msg = result_data.get('message', 'API response format error: missing request_id')
+                    self.task_finished.emit(False, error_msg, {}, self.task_id)
+                    return
+
+                if status == 'failed':
+                    error_info = result_data.get('error', result_data.get('message', 'Task execution failed'))
+                    self.task_finished.emit(False, f"Video generation failed: {error_info}", {}, self.task_id)
+                    return
+
+                video_url = None
+
+                if status == 'success' and 'outputs' in result_data:
+                    outputs = result_data['outputs']
+                    if outputs and len(outputs) > 0:
+                        video_url = outputs[0].get('object_url', '')
+
+                if not video_url:
+                    self.progress_updated.emit(60, "Querying task status...", self.task_id)
+                    video_url = self.check_video_status(request_id)
+
+                if video_url:
+                    self.progress_updated.emit(90, "Video URL obtained successfully", self.task_id)
+
+                    result = {
+                        'id': request_id,
+                        'url': video_url,
+                        'prompt': prompt,
+                        'aspect_ratio': aspect_ratio,
+                        'video_mode': video_mode,
+                        'task_name': task_name,
+                        'timestamp': datetime.now().isoformat(),
+                        'base_filename': base_filename
+                    }
+
+                    self.progress_updated.emit(100, "Task completed!", self.task_id)
+                    self.task_finished.emit(True, "Sora2 video generation successful", result, self.task_id)
+                else:
+                    self.task_finished.emit(False, "Sora2 video generation failed or timeout", {}, self.task_id)
+
+            except requests.exceptions.HTTPError as http_err:
+                error_msg = f"API request failed: HTTP {response.status_code}"
+                try:
+                    error_detail = response.json()
+                    detail_msg = error_detail.get('message', 'Unknown error')
+                    error_msg += f" - {detail_msg}"
+                except:
+                    error_msg += f" - {response.text[:200]}"
+                self.log_message(f"Error: {error_msg}")
+                self.task_finished.emit(False, error_msg, {}, self.task_id)
+
+            except requests.exceptions.Timeout:
+                self.log_message("API request timeout")
+                self.task_finished.emit(False, "API request timeout", {}, self.task_id)
+
+            except requests.exceptions.RequestException as e:
+                self.log_message(f"Network error: {str(e)}")
+                self.task_finished.emit(False, f"Network error: {str(e)}", {}, self.task_id)
+
+            except Exception as e:
+                self.log_message(f"Task execution exception: {str(e)} - {traceback.format_exc()}")
+                self.task_finished.emit(False, f"Task execution exception: {str(e)}", {}, self.task_id)
+
+        except Exception as e:
+            self.log_message(f"Task initialization exception: {str(e)} - {traceback.format_exc()}")
+            self.task_finished.emit(False, f"Task initialization exception: {str(e)}", {}, self.task_id)
+
+    def check_video_status(self, request_id):
+        """查询 BizyAir 任务状态"""
+        max_attempts = 180
+        check_interval = 10
+
+        for attempt in range(max_attempts):
+            if self.is_cancelled:
+                self.log_message("Task cancelled")
+                return None
+
+            try:
+                headers = {
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {self.api_key}"
+                }
+
+                response = requests.get(
+                    f"https://api.bizyair.cn/w/v1/webapp/task/openapi/query?request_id={request_id}",
+                    headers=headers,
+                    timeout=30,
+                    proxies={"http": None, "https": None}
+                )
+
+                response.raise_for_status()
+
+                data = response.json()
+                status = data.get('status', '').lower()
+
+                self.progress_updated.emit(
+                    min(90, 60 + (attempt * 30 // max_attempts)),
+                    f"Checking progress... ({status.capitalize()})",
+                    self.task_id
+                )
+
+                if status == 'success' and 'outputs' in data:
+                    outputs = data['outputs']
+                    if outputs and len(outputs) > 0:
+                        video_url = outputs[0].get('object_url', '')
+                        if video_url:
+                            self.log_message(f"Video generation completed: {video_url}")
+                            return video_url
+
+                elif status == 'failed':
+                    error_info = data.get('error', 'Generation failed')
+                    self.log_message(f"Video generation failed: {error_info}")
+                    return None
+
+                else:
+                    self.log_message(f"Video generating... ({status.capitalize()}) - Check {attempt+1}")
+
+            except requests.exceptions.RequestException as e:
+                self.log_message(f"Status query exception: {str(e)}")
+
+            if attempt < max_attempts - 1:
+                time.sleep(check_interval)
+
+        self.log_message(f"Video generation timeout ({max_attempts * check_interval // 60} minutes)")
+        return None
+
+    def cancel(self):
+        """取消 task"""
+        self.is_cancelled = True
+
+# ==================== Simple Batch Manager ====================
+class Sora2BatchManager(QObject):
+    """Sora2 简单批量任务管理器"""
+    all_tasks_finished = pyqtSignal()
+    task_progress = pyqtSignal(int, str, str)
+    task_finished = pyqtSignal(bool, str, dict, str)
+    task_time_updated = pyqtSignal(str, str)
+    log_updated = pyqtSignal(str)
+    batch_progress_updated = pyqtSignal(int, int)
+
+    def __init__(self, api_manager=None):
+        super().__init__()
+        self.workers = {}
+        self.completed_tasks = 0
+        self.total_tasks = 0
+        self.api_manager = api_manager if api_manager is not None else Sora2APIKeyManager()
+
+    def log_message(self, message):
+        Utils.log_message(message, self.log_updated, "Sora2 Batch Manager")
+
+    def add_tasks(self, task_map, key_file=None):
+        """添加任务"""
+        new_tasks_count = len(task_map)
+        if new_tasks_count == 0:
+            return
+
+        self.total_tasks += new_tasks_count
+
+        if key_file:
+            self.api_manager.load_keys_from_file(key_file)
+
+        available_keys = self.api_manager.get_all_keys()
+        if not available_keys:
+            self.log_message("Error: No available API keys")
+            for task_id in task_map.keys():
+                self.task_finished.emit(False, "No available API keys", {}, task_id)
+            if not self.workers:
+                self.all_tasks_finished.emit()
+            return
+
+        self.log_message(f"Adding {new_tasks_count} new tasks")
+        self.batch_progress_updated.emit(self.completed_tasks, self.total_tasks)
+
+        for i, (task_id, task) in enumerate(task_map.items()):
+            key_index = i % len(available_keys)
+            api_key = available_keys[key_index]
+
+            worker = Sora2VideoGenerationWorker(task, task_id, api_key, self.api_manager)
+            self.workers[task_id] = worker
+
+            worker.progress_updated.connect(self.task_progress)
+            worker.task_finished.connect(self.on_single_task_finished)
+            worker.time_updated.connect(self.task_time_updated)
+            worker.log_updated.connect(self.log_updated)
+
+            worker.start()
+            self.log_message(f"Started task {task_id}")
+
+            time.sleep(30)  # 30 second interval between tasks
+
+    def on_single_task_finished(self, success, message, result_data, task_id):
+        """单个任务完成回调"""
+        self.completed_tasks += 1
+        self.update_batch_progress()
+
+        self.task_finished.emit(success, message, result_data, task_id)
+
+        if task_id in self.workers:
+            worker = self.workers.pop(task_id)
+            if worker is not None:
+                if worker.isRunning():
+                    worker.quit()
+                    worker.wait(3000)
+                worker.deleteLater()
+
+        if self.completed_tasks >= self.total_tasks:
+            self.log_message(f"All tasks completed! 成功: {self.completed_tasks}/{self.total_tasks}")
+            self.all_tasks_finished.emit()
+            self.completed_tasks = 0
+            self.total_tasks = 0
+            self.workers.clear()
+
+    def update_batch_progress(self):
+        """Update batch progress"""
+        self.batch_progress_updated.emit(self.completed_tasks, self.total_tasks)
+
+    def cancel_all_tasks(self):
+        """取消 all tasks"""
+        self.log_message("取消ling all tasks...")
+
+        for worker in self.workers.values():
+            if worker is not None:
+                worker.cancel()
+
+        for task_id, worker in list(self.workers.items()):
+            if worker is not None and worker.isRunning():
+                self.log_message(f"Waiting for task {task_id} to end...")
+                worker.quit()
+                worker.wait(2000)
+            if worker is not None:
+                worker.deleteLater()
+            self.workers.pop(task_id, None)
+
+        self.log_message("All tasks cleaned up.")
+        self.completed_tasks = self.total_tasks
+        self.batch_progress_updated.emit(self.total_tasks, self.total_tasks)
+        self.all_tasks_finished.emit()
+
+# ==================== Image Drop Widget ====================
+class Sora2ImageDropWidget(QFrame):
+    """Sora2 image drag and drop widget"""
+    image_dropped = pyqtSignal(str, str)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setAcceptDrops(True)
+        self.current_image_path = ""
+        self.base64_data = ""
+        self.current_image_data = ""
+        self.init_ui()
+
+    def init_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(15, 15, 15, 15)
+
+        self.image_label = QLabel()
+        self.image_label.setFixedSize(260, 160)
+        self.image_label.setStyleSheet("""
+            QLabel {
+                border: 2px dashed #505050;
+                border-radius: 8px;
+                background-color: #2a2a2a;
+                color: #888888;
+                font-size: 13px;
+            }
+        """)
+        self.image_label.setAlignment(Qt.AlignCenter)
+        self.image_label.setText("请拖拽图片到这里\n或点击选择文件")
+        layout.addWidget(self.image_label, alignment=Qt.AlignCenter)
+
+        self.select_btn = PushButton("选择图片文件")
+        self.select_btn.setFixedHeight(32)
+        self.select_btn.clicked.connect(self.select_file)
+        layout.addWidget(self.select_btn)
+
+    def dragEnterEvent(self, event: QDragEnterEvent):
+        if event.mimeData().hasUrls():
+            event.acceptProposedAction()
+            self.setStyleSheet("background-color: #e3f2fd;")
+
+    def dragLeaveEvent(self, event):
+        self.setStyleSheet("")
+
+    def dropEvent(self, event: QDropEvent):
+        self.setStyleSheet("")
+        files = [u.toLocalFile() for u in event.mimeData().urls()]
+        for file_path in files:
+            if file_path.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp')):
+                self.load_image(file_path)
+                break
+
+    def select_file(self):
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "选择图片文件",
+            "",
+            "图片文件 (*.png *.jpg *.jpeg *.gif *.bmp *.webp)"
+        )
+        if file_path:
+            self.load_image(file_path)
+
+    def load_image(self, file_path):
+        try:
+            pixmap = QPixmap(file_path)
+            if not pixmap.isNull():
+                scaled_pixmap = pixmap.scaled(
+                    300, 200,
+                    Qt.KeepAspectRatio,
+                    Qt.SmoothTransformation
+                )
+                self.image_label.setPixmap(scaled_pixmap)
+
+                with open(file_path, 'rb') as f:
+                    image_data = f.read()
+                    compressed_data = Utils.compress_image(image_data)
+                    self.base64_data = base64.b64encode(compressed_data).decode('utf-8')
+
+                self.current_image_path = file_path
+                self.current_image_data = self.base64_data
+                self.image_dropped.emit(file_path, self.base64_data)
+
+        except Exception as e:
+            QMessageBox.warning(self, "错误", f"加载图片失败: {str(e)}")
+
+    def clear_image(self):
+        self.image_label.clear()
+        self.image_label.setText("请拖拽图片到这里\n或点击选择文件")
+        self.current_image_path = ""
+        self.base64_data = ""
+        self.current_image_data = ""
+
+# ==================== Task Status Card ====================
+class Sora2TaskStatusCard(CardWidget):
+    """Sora2 task status display card"""
+
+    def __init__(self, task_id, task_name, task_params, parent=None):
+        super().__init__(parent)
+        self.task_id = task_id
+        self.task_name = task_name
+        self.task_params = task_params
+        self.progress = 0
+        self.time_string = "00:00:00"
+        self.status = "Waiting to start"
+        self.key_source = "文件密钥"
+
+        self.timer = QTimer(self)
+        self.timer.timeout.connect(self.update_timer)
+        self.start_ts = None
+        self.is_timing = False
+
+        self.init_ui()
+
+    def init_ui(self):
+        """初始化界面"""
+        self.setFixedHeight(145)
+        self.setStyleSheet("""
+            CardWidget {
+                background-color: #1e1e1e;
+                border: 1px solid #404040;
+                border-radius: 8px;
+                margin: 2px;
+            }
+            CardWidget:hover {
+                border: 1px solid #4a90e2;
+            }
+        """)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(15, 12, 15, 12)
+        layout.setSpacing(8)
+
+        # Row 1: Task name and status
+        top_layout = QHBoxLayout()
+
+        self.name_label = StrongBodyLabel(self.task_name)
+        self.name_label.setStyleSheet("color: #ffffff; font-size: 14px; font-weight: 600;")
+        top_layout.addWidget(self.name_label)
+
+        top_layout.addStretch()
+
+        self.status_label = CaptionLabel(self.status)
+        self.status_label.setStyleSheet("color: #cccccc; font-size: 11px; padding: 4px 8px; background: #333333; border-radius: 4px;")
+        top_layout.addWidget(self.status_label)
+
+        layout.addLayout(top_layout)
+
+        # Row 2: Task parameters
+        params_layout = QHBoxLayout()
+
+        video_mode = self.task_params.get('video_mode', 't2v')
+        aspect_ratio = self.task_params.get('aspect_ratio', '9:16')
+
+        params_text = f"{'图生视频' if video_mode == 'i2v' else '文生视频'} - {aspect_ratio}"
+        self.params_label = CaptionLabel(params_text)
+        self.params_label.setStyleSheet("color: #888888; font-size: 12px;")
+        params_layout.addWidget(self.params_label)
+
+        params_layout.addStretch()
+
+        self.key_type_label = CaptionLabel(self.key_source)
+        self.key_type_label.setStyleSheet("color: #4a90e2; font-size: 11px; padding: 4px 8px; background: #2a3a4a; border-radius: 4px;")
+        params_layout.addWidget(self.key_type_label)
+
+        layout.addLayout(params_layout)
+
+        # Row 3: Prompt
+        prompt = self.task_params.get('prompt', '')
+        if prompt:
+            if len(prompt) > 50:
+                prompt_display = prompt[:47] + "..."
+            else:
+                prompt_display = prompt
+
+            self.prompt_label = CaptionLabel(prompt_display)
+            self.prompt_label.setStyleSheet("color: #aaaaaa; font-size: 11px;")
+            self.prompt_label.setWordWrap(False)
+            layout.addWidget(self.prompt_label)
+
+        self.progress_msg_label = CaptionLabel("")
+        self.progress_msg_label.setStyleSheet("color: #999999; font-size: 11px; min-height: 14px;")
+        layout.addWidget(self.progress_msg_label)
+
+        # Row 4: Progress bar and time
+        progress_layout = QHBoxLayout()
+
+        self.progress_bar = ProgressBar()
+        self.progress_bar.setFixedHeight(4)
+        progress_layout.addWidget(self.progress_bar)
+
+        self.time_label = CaptionLabel(self.time_string)
+        self.time_label.setStyleSheet("color: #666666; font-size: 11px; min-width: 70px;")
+        self.time_label.setAlignment(Qt.AlignRight)
+        progress_layout.addWidget(self.time_label)
+
+        layout.addLayout(progress_layout)
+
+    def update_progress(self, progress, message):
+        """Update progress"""
+        self.progress = progress
+        self.progress_bar.setValue(progress)
+
+        if progress < 100:
+            self.status = "生成中"
+            if progress >= 50:
+                self.status_label.setStyleSheet("color: #ffc107; font-size: 11px; padding: 4px 8px; background: #fff3cd; border-radius: 4px;")
+            else:
+                self.status_label.setStyleSheet("color: #17a2b8; font-size: 11px; padding: 4px 8px; background: #e6f7ff; border-radius: 4px;")
+
+            self.progress_msg_label.setText(message)
+
+        self.status_label.setText(self.status)
+
+    def start_timing(self):
+        """Start timing"""
+        if not self.is_timing:
+            self.is_timing = True
+            self.start_ts = time.time()
+            self.timer.start(1000)
+
+    def stop_timing(self):
+        """Stop timing"""
+        if self.is_timing:
+            self.is_timing = False
+            self.timer.stop()
+            self.update_timer()
+
+    def update_timer(self):
+        """Update time display"""
+        if self.start_ts:
+            elapsed = time.time() - self.start_ts
+            hours = int(elapsed // 3600)
+            minutes = int((elapsed % 3600) // 60)
+            seconds = int(elapsed % 60)
+            self.time_string = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+            self.time_label.setText(self.time_string)
+
+    def update_time(self, time_string):
+        """Update time display"""
+        self.time_string = time_string
+        self.time_label.setText(time_string)
+
+    def set_key_source(self, key_source):
+        """Set key source type"""
+        self.key_source = key_source
+        self.key_type_label.setText(key_source)
+
+        if key_source == "系统变量":
+            self.key_type_label.setStyleSheet("color: #17a2b8; font-size: 11px; padding: 4px 8px; background: #e6f7ff; border-radius: 4px;")
+        else:
+            self.key_type_label.setStyleSheet("color: #28a745; font-size: 11px; padding: 4px 8px; background: #e8f5e8; border-radius: 4px;")
+
+    def set_completed(self, success=True, message=""):
+        """Set task completed status"""
+        self.progress = 100
+        self.progress_bar.setValue(100)
+        self.progress_msg_label.setText(message)
+
+        if success:
+            self.status = "已完成"
+            self.status_label.setStyleSheet("color: #28a745; font-size: 11px; padding: 4px 8px; background: #e8f5e8; border-radius: 4px;")
+            self.setStyleSheet("""
+                CardWidget {
+                    background-color: #2e3a2e;
+                    border: 1px solid #28a745;
+                    border-radius: 8px;
+                    margin: 2px;
+                }
+            """)
+        else:
+            self.status = "生成失败"
+            self.status_label.setStyleSheet("color: #dc3545; font-size: 11px; padding: 4px 8px; background: #ffebee; border-radius: 4px;")
+            self.setStyleSheet("""
+                CardWidget {
+                    background-color: #3a2a2a;
+                    border: 1px solid #dc3545;
+                    border-radius: 8px;
+                    margin: 2px;
+                }
+            """)
+        self.status_label.setText(self.status)
+
+# ==================== Main Widget ====================
+class Sora2VideoGenerationWidget(QWidget):
+    """Sora2 视频生成主组件"""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.batch_manager = None
+        self.api_manager = Sora2APIKeyManager()
+        self.settings_manager = Sora2SettingsManager()
+
+        api_settings = self.settings_manager.get_api_settings()
+        self.api_manager.api_url = api_settings.get("api_url",
+            "https://api.bizyair.cn/w/v1/webapp/task/openapi/create")
+
+        self.is_generating = False
+        self.key_file_path = None
+
+        self.task_status_cards = {}
+        self.video_result_cards = []
+
+        self.init_ui()
+        self.load_settings()
+        self.init_batch_manager()
+
+    def init_batch_manager(self):
+        """Initialize batch manager"""
+        self.batch_manager = Sora2BatchManager(self.api_manager)
+        self.batch_manager.task_progress.connect(self.update_task_progress)
+        self.batch_manager.task_finished.connect(self.on_task_finished)
+        self.batch_manager.task_time_updated.connect(self.update_task_time)
+        self.batch_manager.log_updated.connect(self.add_log)
+        self.batch_manager.batch_progress_updated.connect(self.update_batch_progress)
+        self.batch_manager.all_tasks_finished.connect(self.on_all_tasks_finished)
+
+    def init_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setSpacing(12)
+        layout.setContentsMargins(8, 8, 8, 8)
+
+        # Top bar
+        top_bar = self.create_top_bar()
+        layout.addWidget(top_bar)
+
+        # Main splitter
+        splitter = QSplitter(Qt.Horizontal)
+        layout.addWidget(splitter)
+
+        # Left control panel
+        left_panel = self.create_control_panel()
+        splitter.addWidget(left_panel)
+
+        # Right result panel
+        right_panel = self.create_result_panel()
+        splitter.addWidget(right_panel)
+
+        splitter.setSizes([450, 750])
+
+    def create_top_bar(self):
+        """Create top control bar"""
+        bar = QFrame()
+        bar.setFixedHeight(60)
+        bar.setStyleSheet("""
+            QFrame {
+                background-color: #2a2a2a;
+                border-radius: 8px;
+                margin: 2px;
+            }
+        """)
+        layout = QHBoxLayout(bar)
+        layout.setContentsMargins(12, 12, 12, 12)
+
+        title = QLabel("Sora2 AI 视频生成")
+        title.setStyleSheet("font-size: 18px; font-weight: bold; color: #ffffff;")
+        layout.addWidget(title)
+
+        layout.addSpacing(20)
+
+        self.single_generate_btn = PrimaryPushButton("单个生成")
+        self.single_generate_btn.setFixedSize(100, 32)
+        self.single_generate_btn.clicked.connect(self.generate_single_video)
+        layout.addWidget(self.single_generate_btn)
+
+        self.batch_generate_btn = PushButton("批量生成")
+        self.batch_generate_btn.setFixedSize(100, 32)
+        self.batch_generate_btn.clicked.connect(self.generate_batch_videos)
+        layout.addWidget(self.batch_generate_btn)
+
+        self.api_settings_btn = PushButton(FluentIcon.SETTING, "API设置")
+        self.api_settings_btn.setFixedSize(100, 32)
+        self.api_settings_btn.clicked.connect(self.show_api_settings_dialog)
+        layout.addWidget(self.api_settings_btn)
+
+        self.key_status_label = QLabel("密钥未配置")
+        self.key_status_label.setStyleSheet("color: #dc3545; font-size: 12px; padding: 6px 12px; background: #fff3cd; border-radius: 4px;")
+        layout.addWidget(self.key_status_label)
+
+        layout.addStretch()
+
+        return bar
+
+    def create_control_panel(self):
+        """Create left control panel"""
+        panel = QFrame()
+        panel.setStyleSheet("""
+            QFrame {
+                background-color: #1e1e1e;
+                border-radius: 8px;
+                margin: 2px;
+            }
+        """)
+        layout = QVBoxLayout(panel)
+        layout.setSpacing(15)
+        layout.setContentsMargins(15, 15, 15, 15)
+
+        # Video mode selection
+        mode_group = QGroupBox("生成模式")
+        mode_group.setStyleSheet("""
+            QGroupBox {
+                color: #ffffff;
+                font-size: 14px;
+                font-weight: bold;
+                border: 1px solid #404040;
+                border-radius: 6px;
+                margin-top: 10px;
+                padding-top: 10px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 10px;
+                padding: 0 5px;
+            }
+        """)
+        mode_layout = QVBoxLayout()
+
+        self.video_mode_combo = ComboBox()
+        self.video_mode_combo.addItems(["文生视频", "图生视频"])
+        self.video_mode_combo.setFixedHeight(35)
+        self.video_mode_combo.currentIndexChanged.connect(self.on_video_mode_changed)
+        mode_layout.addWidget(self.video_mode_combo)
+        mode_group.setLayout(mode_layout)
+        layout.addWidget(mode_group)
+
+        # Image upload (only for i2v mode)
+        self.image_group = QGroupBox("上传图片")
+        self.image_group.setStyleSheet(mode_group.styleSheet())
+        image_layout = QVBoxLayout()
+
+        self.image_drop_widget = Sora2ImageDropWidget()
+        image_layout.addWidget(self.image_drop_widget)
+
+        clear_image_btn = PushButton("清除图片")
+        clear_image_btn.clicked.connect(self.clear_image)
+        image_layout.addWidget(clear_image_btn)
+
+        self.image_group.setLayout(image_layout)
+        self.image_group.setVisible(False)
+        layout.addWidget(self.image_group)
+
+        # Prompt input
+        prompt_group = QGroupBox("视频提示词")
+        prompt_group.setStyleSheet(mode_group.styleSheet())
+        prompt_layout = QVBoxLayout()
+
+        self.prompt_edit = QTextEdit()
+        self.prompt_edit.setPlaceholderText("请输入视频生成提示词，例如：\n- 美丽的日落场景，海浪轻轻拍打着沙滩\n- 可爱的猫咪在阳光下玩耍\n- 科幻风格未来城市，霓虹灯闪烁")
+        self.prompt_edit.setMinimumHeight(120)
+        prompt_layout.addWidget(self.prompt_edit)
+        prompt_group.setLayout(prompt_layout)
+        layout.addWidget(prompt_group)
+
+        # Video parameters
+        params_group = QGroupBox("视频参数")
+        params_group.setStyleSheet(mode_group.styleSheet())
+        params_layout = QVBoxLayout()
+
+        params_layout.addWidget(QLabel("宽高比："))
+        self.aspect_ratio_combo = ComboBox()
+        self.aspect_ratio_combo.addItems(["9:16", "16:9", "1:1", "4:3", "3:4", "21:9"])
+        self.aspect_ratio_combo.setFixedHeight(35)
+        params_layout.addWidget(self.aspect_ratio_combo)
+
+        params_group.setLayout(params_layout)
+        layout.addWidget(params_group)
+
+        # Batch tasks
+        batch_group = QGroupBox("批量任务")
+        batch_group.setStyleSheet(mode_group.styleSheet())
+        batch_layout = QVBoxLayout()
+
+        self.batch_list = QTextEdit()
+        self.batch_list.setPlaceholderText("批量任务格式（每行一个任务）：\n提示词1\n提示词2\n提示词3\n\n注：图生视频模式格式：图片路径|提示词")
+        self.batch_list.setMinimumHeight(150)
+        batch_layout.addWidget(self.batch_list)
+
+        load_batch_file_btn = PushButton("从文件加载")
+        load_batch_file_btn.clicked.connect(self.load_batch_from_file)
+        batch_layout.addWidget(load_batch_file_btn)
+
+        batch_group.setLayout(batch_layout)
+        layout.addWidget(batch_group)
+
+        layout.addStretch()
+
+        return panel
+
+    def create_result_panel(self):
+        """Create right result panel"""
+        panel = QFrame()
+        panel.setStyleSheet("""
+            QFrame {
+                background-color: #1e1e1e;
+                border-radius: 8px;
+                margin: 2px;
+            }
+        """)
+        layout = QVBoxLayout(panel)
+        layout.setSpacing(15)
+        layout.setContentsMargins(15, 15, 15, 15)
+
+        # Progress
+        progress_group = QGroupBox("生成进度")
+        progress_group.setStyleSheet("""
+            QGroupBox {
+                color: #ffffff;
+                font-size: 14px;
+                font-weight: bold;
+                border: 1px solid #404040;
+                border-radius: 6px;
+                margin-top: 10px;
+                padding-top: 10px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 10px;
+                padding: 0 5px;
+            }
+        """)
+        progress_layout = QVBoxLayout()
+
+        self.batch_progress_label = QLabel("批量进度：0/0")
+        self.batch_progress_label.setStyleSheet("color: #ffffff; font-size: 13px;")
+        progress_layout.addWidget(self.batch_progress_label)
+
+        self.batch_progress_bar = ProgressBar()
+        self.batch_progress_bar.setFixedHeight(8)
+        progress_layout.addWidget(self.batch_progress_bar)
+
+        progress_group.setLayout(progress_layout)
+        layout.addWidget(progress_group)
+
+        # Task status
+        tasks_group = QGroupBox("任务状态")
+        tasks_group.setStyleSheet(progress_group.styleSheet())
+        tasks_layout = QVBoxLayout()
+
+        self.tasks_scroll = QScrollArea()
+        self.tasks_scroll.setWidgetResizable(True)
+        self.tasks_scroll.setStyleSheet("""
+            QScrollArea {
+                border: none;
+                background-color: transparent;
+            }
+        """)
+
+        self.tasks_widget = QWidget()
+        self.tasks_layout = QVBoxLayout(self.tasks_widget)
+        self.tasks_layout.setSpacing(10)
+        self.tasks_layout.addStretch()
+        self.tasks_scroll.setWidget(self.tasks_widget)
+
+        tasks_layout.addWidget(self.tasks_scroll)
+        tasks_group.setLayout(tasks_layout)
+        layout.addWidget(tasks_group, 1)
+
+        # Video results
+        results_group = QGroupBox("生成结果")
+        results_group.setStyleSheet(progress_group.styleSheet())
+        results_layout = QVBoxLayout()
+
+        self.results_scroll = QScrollArea()
+        self.results_scroll.setWidgetResizable(True)
+        self.results_scroll.setStyleSheet("""
+            QScrollArea {
+                border: none;
+                background-color: transparent;
+            }
+        """)
+
+        self.results_widget = QWidget()
+        self.results_layout = QVBoxLayout(self.results_widget)
+        self.results_layout.setSpacing(10)
+        self.results_layout.addStretch()
+        self.results_scroll.setWidget(self.results_widget)
+
+        results_layout.addWidget(self.results_scroll)
+        results_group.setLayout(results_layout)
+        layout.addWidget(results_group, 2)
+
+        return panel
+
+    def on_video_mode_changed(self, index):
+        """Video mode changed event"""
+        if index == 1:
+            self.image_group.setVisible(True)
+        else:
+            self.image_group.setVisible(False)
+
+    def clear_image(self):
+        """Clear uploaded image"""
+        self.image_drop_widget.clear_image()
+
+    def load_batch_from_file(self):
+        """Load batch tasks from file"""
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "选择批量任务文件",
+            "",
+            "文本文件 (*.txt);;所有文件 (*)"
+        )
+        if file_path:
+            try:
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    content = f.read()
+                self.batch_list.setPlainText(content)
+                InfoBar.success(
+                    title="成功",
+                    content=f"已加载 0 个任务",
+                    orient=Qt.Horizontal,
+                    isClosable=True,
+                    position=InfoBarPosition.TOP,
+                    duration=2000,
+                    parent=self
+                )
+            except Exception as e:
+                QMessageBox.warning(self, "错误", f"加载文件失败: {str(e)}")
+
+    def generate_single_video(self):
+        """生成单个视频"""
+        if self.is_generating:
+            InfoBar.warning(
+                title="警告",
+                content="正在生成中，请稍候...",
+                orient=Qt.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=2000,
+                parent=self
+            )
+            return
+
+        prompt = self.prompt_edit.toPlainText().strip()
+        if not prompt:
+            QMessageBox.warning(self, "警告", "请输入视频生成提示词")
+            return
+
+        video_mode = "i2v" if self.video_mode_combo.currentIndex() == 1 else "t2v"
+
+        if video_mode == "i2v" and not self.image_drop_widget.current_image_data:
+            QMessageBox.warning(self, "警告", "图生视频模式需要上传图片")
+            return
+
+        aspect_ratio = self.aspect_ratio_combo.currentText()
+
+        task = {
+            'name': f'Sora2_{"图生视频" if video_mode == "i2v" else "文生视频"}_{datetime.now().strftime("%H%M%S")}',
+            'prompt': prompt,
+            'video_mode': video_mode,
+            'aspect_ratio': aspect_ratio
+        }
+
+        if video_mode == "i2v":
+            task['image_input'] = self.image_drop_widget.current_image_data
+            task['image_path'] = self.image_drop_widget.current_image_path
+
+        task_map = {f"task_{int(time.time())}": task}
+        self.start_generation(task_map)
+
+    def generate_batch_videos(self):
+        """批量生成视频"""
+        if self.is_generating:
+            InfoBar.warning(
+                title="警告",
+                content="批量生成进行中, please wait...",
+                orient=Qt.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=2000,
+                parent=self
+            )
+            return
+
+        batch_text = self.batch_list.toPlainText().strip()
+        if not batch_text:
+            QMessageBox.warning(self, "警告", "请输入批量任务列表")
+            return
+
+        video_mode = "i2v" if self.video_mode_combo.currentIndex() == 1 else "t2v"
+        aspect_ratio = self.aspect_ratio_combo.currentText()
+
+        lines = [line.strip() for line in batch_text.split('\n') if line.strip()]
+        task_map = {}
+
+        for i, line in enumerate(lines):
+            if video_mode == "i2v" and '|' in line:
+                parts = line.split('|', 1)
+                if len(parts) == 2:
+                    image_path, prompt = parts
+                    task = {
+                        'name': f'Sora2 图生视频_{i+1:03d}',
+                        'prompt': prompt.strip(),
+                        'video_mode': 'i2v',
+                        'aspect_ratio': aspect_ratio,
+                        'image_input': image_path.strip(),
+                        'image_path': image_path.strip()
+                    }
+            else:
+                task = {
+                    'name': f'Sora2_{"图生视频" if video_mode == "i2v" else "文生视频"}_{i+1:03d}',
+                    'prompt': line,
+                    'video_mode': video_mode,
+                    'aspect_ratio': aspect_ratio
+                }
+
+                if video_mode == "i2v":
+                    task['image_input'] = self.image_drop_widget.current_image_data
+                    task['image_path'] = self.image_drop_widget.current_image_path
+
+            task_map[f"task_{int(time.time())}_{i}"] = task
+
+        if task_map:
+            self.start_generation(task_map)
+
+    def start_generation(self, task_map):
+        """Start generation"""
+        self.is_generating = True
+        self.update_generate_buttons_state()
+
+        self.clear_task_cards()
+        self.clear_result_cards()
+
+        for task_id, task in task_map.items():
+            self.add_task_status_card(task_id, task)
+
+        self.batch_manager.add_tasks(task_map, self.key_file_path)
+
+    def add_task_status_card(self, task_id, task):
+        """Add task status card"""
+        task_params = {
+            'video_mode': task.get('video_mode', 't2v'),
+            'aspect_ratio': task.get('aspect_ratio', '9:16'),
+            'prompt': task.get('prompt', '')
+        }
+
+        card = Sora2TaskStatusCard(task_id, task.get('name', f'Task_{task_id}'), task_params, self)
+        self.tasks_layout.insertWidget(self.tasks_layout.count() - 1, card)
+        self.task_status_cards[task_id] = card
+
+    def clear_task_cards(self):
+        """Clear task status cards"""
+        for task_id, card in self.task_status_cards.items():
+            card.deleteLater()
+        self.task_status_cards.clear()
+
+    def clear_result_cards(self):
+        """Clear video result cards"""
+        for card in self.video_result_cards:
+            card.deleteLater()
+        self.video_result_cards.clear()
+
+    def update_task_progress(self, progress, message, task_id):
+        """Update task progress"""
+        if task_id in self.task_status_cards:
+            self.task_status_cards[task_id].update_progress(progress, message)
+
+    def update_task_time(self, time_string, task_id):
+        """Update task time"""
+        if task_id in self.task_status_cards:
+            self.task_status_cards[task_id].update_time(time_string)
+
+    def on_task_finished(self, success, message, result_data, task_id):
+        """Task finished callback"""
+        if task_id in self.task_status_cards:
+            self.task_status_cards[task_id].set_completed(success, message)
+
+        if success and result_data:
+            self.add_simple_result_card(result_data, task_id)
+
+    def add_simple_result_card(self, video_data, task_id):
+        """Add simple result card"""
+        result_card = QFrame()
+        result_card.setStyleSheet("""
+            QFrame {
+                background-color: #2e3a2e;
+                border: 1px solid #28a745;
+                border-radius: 8px;
+                margin: 5px;
+                padding: 10px;
+            }
+        """)
+
+        layout = QVBoxLayout(result_card)
+
+        title = QLabel(f"Task: {video_data.get('task_name', f'Task_{task_id}')}")
+        title.setStyleSheet("font-size: 14px; font-weight: bold; color: #ffffff;")
+        layout.addWidget(title)
+
+        url = video_data.get('url', '')
+        url_label = QLabel(f"URL: {url[:80]}..." if len(url) > 80 else f"URL: {url}")
+        url_label.setStyleSheet("color: #888888; font-size: 11px;")
+        url_label.setWordWrap(True)
+        layout.addWidget(url_label)
+
+        btn_layout = QHBoxLayout()
+
+        copy_btn = PushButton("Copy URL")
+        copy_btn.clicked.connect(lambda: self.copy_url(url))
+        btn_layout.addWidget(copy_btn)
+
+        open_btn = PushButton("Open in 浏览r")
+        open_btn.clicked.connect(lambda: QDesktopServices.openUrl(QUrl(url)))
+        btn_layout.addWidget(open_btn)
+
+        btn_layout.addStretch()
+        layout.addLayout(btn_layout)
+
+        self.results_layout.insertWidget(self.results_layout.count() - 1, result_card)
+        self.video_result_cards.append(result_card)
+
+    def copy_url(self, url):
+        """Copy URL to clipboard"""
+        clipboard = QCoreApplication.clipboard()
+        clipboard.setText(url)
+        InfoBar.success(
+            title="成功",
+            content="URL已复制到剪贴板",
+            orient=Qt.Horizontal,
+            isClosable=True,
+            position=InfoBarPosition.TOP,
+            duration=2000,
+            parent=self
+        )
+
+    def update_batch_progress(self, completed, total):
+        """Update batch progress"""
+        self.batch_progress_label.setText(f"批量进度： {completed}/{total}")
+        if total > 0:
+            progress = int((completed / total) * 100)
+            self.batch_progress_bar.setValue(progress)
+
+    def on_all_tasks_finished(self):
+        """所有任务已完成"""
+        self.is_generating = False
+        self.update_generate_buttons_state()
+
+        InfoBar.success(
+            title="完成",
+            content="所有任务已完成",
+            orient=Qt.Horizontal,
+            isClosable=True,
+            position=InfoBarPosition.TOP,
+            duration=3000,
+            parent=self
+        )
+
+    def update_generate_buttons_state(self):
+        """更新生成按钮状态"""
+        self.single_generate_btn.setEnabled(not self.is_generating)
+        self.batch_generate_btn.setEnabled(not self.is_generating)
+
+    def show_api_settings_dialog(self):
+        """Show API settings dialog"""
+        dialog = Sora2APISettingsDialog(self)
+        if dialog.exec_() == QDialog.Accepted:
+            self.load_settings()
+            self.update_key_status()
+
+    def load_settings(self):
+        """加载设置"""
+        api_settings = self.settings_manager.get_api_settings()
+        self.api_manager.api_url = api_settings.get("api_url",
+            "https://api.bizyair.cn/w/v1/webapp/task/openapi/create")
+        self.api_manager.web_app_id_t2v = api_settings.get("web_app_id_t2v", 42921)
+        self.api_manager.web_app_id_i2v = api_settings.get("web_app_id_i2v", 42936)
+
+        key_source = api_settings.get("key_source", "file")
+        self.api_manager.set_key_source(key_source)
+
+        key_file = api_settings.get("key_file", "")
+        if key_source == "file" and key_file:
+            self.api_manager.load_keys_from_file(key_file)
+            self.key_file_path = key_file
+        elif key_source == "text":
+            key_text = api_settings.get("key_text", "")
+            self.api_manager.load_keys_from_text(key_text)
+
+        self.update_key_status()
+
+    def update_key_status(self):
+        """Update key status"""
+        available_keys = self.api_manager.get_available_keys_count()
+        key_source = self.api_manager.get_key_source_display()
+
+        if available_keys > 0:
+            self.key_status_label.setText(f"OK {key_source} ({available_keys} keys)")
+            self.key_status_label.setStyleSheet("color: #28a745; font-size: 12px; padding: 6px 12px; background: #e8f5e8; border-radius: 4px;")
+        else:
+            self.key_status_label.setText("Key not configured")
+            self.key_status_label.setStyleSheet("color: #dc3545; font-size: 12px; padding: 6px 12px; background: #fff3cd; border-radius: 4px;")
+
+    def add_log(self, message):
+        """Add log"""
+        print(f"[Sora2] {message}")
+
+# ==================== API Settings Dialog ====================
+class Sora2APISettingsDialog(QDialog):
+    """Sora2 API settings dialog"""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Sora2 API Settings")
+        self.setMinimumSize(600, 500)
+        self.settings_manager = Sora2SettingsManager()
+        self.init_ui()
+        self.load_settings()
+
+    def init_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setSpacing(15)
+
+        # Key source selection
+        source_group = QGroupBox("API Key Source")
+        source_group.setStyleSheet("""
+            QGroupBox {
+                color: #ffffff;
+                font-size: 14px;
+                font-weight: bold;
+                border: 1px solid #404040;
+                border-radius: 6px;
+                margin-top: 10px;
+                padding-top: 10px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 10px;
+                padding: 0 5px;
+            }
+        """)
+        source_layout = QVBoxLayout()
+
+        self.key_source_combo = ComboBox()
+        self.key_source_combo.addItems(["文件密钥", "系统变量", "密钥文本"])
+        self.key_source_combo.setFixedHeight(35)
+        self.key_source_combo.currentIndexChanged.connect(self.on_key_source_changed)
+        source_layout.addWidget(QLabel("Key Source:"))
+        source_layout.addWidget(self.key_source_combo)
+
+        source_group.setLayout(source_layout)
+        layout.addWidget(source_group)
+
+        # File key settings
+        self.file_group = QGroupBox("文件密钥 Settings")
+        self.file_group.setStyleSheet(source_group.styleSheet())
+        file_layout = QVBoxLayout()
+
+        file_select_layout = QHBoxLayout()
+        self.key_file_edit = LineEdit()
+        self.key_file_edit.setPlaceholderText("Select file containing API keys (one key per line)")
+        self.key_file_edit.setFixedHeight(35)
+        file_select_layout.addWidget(self.key_file_edit)
+
+        browse_btn = PushButton("浏览...")
+        browse_btn.setFixedHeight(35)
+        browse_btn.clicked.connect(self.browse_key_file)
+        file_select_layout.addWidget(browse_btn)
+
+        file_layout.addLayout(file_select_layout)
+
+        help_label = QLabel("File format: One API key per line, lines starting with # will be ignored")
+        help_label.setStyleSheet("color: #888888; font-size: 11px;")
+        file_layout.addWidget(help_label)
+
+        self.file_group.setLayout(file_layout)
+        layout.addWidget(self.file_group)
+
+        # Key text settings
+        self.text_group = QGroupBox("密钥文本 Settings")
+        self.text_group.setStyleSheet(source_group.styleSheet())
+        text_layout = QVBoxLayout()
+
+        self.key_text_edit = QTextEdit()
+        self.key_text_edit.setPlaceholderText("Enter API keys directly (one key per line)")
+        self.key_text_edit.setMinimumHeight(100)
+        text_layout.addWidget(QLabel("密钥文本:"))
+        text_layout.addWidget(self.key_text_edit)
+
+        self.text_group.setLayout(text_layout)
+        self.text_group.setVisible(False)
+        layout.addWidget(self.text_group)
+
+        # API parameters
+        api_group = QGroupBox("API参数")
+        api_group.setStyleSheet(source_group.styleSheet())
+        api_layout = QVBoxLayout()
+
+        api_layout.addWidget(QLabel("文生视频 Web App ID："))
+        self.t2v_app_id_edit = LineEdit()
+        self.t2v_app_id_edit.setFixedHeight(35)
+        api_layout.addWidget(self.t2v_app_id_edit)
+
+        api_layout.addWidget(QLabel("图生视频 Web App ID："))
+        self.i2v_app_id_edit = LineEdit()
+        self.i2v_app_id_edit.setFixedHeight(35)
+        api_layout.addWidget(self.i2v_app_id_edit)
+
+        api_layout.addWidget(QLabel("API URL:"))
+        self.api_url_edit = LineEdit()
+        self.api_url_edit.setFixedHeight(35)
+        api_layout.addWidget(self.api_url_edit)
+
+        api_group.setLayout(api_layout)
+        layout.addWidget(api_group)
+
+        # Bottom buttons
+        button_layout = QHBoxLayout()
+        save_btn = PrimaryPushButton("保存设置")
+        save_btn.clicked.connect(self.save_settings)
+        cancel_btn = PushButton("取消")
+        cancel_btn.clicked.connect(self.reject)
+
+        button_layout.addStretch()
+        button_layout.addWidget(save_btn)
+        button_layout.addWidget(cancel_btn)
+        layout.addLayout(button_layout)
+
+    def on_key_source_changed(self, index):
+        """Key source changed event"""
+        if index == 0:
+            self.file_group.setVisible(True)
+            self.text_group.setVisible(False)
+        elif index == 1:
+            self.file_group.setVisible(False)
+            self.text_group.setVisible(False)
+        else:
+            self.file_group.setVisible(False)
+            self.text_group.setVisible(True)
+
+    def browse_key_file(self):
+        """浏览 key file"""
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Select API Key File",
+            "",
+            "文本文件 (*.txt);;所有文件 (*)"
+        )
+        if file_path:
+            self.key_file_edit.setText(file_path)
+
+    def load_settings(self):
+        """加载设置"""
+        api_settings = self.settings_manager.get_api_settings()
+
+        key_source = api_settings.get("key_source", "file")
+        if key_source == "env":
+            self.key_source_combo.setCurrentIndex(1)
+        elif key_source == "text":
+            self.key_source_combo.setCurrentIndex(2)
+        else:
+            self.key_source_combo.setCurrentIndex(0)
+
+        self.key_file_edit.setText(api_settings.get("key_file", ""))
+        self.key_text_edit.setPlainText(api_settings.get("key_text", ""))
+        self.t2v_app_id_edit.setText(str(api_settings.get("web_app_id_t2v", 42921)))
+        self.i2v_app_id_edit.setText(str(api_settings.get("web_app_id_i2v", 42936)))
+        self.api_url_edit.setText(api_settings.get("api_url",
+            "https://api.bizyair.cn/w/v1/webapp/task/openapi/create"))
+
+    def save_settings(self):
+        """保存设置"""
+        key_source_map = {0: "file", 1: "env", 2: "text"}
+        key_source = key_source_map.get(self.key_source_combo.currentIndex(), "file")
+
+        try:
+            t2v_app_id = int(self.t2v_app_id_edit.text().strip())
+            i2v_app_id = int(self.i2v_app_id_edit.text().strip())
+        except ValueError:
+            QMessageBox.warning(self, "错误", "Web App ID 必须是数字")
+            return
+
+        success = self.settings_manager.set_api_settings(
+            key_file=self.key_file_edit.text().strip(),
+            web_app_id_t2v=t2v_app_id,
+            web_app_id_i2v=i2v_app_id,
+            api_url=self.api_url_edit.text().strip(),
+            key_text=self.key_text_edit.toPlainText().strip(),
+            key_source=key_source
+        )
+
+        if success:
+            QMessageBox.information(self, "成功", "Sora2 API设置已保存")
+            self.accept()
+        else:
+            QMessageBox.critical(self, "错误", "设置保存失败")
+
+# ==================== Main Entry Point ====================
+if __name__ == "__main__":
+    from PyQt5.QtWidgets import QApplication
+
+    app = QApplication(sys.argv)
+
+    # Set dark theme
+    qf.setTheme(Theme.DARK)
+
+    window = Sora2VideoGenerationWidget()
+    window.setWindowTitle("Sora2 AI Video Generator")
+    window.resize(1200, 800)
+    window.show()
+
+    sys.exit(app.exec_())
