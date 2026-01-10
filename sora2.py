@@ -109,7 +109,7 @@ class Sora2SettingsManager:
         self.default_settings = {
             "video_params": {
                 "aspect_ratio": "9:16",
-                "duration": 5
+                "duration": 10
             },
             "api_settings": {
                 "key_file": "",
@@ -153,7 +153,7 @@ class Sora2SettingsManager:
         settings = self.load_settings()
         return settings.get("video_params", self.default_settings["video_params"])
 
-    def set_video_params(self, aspect_ratio="9:16", duration=5):
+    def set_video_params(self, aspect_ratio="9:16", duration=10):
         """设置视频参数"""
         settings = self.load_settings()
         settings["video_params"] = {
