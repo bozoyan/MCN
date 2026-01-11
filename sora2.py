@@ -481,7 +481,7 @@ class Sora2VideoGenerationWorker(QThread):
                     api_url,
                     headers=headers,
                     json=bizyair_request_data,
-                    timeout=(300, 1200),
+                    timeout=(10, 1800),  # 连接超时10秒，读取超时30分钟
                     proxies=proxies
                 )
 
@@ -1110,7 +1110,6 @@ class Sora2VideoGenerationWidget(QWidget):
         self.api_manager.api_url = api_settings.get("api_url",
             "https://api.bizyair.cn/w/v1/webapp/task/openapi/create")
 
-        self.is_generating = False
         self.key_file_path = None
 
         self.task_status_cards = {}
@@ -1572,18 +1571,6 @@ class Sora2VideoGenerationWidget(QWidget):
 
     def generate_single_video(self):
         """生成单个视频"""
-        if self.is_generating:
-            InfoBar.warning(
-                title="警告",
-                content="正在生成中，请稍候...",
-                orient=Qt.Horizontal,
-                isClosable=True,
-                position=InfoBarPosition.TOP,
-                duration=2000,
-                parent=self
-            )
-            return
-
         prompt = self.prompt_edit.toPlainText().strip()
         if not prompt:
             QMessageBox.warning(self, "警告", "请输入视频生成提示词")
@@ -1615,18 +1602,6 @@ class Sora2VideoGenerationWidget(QWidget):
 
     def generate_batch_videos(self):
         """批量生成视频"""
-        if self.is_generating:
-            InfoBar.warning(
-                title="警告",
-                content="批量生成进行中, please wait...",
-                orient=Qt.Horizontal,
-                isClosable=True,
-                position=InfoBarPosition.TOP,
-                duration=2000,
-                parent=self
-            )
-            return
-
         batch_text = self.batch_list.toPlainText().strip()
         if not batch_text:
             QMessageBox.warning(self, "警告", "请输入批量任务列表")
@@ -1673,9 +1648,6 @@ class Sora2VideoGenerationWidget(QWidget):
 
     def start_generation(self, task_map):
         """Start generation"""
-        self.is_generating = True
-        self.update_generate_buttons_state()
-
         self.clear_task_cards()
         self.clear_result_cards()
 
@@ -1886,9 +1858,6 @@ class Sora2VideoGenerationWidget(QWidget):
 
     def on_all_tasks_finished(self):
         """所有任务已完成"""
-        self.is_generating = False
-        self.update_generate_buttons_state()
-
         InfoBar.success(
             title="完成",
             content="所有任务已完成",
@@ -1900,9 +1869,9 @@ class Sora2VideoGenerationWidget(QWidget):
         )
 
     def update_generate_buttons_state(self):
-        """更新生成按钮状态"""
-        self.single_generate_btn.setEnabled(not self.is_generating)
-        self.batch_generate_btn.setEnabled(not self.is_generating)
+        """更新生成按钮状态（已移除限制，允许多批次同时提交）"""
+        self.single_generate_btn.setEnabled(True)
+        self.batch_generate_btn.setEnabled(True)
 
     def show_api_settings_dialog(self):
         """Show API settings dialog"""
