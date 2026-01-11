@@ -3635,7 +3635,7 @@ class Sora2TaskHistoryDialog(QDialog):
                 if result and result[0]:  # success
                     success_count += 1
             except Exception as e:
-                print(f"查询任务 {request_id[:32]}... 失败: {str(e)}")
+                print(f"查询任务 {request_id[:48]}... 失败: {str(e)}")
 
         # 刷新任务列表
         self.load_tasks()
