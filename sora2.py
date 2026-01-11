@@ -2166,7 +2166,10 @@ class Sora2VideoGenerationWidget(QWidget):
     def on_task_finished(self, success, message, result_data, task_id):
         """Task finished callback"""
         if task_id in self.task_status_cards:
-            self.task_status_cards[task_id].stop_timing()  # 停止计时器
+            # WebHook 模式下不停计时，继续等待回调结果
+            is_webhook = result_data.get('webhook_mode', False)
+            if not is_webhook:
+                self.task_status_cards[task_id].stop_timing()  # 停止计时器
             self.task_status_cards[task_id].set_completed(success, message)
 
         if success and result_data:
@@ -2193,6 +2196,7 @@ class Sora2VideoGenerationWidget(QWidget):
             time_str = self.task_status_cards[task_id].time_string
 
         request_id = video_data.get('request_id') or video_data.get('id', '')
+        is_webhook = video_data.get('webhook_mode', False)
 
         # 构建标题行：任务名称 | 用时 | request_id
         task_name = video_data.get('task_name', f'Task_{task_id}')
@@ -2210,10 +2214,10 @@ class Sora2VideoGenerationWidget(QWidget):
 
         url = video_data.get('url', '')
 
-        # 使用 LineEdit 显示完整 URL
+        # 使用 LineEdit 显示完整 URL（WebHook 模式下可编辑）
         url_input = qf.LineEdit()
         url_input.setText(url)
-        url_input.setReadOnly(True)
+        url_input.setReadOnly(not is_webhook)  # WebHook 模式下可编辑
         url_input.setStyleSheet("""
             LineEdit {
                 background-color: #1e1e1e;
@@ -2227,18 +2231,29 @@ class Sora2VideoGenerationWidget(QWidget):
         url_input.setTextMargins(0, 0, 0, 0)
         layout.addWidget(url_input)
 
+        # 存储卡片引用以便后续更新
+        result_card.url_input = url_input
+        result_card.request_id = request_id
+        result_card.task_id = task_id
+
         btn_layout = QHBoxLayout()
 
+        # WebHook 模式：添加回调查询按钮
+        if is_webhook and request_id:
+            query_btn = PushButton("🔄 回调查询")
+            query_btn.clicked.connect(lambda: self.query_webhook_result(request_id, url_input, result_card))
+            btn_layout.addWidget(query_btn)
+
         play_btn = PushButton("▶ 播放")
-        play_btn.clicked.connect(lambda: self.play_video(url))
+        play_btn.clicked.connect(lambda: self.play_video(url_input.text()))  # 使用输入框中的 URL
         btn_layout.addWidget(play_btn)
 
         copy_btn = PushButton("复制URL")
-        copy_btn.clicked.connect(lambda: self.copy_url(url))
+        copy_btn.clicked.connect(lambda: self.copy_url(url_input.text()))
         btn_layout.addWidget(copy_btn)
 
         open_btn = PushButton("浏览器打开")
-        open_btn.clicked.connect(lambda: QDesktopServices.openUrl(QUrl(url)))
+        open_btn.clicked.connect(lambda: QDesktopServices.openUrl(QUrl(url_input.text())))
         btn_layout.addWidget(open_btn)
 
         btn_layout.addStretch()
@@ -2260,6 +2275,188 @@ class Sora2VideoGenerationWidget(QWidget):
             duration=2000,
             parent=self
         )
+
+    def query_webhook_result(self, request_id, url_input, result_card):
+        """查询 WebHook 任务结果"""
+        try:
+            # 获取 API 密钥
+            api_key = self.api_manager.get_next_key()
+            if not api_key:
+                InfoBar.error(
+                    title="错误",
+                    content="未配置 API 密钥",
+                    orient=Qt.Horizontal,
+                    isClosable=True,
+                    position=InfoBarPosition.TOP,
+                    duration=3000,
+                    parent=self
+                )
+                return
+
+            # 获取查询 URL
+            webhook_settings = self.settings_manager.get_webhook_settings()
+            query_url = webhook_settings.get("query_url",
+                "https://api.bizyair.cn/w/v1/webapp/task/openapi/outputs")
+
+            self.add_log(f"[回调查询] 查询任务 {request_id[:32]}...")
+
+            headers = {
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {api_key}"
+            }
+
+            proxies = {"http": None, "https": None}
+            response = requests.get(
+                f"{query_url}?requestId={request_id}",
+                headers=headers,
+                timeout=30,
+                proxies=proxies
+            )
+
+            response.raise_for_status()
+            data = response.json()
+
+            self.add_log(f"[回调查询] 响应: {json.dumps(data, ensure_ascii=False, indent=2)}")
+
+            # 解析响应
+            if data.get('code') == 20000 and data.get('status'):
+                result_data = data.get('data', {})
+                status = result_data.get('status', '')
+
+                if status == 'Success':
+                    # 任务成功完成
+                    outputs = result_data.get('outputs', [])
+                    if outputs and len(outputs) > 0:
+                        video_url = outputs[0].get('object_url', '')
+                        if video_url:
+                            # 更新 URL 输入框
+                            url_input.setText(video_url)
+                            url_input.setStyleSheet("""
+                                LineEdit {
+                                    background-color: #1e2a1e;
+                                    color: #6bcb77;
+                                    font-size: 11px;
+                                    border: 1px solid #28a745;
+                                    border-radius: 4px;
+                                    padding: 6px;
+                                }
+                            """)
+
+                            # 停止对应任务卡片的计时器
+                            task_id = result_card.task_id
+                            if task_id in self.task_status_cards:
+                                self.task_status_cards[task_id].stop_timing()
+
+                            InfoBar.success(
+                                title="查询成功",
+                                content=f"视频已生成，URL 已更新到输入框",
+                                orient=Qt.Horizontal,
+                                isClosable=True,
+                                position=InfoBarPosition.TOP,
+                                duration=3000,
+                                parent=self
+                            )
+
+                            # 自动下载视频到 output 目录
+                            self.download_video_to_output(video_url)
+
+                            return
+
+                elif status == 'Running':
+                    InfoBar.info(
+                        title="任务执行中",
+                        content="视频正在生成中，请稍后再试",
+                        orient=Qt.Horizontal,
+                        isClosable=True,
+                        position=InfoBarPosition.TOP,
+                        duration=3000,
+                        parent=self
+                    )
+                    return
+
+            InfoBar.warning(
+                title="查询失败",
+                content=f"任务状态: {data.get('message', 'Unknown error')}",
+                orient=Qt.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=3000,
+                parent=self
+            )
+
+        except requests.exceptions.RequestException as e:
+            self.add_log(f"[回调查询] 网络错误: {str(e)}")
+            InfoBar.error(
+                title="网络错误",
+                content=f"查询失败: {str(e)}",
+                orient=Qt.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=3000,
+                parent=self
+            )
+        except Exception as e:
+            self.add_log(f"[回调查询] 异常: {str(e)}")
+            InfoBar.error(
+                title="查询异常",
+                content=f"查询失败: {str(e)}",
+                orient=Qt.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=3000,
+                parent=self
+            )
+
+    def download_video_to_output(self, url):
+        """下载视频到 output 目录"""
+        try:
+            output_dir = "output"
+            if not os.path.exists(output_dir):
+                os.makedirs(output_dir)
+
+            # 从 URL 提取文件名
+            filename_match = re.search(r'/([^/]+\.mp4)', url)
+            if filename_match:
+                filename = filename_match.group(1)
+            else:
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                filename = f"sora2_video_{timestamp}.mp4"
+
+            local_path = os.path.join(output_dir, filename)
+
+            # 创建下载线程
+            download_thread = VideoDownloadThread(url, local_path, self)
+            download_thread.finished.connect(lambda success, path: self.on_webhook_download_finished(success, path, filename))
+            download_thread.start()
+
+            self.add_log(f"[下载] 开始下载视频到: {local_path}")
+
+        except Exception as e:
+            self.add_log(f"[下载] 下载准备失败: {str(e)}")
+
+    def on_webhook_download_finished(self, success, local_path, filename):
+        """WebHook 视频下载完成回调"""
+        if success:
+            self.add_log(f"[下载] 视频已保存: {local_path}")
+            InfoBar.success(
+                title="下载完成",
+                content=f"视频已保存到: {filename}",
+                orient=Qt.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=3000,
+                parent=self
+            )
+        else:
+            InfoBar.error(
+                title="下载失败",
+                content="视频下载失败，请稍后重试",
+                orient=Qt.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=3000,
+                parent=self
+            )
 
     def play_video(self, url):
         """下载并播放视频"""
