@@ -2128,11 +2128,11 @@ class Sora2VideoGenerationWidget(QWidget):
         # 构建标题行：任务名称 | 用时 | request_id
         task_name = video_data.get('task_name', f'Task_{task_id}')
         if time_str and request_id:
-            title = QLabel(f"Task: {task_name} | 用时: {time_str} | ID: {request_id[:16]}...")
+            title = QLabel(f"Task: {task_name} | 用时: {time_str} | ID: {request_id[:48]}...")
         elif time_str:
             title = QLabel(f"Task: {task_name} | 用时: {time_str}")
         elif request_id:
-            title = QLabel(f"Task: {task_name} | ID: {request_id[:16]}...")
+            title = QLabel(f"Task: {task_name} | ID: {request_id[:48]}...")
         else:
             title = QLabel(f"Task: {task_name}")
 
