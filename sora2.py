@@ -12,6 +12,9 @@ import time
 import requests
 import base64
 import traceback
+import re
+import subprocess
+import platform
 from datetime import datetime
 from PyQt5.QtCore import QObject, QTimer
 
@@ -27,7 +30,7 @@ from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
                             QTextEdit, QPushButton, QComboBox,
                             QProgressBar, QMessageBox, QFileDialog,
                             QGroupBox, QSplitter, QFrame, QRadioButton,
-                            QScrollArea, QDialog, QSizePolicy)
+                            QScrollArea, QDialog, QSizePolicy, QTabWidget)
 from PyQt5.QtGui import QPixmap, QDragEnterEvent, QDropEvent, QDesktopServices
 
 import qfluentwidgets as qf
@@ -109,7 +112,9 @@ class Sora2SettingsManager:
         self.default_settings = {
             "video_params": {
                 "aspect_ratio": "9:16",
-                "duration": 10
+                "duration": 10,
+                "duration_t2v": 10,
+                "duration_i2v": 10
             },
             "api_settings": {
                 "key_file": "",
@@ -153,12 +158,14 @@ class Sora2SettingsManager:
         settings = self.load_settings()
         return settings.get("video_params", self.default_settings["video_params"])
 
-    def set_video_params(self, aspect_ratio="9:16", duration=10):
+    def set_video_params(self, aspect_ratio="9:16", duration=10, duration_t2v=10, duration_i2v=10):
         """设置视频参数"""
         settings = self.load_settings()
         settings["video_params"] = {
             "aspect_ratio": aspect_ratio,
-            "duration": duration
+            "duration": duration,
+            "duration_t2v": duration_t2v,
+            "duration_i2v": duration_i2v
         }
         return self.save_settings(settings)
 
@@ -299,6 +306,50 @@ class Sora2APIKeyManager:
         else:
             return "文件密钥"
 
+# ==================== Video Download Thread ====================
+class VideoDownloadThread(QThread):
+    """视频下载线程"""
+    finished = pyqtSignal(bool, str)
+
+    def __init__(self, url, local_path, parent=None):
+        super().__init__(parent)
+        self.url = url
+        self.local_path = local_path
+
+    def run(self):
+        """下载视频"""
+        try:
+            proxies = {"http": None, "https": None}
+
+            response = requests.get(
+                self.url,
+                stream=True,
+                timeout=60,
+                proxies=proxies
+            )
+            response.raise_for_status()
+
+            total_size = int(response.headers.get('content-length', 0))
+
+            with open(self.local_path, 'wb') as f:
+                if total_size > 0:
+                    downloaded = 0
+                    chunk_size = 8192
+                    for chunk in response.iter_content(chunk_size=chunk_size):
+                        if chunk:
+                            f.write(chunk)
+                            downloaded += len(chunk)
+                else:
+                    for chunk in response.iter_content(chunk_size=8192):
+                        if chunk:
+                            f.write(chunk)
+
+            self.finished.emit(True, self.local_path)
+
+        except Exception as e:
+            print(f"Download error: {e}")
+            self.finished.emit(False, "")
+
 # ==================== Video Generation Worker ====================
 class Sora2VideoGenerationWorker(QThread):
     """Sora2 单个视频生成工作线程"""
@@ -338,10 +389,12 @@ class Sora2VideoGenerationWorker(QThread):
             prompt = self.task.get('prompt', '')
             video_mode = self.task.get('video_mode', 't2v')
             aspect_ratio = self.task.get('aspect_ratio', '9:16')
+            duration = self.task.get('duration', 10)
             image_input = self.task.get('image_input', '')
 
             self.log_message(f"Mode: {'文生视频' if video_mode == 't2v' else '图生视频'}")
             self.log_message(f"Aspect Ratio: {aspect_ratio}")
+            self.log_message(f"Duration: {duration}s")
 
             output_dir = "output"
             if not os.path.exists(output_dir):
@@ -388,7 +441,8 @@ class Sora2VideoGenerationWorker(QThread):
                     "input_values": {
                         "18:LoadImage.image": image_value,
                         "6:CR Prompt Text.prompt": prompt,
-                        "54:BizyAir_Sora_V2_I2V_API.aspect_ratio": aspect_ratio
+                        "54:BizyAir_Sora_V2_I2V_API.aspect_ratio": aspect_ratio,
+                        "54:BizyAir_Sora_V2_I2V_API.duration": duration
                     }
                 }
                 self.log_message(f"Using 图生视频 mode, Web App ID: {self.api_manager.web_app_id_i2v}")
@@ -401,7 +455,8 @@ class Sora2VideoGenerationWorker(QThread):
                     "suppress_preview_output": True,
                     "input_values": {
                         "57:BizyAir_Sora_V2_T2V_API.prompt": prompt,
-                        "57:BizyAir_Sora_V2_T2V_API.aspect_ratio": aspect_ratio
+                        "57:BizyAir_Sora_V2_T2V_API.aspect_ratio": aspect_ratio,
+                        "57:BizyAir_Sora_V2_T2V_API.duration": duration
                     }
                 }
                 self.log_message(f"Using 文生视频 mode, Web App ID: {self.api_manager.web_app_id_t2v}")
@@ -416,6 +471,7 @@ class Sora2VideoGenerationWorker(QThread):
                 api_url = self.api_manager.api_url
 
             self.log_message(f"Sending BizyAir API request: {api_url}")
+            self.log_message(f"Request data: {json.dumps(bizyair_request_data, ensure_ascii=False, indent=2)}")
             self.progress_updated.emit(40, "Sending API request...", self.task_id)
 
             try:
@@ -484,9 +540,11 @@ class Sora2VideoGenerationWorker(QThread):
                     error_detail = response.json()
                     detail_msg = error_detail.get('message', 'Unknown error')
                     error_msg += f" - {detail_msg}"
+                    self.log_message(f"Error response: {json.dumps(error_detail, ensure_ascii=False, indent=2)}")
                 except:
                     error_msg += f" - {response.text[:200]}"
-                self.log_message(f"Error: {error_msg}")
+                    self.log_message(f"Error response text: {response.text[:500]}")
+                self.log_message(f"HTTP Error: {error_msg}")
                 self.task_finished.emit(False, error_msg, {}, self.task_id)
 
             except requests.exceptions.Timeout:
@@ -507,8 +565,8 @@ class Sora2VideoGenerationWorker(QThread):
 
     def check_video_status(self, request_id):
         """查询 BizyAir 任务状态"""
-        max_attempts = 180
-        check_interval = 10
+        max_attempts = 90  #最多轮询 90次
+        check_interval = 20  #每次间隔 20秒
 
         for attempt in range(max_attempts):
             if self.is_cancelled:
@@ -584,9 +642,35 @@ class Sora2BatchManager(QObject):
         self.completed_tasks = 0
         self.total_tasks = 0
         self.api_manager = api_manager if api_manager is not None else Sora2APIKeyManager()
+        self.pending_tasks = []  # 待启动的任务队列
+        self.task_timer = QTimer(self)  # 任务启动定时器
+        self.task_timer.timeout.connect(self.start_next_task)
 
     def log_message(self, message):
         Utils.log_message(message, self.log_updated, "Sora2 Batch Manager")
+
+    def start_next_task(self):
+        """启动下一个任务（定时器回调）"""
+        if not self.pending_tasks:
+            self.task_timer.stop()
+            return
+
+        task_id, task, api_key = self.pending_tasks.pop(0)
+
+        worker = Sora2VideoGenerationWorker(task, task_id, api_key, self.api_manager)
+        self.workers[task_id] = worker
+
+        worker.progress_updated.connect(self.task_progress)
+        worker.task_finished.connect(self.on_single_task_finished)
+        worker.time_updated.connect(self.task_time_updated)
+        worker.log_updated.connect(self.log_updated)
+
+        worker.start()
+        self.log_message(f"Started task {task_id}")
+
+        # 如果还有待启动的任务，继续定时器
+        if self.pending_tasks:
+            self.task_timer.start(300000)  # 300秒后启动下一个
 
     def add_tasks(self, task_map, key_file=None):
         """添加任务"""
@@ -611,22 +695,15 @@ class Sora2BatchManager(QObject):
         self.log_message(f"Adding {new_tasks_count} new tasks")
         self.batch_progress_updated.emit(self.completed_tasks, self.total_tasks)
 
+        # 将所有任务加入队列
         for i, (task_id, task) in enumerate(task_map.items()):
             key_index = i % len(available_keys)
             api_key = available_keys[key_index]
+            self.pending_tasks.append((task_id, task, api_key))
 
-            worker = Sora2VideoGenerationWorker(task, task_id, api_key, self.api_manager)
-            self.workers[task_id] = worker
-
-            worker.progress_updated.connect(self.task_progress)
-            worker.task_finished.connect(self.on_single_task_finished)
-            worker.time_updated.connect(self.task_time_updated)
-            worker.log_updated.connect(self.log_updated)
-
-            worker.start()
-            self.log_message(f"Started task {task_id}")
-
-            time.sleep(30)  # 30 second interval between tasks
+        # 启动第一个任务
+        if self.pending_tasks:
+            self.start_next_task()
 
     def on_single_task_finished(self, success, message, result_data, task_id):
         """单个任务完成回调"""
@@ -862,7 +939,7 @@ class Sora2TaskStatusCard(CardWidget):
         layout.setContentsMargins(15, 12, 15, 12)
         layout.setSpacing(8)
 
-        # Row 1: Task name and status
+        # Row 1: Task name (left) and Status + Key type (right)
         top_layout = QHBoxLayout()
 
         self.name_label = StrongBodyLabel(self.task_name)
@@ -871,10 +948,21 @@ class Sora2TaskStatusCard(CardWidget):
 
         top_layout.addStretch()
 
-        self.status_label = CaptionLabel(self.status)
-        self.status_label.setStyleSheet("color: #cccccc; font-size: 11px; padding: 4px 8px; background: #333333; border-radius: 4px;")
-        top_layout.addWidget(self.status_label)
+        # 右上角容器：状态和密钥类型在同一行
+        right_container = QWidget()
+        right_layout = QHBoxLayout(right_container)
+        right_layout.setContentsMargins(0, 0, 0, 0)
+        right_layout.setSpacing(8)
 
+        self.status_label = CaptionLabel(self.status)
+        self.status_label.setStyleSheet("color: #ffffff; font-size: 11px; font-weight: 600; padding: 4px 8px; background: #333333; border-radius: 4px;")
+        right_layout.addWidget(self.status_label)
+
+        self.key_type_label = CaptionLabel(self.key_source)
+        self.key_type_label.setStyleSheet("color: #4a90e2; font-size: 11px; font-weight: 600; padding: 4px 8px; background: #2a3a4a; border-radius: 4px;")
+        right_layout.addWidget(self.key_type_label)
+
+        top_layout.addWidget(right_container)
         layout.addLayout(top_layout)
 
         # Row 2: Task parameters
@@ -882,25 +970,21 @@ class Sora2TaskStatusCard(CardWidget):
 
         video_mode = self.task_params.get('video_mode', 't2v')
         aspect_ratio = self.task_params.get('aspect_ratio', '9:16')
+        duration = self.task_params.get('duration', 10)
 
-        params_text = f"{'图生视频' if video_mode == 'i2v' else '文生视频'} - {aspect_ratio}"
+        params_text = f"{'图生视频' if video_mode == 'i2v' else '文生视频'} - {aspect_ratio} - {duration}秒"
         self.params_label = CaptionLabel(params_text)
         self.params_label.setStyleSheet("color: #888888; font-size: 12px;")
         params_layout.addWidget(self.params_label)
 
         params_layout.addStretch()
-
-        self.key_type_label = CaptionLabel(self.key_source)
-        self.key_type_label.setStyleSheet("color: #4a90e2; font-size: 11px; padding: 4px 8px; background: #2a3a4a; border-radius: 4px;")
-        params_layout.addWidget(self.key_type_label)
-
         layout.addLayout(params_layout)
 
         # Row 3: Prompt
         prompt = self.task_params.get('prompt', '')
         if prompt:
-            if len(prompt) > 50:
-                prompt_display = prompt[:47] + "..."
+            if len(prompt) > 85:
+                prompt_display = prompt[:80] + "..."
             else:
                 prompt_display = prompt
 
@@ -935,9 +1019,9 @@ class Sora2TaskStatusCard(CardWidget):
         if progress < 100:
             self.status = "生成中"
             if progress >= 50:
-                self.status_label.setStyleSheet("color: #ffc107; font-size: 11px; padding: 4px 8px; background: #fff3cd; border-radius: 4px;")
+                self.status_label.setStyleSheet("color: #ffffff; font-size: 11px; font-weight: 600; padding: 4px 8px; background: #ffc107; border-radius: 4px;")
             else:
-                self.status_label.setStyleSheet("color: #17a2b8; font-size: 11px; padding: 4px 8px; background: #e6f7ff; border-radius: 4px;")
+                self.status_label.setStyleSheet("color: #ffffff; font-size: 11px; font-weight: 600; padding: 4px 8px; background: #17a2b8; border-radius: 4px;")
 
             self.progress_msg_label.setText(message)
 
@@ -978,9 +1062,9 @@ class Sora2TaskStatusCard(CardWidget):
         self.key_type_label.setText(key_source)
 
         if key_source == "系统变量":
-            self.key_type_label.setStyleSheet("color: #17a2b8; font-size: 11px; padding: 4px 8px; background: #e6f7ff; border-radius: 4px;")
+            self.key_type_label.setStyleSheet("color: #17a2b8; font-size: 11px; font-weight: 600; padding: 4px 8px; background: #e6f7ff; border-radius: 4px;")
         else:
-            self.key_type_label.setStyleSheet("color: #28a745; font-size: 11px; padding: 4px 8px; background: #e8f5e8; border-radius: 4px;")
+            self.key_type_label.setStyleSheet("color: #28a745; font-size: 11px; font-weight: 600; padding: 4px 8px; background: #e8f5e8; border-radius: 4px;")
 
     def set_completed(self, success=True, message=""):
         """Set task completed status"""
@@ -990,7 +1074,7 @@ class Sora2TaskStatusCard(CardWidget):
 
         if success:
             self.status = "已完成"
-            self.status_label.setStyleSheet("color: #28a745; font-size: 11px; padding: 4px 8px; background: #e8f5e8; border-radius: 4px;")
+            self.status_label.setStyleSheet("color: #ffffff; font-size: 11px; font-weight: 600; padding: 4px 8px; background: #28a745; border-radius: 4px;")
             self.setStyleSheet("""
                 CardWidget {
                     background-color: #2e3a2e;
@@ -1001,7 +1085,7 @@ class Sora2TaskStatusCard(CardWidget):
             """)
         else:
             self.status = "生成失败"
-            self.status_label.setStyleSheet("color: #dc3545; font-size: 11px; padding: 4px 8px; background: #ffebee; border-radius: 4px;")
+            self.status_label.setStyleSheet("color: #ffffff; font-size: 11px; font-weight: 600; padding: 4px 8px; background: #dc3545; border-radius: 6px;")
             self.setStyleSheet("""
                 CardWidget {
                     background-color: #3a2a2a;
@@ -1035,6 +1119,20 @@ class Sora2VideoGenerationWidget(QWidget):
         self.init_ui()
         self.load_settings()
         self.init_batch_manager()
+
+        # 添加初始化日志（延迟到 UI 完全初始化后）
+        from PyQt5.QtCore import QTimer
+        QTimer.singleShot(100, self.init_log_display)
+
+    def init_log_display(self):
+        """初始化日志显示"""
+        self.add_log("=== Sora2 视频生成系统已启动 ===")
+        self.add_log(f"初始化时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        self.add_log(f"文生视频 Web App ID: {self.api_manager.web_app_id_t2v}")
+        self.add_log(f"图生视频 Web App ID: {self.api_manager.web_app_id_i2v}")
+        self.add_log(f"API URL: {self.api_manager.api_url}")
+        self.add_log("系统就绪，请输入提示词开始生成视频")
+        self.add_log("")
 
     def init_batch_manager(self):
         """Initialize batch manager"""
@@ -1156,6 +1254,14 @@ class Sora2VideoGenerationWidget(QWidget):
         ratio_layout.addWidget(self.aspect_ratio_16_9)
 
         mode_ratio_layout.addWidget(ratio_widget, 1)
+
+        # 视频时长选择
+        self.duration_combo = ComboBox()
+        self.duration_combo.addItems(["10秒", "15秒"])
+        self.duration_combo.setCurrentIndex(0)
+        self.duration_combo.setFixedHeight(35)
+        mode_ratio_layout.addWidget(self.duration_combo, 1)
+
         layout.addWidget(mode_ratio_widget)
 
         # 图片上传区域（仅图生视频模式显示）
@@ -1264,10 +1370,41 @@ class Sora2VideoGenerationWidget(QWidget):
         progress_group.setLayout(progress_layout)
         layout.addWidget(progress_group)
 
-        # Task status
-        tasks_group = QGroupBox("任务状态")
-        tasks_group.setStyleSheet(progress_group.styleSheet())
-        tasks_layout = QVBoxLayout()
+        # Tab Widget for Tasks, Results and Logs
+        self.tab_widget = QTabWidget()
+        self.tab_widget.setStyleSheet("""
+            QTabWidget::pane {
+                border: 1px solid #404040;
+                border-radius: 6px;
+                background-color: #1e1e1e;
+            }
+            QTabBar::tab {
+                background-color: #2a2a2a;
+                color: #888888;
+                padding: 8px 16px;
+                border: 1px solid #404040;
+                border-bottom: none;
+                border-top-left-radius: 4px;
+                border-top-right-radius: 4px;
+                margin-right: 2px;
+                font-size: 13px;
+            }
+            QTabBar::tab:selected {
+                background-color: #1e1e1e;
+                color: #ffffff;
+                font-weight: bold;
+            }
+            QTabBar::tab:hover {
+                background-color: #333333;
+                color: #ffffff;
+            }
+        """)
+
+        # Tab 1: Task Status
+        tasks_tab = QWidget()
+        tasks_tab_layout = QVBoxLayout(tasks_tab)
+        tasks_tab_layout.setContentsMargins(10, 10, 10, 10)
+        tasks_tab_layout.setSpacing(10)
 
         self.tasks_scroll = QScrollArea()
         self.tasks_scroll.setWidgetResizable(True)
@@ -1284,14 +1421,14 @@ class Sora2VideoGenerationWidget(QWidget):
         self.tasks_layout.addStretch()
         self.tasks_scroll.setWidget(self.tasks_widget)
 
-        tasks_layout.addWidget(self.tasks_scroll)
-        tasks_group.setLayout(tasks_layout)
-        layout.addWidget(tasks_group, 1)
+        tasks_tab_layout.addWidget(self.tasks_scroll)
+        self.tab_widget.addTab(tasks_tab, "任务状态")
 
-        # Video results
-        results_group = QGroupBox("生成结果")
-        results_group.setStyleSheet(progress_group.styleSheet())
-        results_layout = QVBoxLayout()
+        # Tab 2: Video Results
+        results_tab = QWidget()
+        results_tab_layout = QVBoxLayout(results_tab)
+        results_tab_layout.setContentsMargins(10, 10, 10, 10)
+        results_tab_layout.setSpacing(10)
 
         self.results_scroll = QScrollArea()
         self.results_scroll.setWidgetResizable(True)
@@ -1308,9 +1445,75 @@ class Sora2VideoGenerationWidget(QWidget):
         self.results_layout.addStretch()
         self.results_scroll.setWidget(self.results_widget)
 
-        results_layout.addWidget(self.results_scroll)
-        results_group.setLayout(results_layout)
-        layout.addWidget(results_group, 2)
+        results_tab_layout.addWidget(self.results_scroll)
+        self.tab_widget.addTab(results_tab, "生成结果")
+
+        # Tab 3: Logs
+        logs_tab = QWidget()
+        logs_tab_layout = QVBoxLayout(logs_tab)
+        logs_tab_layout.setContentsMargins(10, 10, 10, 10)
+        logs_tab_layout.setSpacing(10)
+
+        # Log controls
+        log_controls_layout = QHBoxLayout()
+        log_controls_layout.setSpacing(10)
+
+        clear_log_btn = PushButton("清空日志")
+        clear_log_btn.setFixedHeight(28)
+        clear_log_btn.clicked.connect(self.clear_log)
+        log_controls_layout.addWidget(clear_log_btn)
+
+        export_log_btn = PushButton("导出日志")
+        export_log_btn.setFixedHeight(28)
+        export_log_btn.clicked.connect(self.export_log)
+        log_controls_layout.addWidget(export_log_btn)
+
+        log_controls_layout.addStretch()
+        logs_tab_layout.addLayout(log_controls_layout)
+
+        # Log text area
+        self.log_text = QTextEdit()
+        self.log_text.setReadOnly(True)
+        self.log_text.setHtml("<!DOCTYPE html><html><body style='background-color: #0d0d0d; margin: 0; padding: 0;'>")
+        self.log_text.setStyleSheet("""
+            QTextEdit {
+                background-color: #0d0d0d;
+                font-family: 'Monaco', 'Menlo', 'Consolas', monospace;
+                font-size: 12px;
+                border: 1px solid #404040;
+                border-radius: 4px;
+                padding: 10px;
+            }
+            QScrollBar:vertical {
+                background-color: #1e1e1e;
+                width: 12px;
+                border-radius: 6px;
+            }
+            QScrollBar::handle:vertical {
+                background-color: #404040;
+                border-radius: 6px;
+                min-height: 30px;
+            }
+            QScrollBar::handle:vertical:hover {
+                background-color: #505050;
+            }
+        """)
+        logs_tab_layout.addWidget(self.log_text)
+
+        # 日志颜色说明
+        legend_label = QLabel(
+            "<span style='color: #ff6b6b;'>● 错误</span> | "
+            "<span style='color: #ffd93d;'>● 警告</span> | "
+            "<span style='color: #4d96ff;'>● API</span> | "
+            "<span style='color: #6bcb77;'>● 成功</span> | "
+            "<span style='color: #9b59b6;'>● 完成</span>"
+        )
+        legend_label.setStyleSheet("font-size: 11px; padding: 5px 0;")
+        logs_tab_layout.addWidget(legend_label)
+
+        self.tab_widget.addTab(logs_tab, "日志")
+
+        layout.addWidget(self.tab_widget, 1)
 
         return panel
 
@@ -1333,6 +1536,10 @@ class Sora2VideoGenerationWidget(QWidget):
     def get_aspect_ratio(self):
         """Get current aspect ratio"""
         return "9:16" if self.aspect_ratio_9_16.isChecked() else "16:9"
+
+    def get_duration(self):
+        """Get current duration"""
+        return 10 if self.duration_combo.currentIndex() == 0 else 15
 
     def clear_image(self):
         """Clear uploaded image"""
@@ -1389,12 +1596,14 @@ class Sora2VideoGenerationWidget(QWidget):
             return
 
         aspect_ratio = self.get_aspect_ratio()
+        duration = self.get_duration()
 
         task = {
             'name': f'Sora2_{"图生视频" if video_mode == "i2v" else "文生视频"}_{datetime.now().strftime("%H%M%S")}',
             'prompt': prompt,
             'video_mode': video_mode,
-            'aspect_ratio': aspect_ratio
+            'aspect_ratio': aspect_ratio,
+            'duration': duration
         }
 
         if video_mode == "i2v":
@@ -1425,6 +1634,7 @@ class Sora2VideoGenerationWidget(QWidget):
 
         video_mode = "i2v" if self.video_mode_combo.currentIndex() == 1 else "t2v"
         aspect_ratio = self.get_aspect_ratio()
+        duration = self.get_duration()
 
         lines = [line.strip() for line in batch_text.split('\n') if line.strip()]
         task_map = {}
@@ -1439,6 +1649,7 @@ class Sora2VideoGenerationWidget(QWidget):
                         'prompt': prompt.strip(),
                         'video_mode': 'i2v',
                         'aspect_ratio': aspect_ratio,
+                        'duration': duration,
                         'image_input': image_path.strip(),
                         'image_path': image_path.strip()
                     }
@@ -1447,7 +1658,8 @@ class Sora2VideoGenerationWidget(QWidget):
                     'name': f'Sora2_{"图生视频" if video_mode == "i2v" else "文生视频"}_{i+1:03d}',
                     'prompt': line,
                     'video_mode': video_mode,
-                    'aspect_ratio': aspect_ratio
+                    'aspect_ratio': aspect_ratio,
+                    'duration': duration
                 }
 
                 if video_mode == "i2v":
@@ -1477,12 +1689,16 @@ class Sora2VideoGenerationWidget(QWidget):
         task_params = {
             'video_mode': task.get('video_mode', 't2v'),
             'aspect_ratio': task.get('aspect_ratio', '9:16'),
-            'prompt': task.get('prompt', '')
+            'prompt': task.get('prompt', ''),
+            'duration': task.get('duration', 10)
         }
 
         card = Sora2TaskStatusCard(task_id, task.get('name', f'Task_{task_id}'), task_params, self)
         self.tasks_layout.insertWidget(self.tasks_layout.count() - 1, card)
         self.task_status_cards[task_id] = card
+
+        # 立即启动计时器
+        card.start_timing()
 
     def clear_task_cards(self):
         """Clear task status cards"""
@@ -1509,6 +1725,7 @@ class Sora2VideoGenerationWidget(QWidget):
     def on_task_finished(self, success, message, result_data, task_id):
         """Task finished callback"""
         if task_id in self.task_status_cards:
+            self.task_status_cards[task_id].stop_timing()  # 停止计时器
             self.task_status_cards[task_id].set_completed(success, message)
 
         if success and result_data:
@@ -1534,18 +1751,35 @@ class Sora2VideoGenerationWidget(QWidget):
         layout.addWidget(title)
 
         url = video_data.get('url', '')
-        url_label = QLabel(f"URL: {url[:80]}..." if len(url) > 80 else f"URL: {url}")
-        url_label.setStyleSheet("color: #888888; font-size: 11px;")
-        url_label.setWordWrap(True)
-        layout.addWidget(url_label)
+
+        # 使用 LineEdit 显示完整 URL
+        url_input = qf.LineEdit()
+        url_input.setText(url)
+        url_input.setReadOnly(True)
+        url_input.setStyleSheet("""
+            LineEdit {
+                background-color: #1e1e1e;
+                color: #888888;
+                font-size: 11px;
+                border: 1px solid #404040;
+                border-radius: 4px;
+                padding: 6px;
+            }
+        """)
+        url_input.setTextMargins(0, 0, 0, 0)
+        layout.addWidget(url_input)
 
         btn_layout = QHBoxLayout()
 
-        copy_btn = PushButton("Copy URL")
+        play_btn = PushButton("▶ 播放")
+        play_btn.clicked.connect(lambda: self.play_video(url))
+        btn_layout.addWidget(play_btn)
+
+        copy_btn = PushButton("复制URL")
         copy_btn.clicked.connect(lambda: self.copy_url(url))
         btn_layout.addWidget(copy_btn)
 
-        open_btn = PushButton("Open in 浏览r")
+        open_btn = PushButton("浏览器打开")
         open_btn.clicked.connect(lambda: QDesktopServices.openUrl(QUrl(url)))
         btn_layout.addWidget(open_btn)
 
@@ -1568,6 +1802,80 @@ class Sora2VideoGenerationWidget(QWidget):
             duration=2000,
             parent=self
         )
+
+    def play_video(self, url):
+        """下载并播放视频"""
+        # 创建 output 目录
+        output_dir = "output"
+        if not os.path.exists(output_dir):
+            os.makedirs(output_dir)
+
+        # 从 URL 提取文件名
+        filename_match = re.search(r'/([^/]+\.mp4)', url)
+        if filename_match:
+            filename = filename_match.group(1)
+        else:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = f"sora2_video_{timestamp}.mp4"
+
+        local_path = os.path.join(output_dir, filename)
+
+        # 创建下载线程
+        download_thread = VideoDownloadThread(url, local_path, self)
+        download_thread.finished.connect(lambda success, path: self.on_download_finished(success, path, filename))
+        download_thread.start()
+
+        InfoBar.info(
+            title="下载中",
+            content=f"正在下载视频到：{local_path}",
+            orient=Qt.Horizontal,
+            isClosable=True,
+            position=InfoBarPosition.TOP,
+            duration=3000,
+            parent=self
+        )
+
+    def on_download_finished(self, success, local_path, filename):
+        """下载完成回调"""
+        if success:
+            # 在不同平台上打开视频文件
+            try:
+                if platform.system() == 'Darwin':  # macOS
+                    subprocess.run(['open', local_path])
+                elif platform.system() == 'Windows':
+                    os.startfile(local_path)
+                else:  # Linux
+                    subprocess.run(['xdg-open', local_path])
+
+                InfoBar.success(
+                    title="播放中",
+                    content=f"已打开视频：{filename}",
+                    orient=Qt.Horizontal,
+                    isClosable=True,
+                    position=InfoBarPosition.TOP,
+                    duration=3000,
+                    parent=self
+                )
+            except Exception as e:
+                InfoBar.error(
+                    title="错误",
+                    content=f"无法打开视频：{str(e)}",
+                    orient=Qt.Horizontal,
+                    isClosable=True,
+                    position=InfoBarPosition.TOP,
+                    duration=5000,
+                    parent=self
+                )
+        else:
+            InfoBar.error(
+                title="下载失败",
+                content=f"视频下载失败，请重试",
+                orient=Qt.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=5000,
+                parent=self
+            )
 
     def update_batch_progress(self, completed, total):
         """Update batch progress"""
@@ -1616,6 +1924,11 @@ class Sora2VideoGenerationWidget(QWidget):
         aspect_ratio = video_params.get("aspect_ratio", "9:16")
         self.set_aspect_ratio(aspect_ratio)
 
+        # 加载时长设置
+        duration = video_params.get("duration", 10)
+        self.duration_combo.setCurrentIndex(0 if duration == 10 else 1)
+        self.duration_combo.currentIndexChanged.connect(self.save_current_settings)
+
         # 加载UI设置
         ui_settings = self.settings_manager.load_settings().get("ui_settings", {})
         video_mode = ui_settings.get("video_mode", "t2v")
@@ -1649,6 +1962,78 @@ class Sora2VideoGenerationWidget(QWidget):
     def add_log(self, message):
         """Add log"""
         print(f"[Sora2] {message}")
+        # 同时显示到界面上
+        if hasattr(self, 'log_text'):
+            # 获取当前时间
+            timestamp = datetime.now().strftime("%H:%M:%S")
+
+            # 根据消息类型设置颜色
+            color = "#00ff00"  # 默认绿色
+            if "Error" in message or "error" in message or "失败" in message or "Failed" in message:
+                color = "#ff6b6b"  # 红色
+            elif "Warning" in message or "warning" in message or "警告" in message:
+                color = "#ffd93d"  # 黄色
+            elif "Starting" in message or "开始" in message or "Success" in message or "成功" in message:
+                color = "#6bcb77"  # 浅绿色
+            elif "API" in message or "Request" in message or "请求" in message:
+                color = "#4d96ff"  # 蓝色
+            elif "Completed" in message or "完成" in message:
+                color = "#9b59b6"  # 紫色
+
+            # 使用 HTML 格式设置颜色
+            log_line = f'<span style="color: #888888;">[{timestamp}]</span> <span style="color: {color};">{message}</span>'
+            self.log_text.append(log_line)
+            # 自动滚动到底部
+            cursor = self.log_text.textCursor()
+            cursor.movePosition(cursor.End)
+            self.log_text.setTextCursor(cursor)
+
+    def clear_log(self):
+        """清空日志"""
+        self.log_text.clear()
+        InfoBar.success(
+            title="成功",
+            content="日志已清空",
+            orient=Qt.Horizontal,
+            isClosable=True,
+            position=InfoBarPosition.TOP,
+            duration=2000,
+            parent=self
+        )
+
+    def export_log(self):
+        """导出日志"""
+        file_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "导出日志",
+            f"sora2_log_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
+            "文本文件 (*.txt);;所有文件 (*)"
+        )
+        if file_path:
+            try:
+                with open(file_path, 'w', encoding='utf-8') as f:
+                    f.write(self.log_text.toPlainText())
+                InfoBar.success(
+                    title="成功",
+                    content=f"日志已导出到：{file_path}",
+                    orient=Qt.Horizontal,
+                    isClosable=True,
+                    position=InfoBarPosition.TOP,
+                    duration=2000,
+                    parent=self
+                )
+            except Exception as e:
+                QMessageBox.warning(self, "错误", f"导出日志失败：{str(e)}")
+
+    def save_current_settings(self):
+        """保存当前设置"""
+        current_duration = self.get_duration()
+        self.settings_manager.set_video_params(
+            aspect_ratio=self.get_aspect_ratio(),
+            duration=current_duration,
+            duration_t2v=current_duration,
+            duration_i2v=current_duration
+        )
 
 # ==================== API Settings Dialog ====================
 class Sora2APISettingsDialog(QDialog):
