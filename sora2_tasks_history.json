@@ -1,0 +1,34 @@
+{
+  "version": "2.0.0",
+  "last_updated": "2026-01-11T20:57:13.253794",
+  "statistics": {
+    "total_tasks": 1,
+    "completed_tasks": 0,
+    "pending_tasks": 1,
+    "failed_tasks": 0
+  },
+  "tasks": {
+    "task_1768136233": {
+      "task_id": "task_1768136233",
+      "name": "Sora2_文生视频_205713",
+      "request_id": "312801ca-92e5-43ec-9476-15ef40f7442f",
+      "status": "pending",
+      "video_mode": "t2v",
+      "prompt": "@yanbo1984 这个男人穿着豪华冲锋衣去爬雪山，风暴很大，他带着墨镜正视相机镜头讲解爬山过程。",
+      "aspect_ratio": "9:16",
+      "duration": 10,
+      "api_key_used": "sk-f****skdx",
+      "web_app_id": 42921,
+      "timestamps": {
+        "created_at": "2026-01-11T20:57:13.253778",
+        "submitted_at": "2026-01-11T20:57:13.253782",
+        "completed_at": null
+      },
+      "result": {
+        "video_url": null,
+        "error_message": null
+      },
+      "webhook_mode": true
+    }
+  }
+}

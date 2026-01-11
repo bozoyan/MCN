@@ -547,6 +547,7 @@ class Sora2VideoGenerationWorker(QThread):
     task_finished = pyqtSignal(bool, str, dict, str)
     time_updated = pyqtSignal(str, str)
     log_updated = pyqtSignal(str)
+    webhook_info_updated = pyqtSignal(bool, str, str)  # (webhook_enabled, request_id, task_id)
 
     def __init__(self, task, task_id, api_key, api_manager, webhook_enabled=False, webhook_settings=None):
         super().__init__()
@@ -574,8 +575,12 @@ class Sora2VideoGenerationWorker(QThread):
             self.log_message(f"Starting Sora2 video generation: {task_name}")
             self.progress_updated.emit(5, "Initializing task...", self.task_id)
 
+            # 发送 WebHook 模式信息到状态卡片
+            webhook_enabled = self.webhook_enabled and self.webhook_settings.get("enabled", False)
+            self.webhook_info_updated.emit(webhook_enabled, "", self.task_id)
+
             # 检查是否使用 WebHook 模式
-            if self.webhook_enabled and self.webhook_settings.get("enabled", False):
+            if webhook_enabled:
                 self.log_message("使用 WebHook 模式提交任务")
                 self._run_webhook_mode()
                 return
@@ -863,6 +868,9 @@ class Sora2VideoGenerationWorker(QThread):
                 self.task_finished.emit(False, error_msg, {}, self.task_id)
                 return
 
+            # 发送 request_id 到状态卡片
+            self.webhook_info_updated.emit(True, request_id, self.task_id)
+
             # 保存到任务历史
             web_app_id = self.api_manager.web_app_id_t2v if video_mode == 't2v' else self.api_manager.web_app_id_i2v
             self.task['web_app_id'] = web_app_id
@@ -1029,6 +1037,7 @@ class Sora2BatchManager(QObject):
     task_time_updated = pyqtSignal(str, str)
     log_updated = pyqtSignal(str)
     batch_progress_updated = pyqtSignal(int, int)
+    webhook_info_updated = pyqtSignal(bool, str, str)  # (webhook_enabled, request_id, task_id)
 
     def __init__(self, api_manager=None):
         super().__init__()
@@ -1036,6 +1045,7 @@ class Sora2BatchManager(QObject):
         self.completed_tasks = 0
         self.total_tasks = 0
         self.api_manager = api_manager if api_manager is not None else Sora2APIKeyManager()
+        self.settings_manager = Sora2SettingsManager()  # 添加设置管理器以支持 WebHook
         self.pending_tasks = []  # 待启动的任务队列
         self.task_timer = QTimer(self)  # 任务启动定时器
         self.task_timer.timeout.connect(self.start_next_task)
@@ -1051,16 +1061,26 @@ class Sora2BatchManager(QObject):
 
         task_id, task, api_key = self.pending_tasks.pop(0)
 
-        worker = Sora2VideoGenerationWorker(task, task_id, api_key, self.api_manager)
+        # 加载 WebHook 设置
+        webhook_settings = self.settings_manager.get_webhook_settings()
+        webhook_enabled = webhook_settings.get("enabled", False)
+
+        worker = Sora2VideoGenerationWorker(
+            task, task_id, api_key, self.api_manager,
+            webhook_enabled=webhook_enabled,
+            webhook_settings=webhook_settings
+        )
         self.workers[task_id] = worker
 
         worker.progress_updated.connect(self.task_progress)
         worker.task_finished.connect(self.on_single_task_finished)
         worker.time_updated.connect(self.task_time_updated)
         worker.log_updated.connect(self.log_updated)
+        worker.webhook_info_updated.connect(self.webhook_info_updated)
 
         worker.start()
-        self.log_message(f"Started task {task_id}")
+        mode = "WebHook" if webhook_enabled else "轮询"
+        self.log_message(f"Started task {task_id} ({mode}模式)")
 
         # 如果还有待启动的任务，继续定时器
         if self.pending_tasks:
@@ -1304,8 +1324,10 @@ class Sora2TaskStatusCard(CardWidget):
         self.task_params = task_params
         self.progress = 0
         self.time_string = "00:00:00"
-        self.status = "Waiting to start"
+        self.status = "等待开始"
         self.key_source = "文件密钥"
+        self.webhook_mode = False  # WebHook 模式标识
+        self.request_id = ""  # request_id
 
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.update_timer)
@@ -1334,16 +1356,29 @@ class Sora2TaskStatusCard(CardWidget):
         layout.setContentsMargins(15, 12, 15, 12)
         layout.setSpacing(8)
 
-        # Row 1: Task name (left) and Status + Key type (right)
+        # Row 1: Task name (left) and Status + Mode + Key type (right)
         top_layout = QHBoxLayout()
+
+        # 左侧：任务名称和 request_id
+        left_container = QWidget()
+        left_layout = QHBoxLayout(left_container)
+        left_layout.setContentsMargins(0, 0, 0, 0)
+        left_layout.setSpacing(8)
 
         self.name_label = StrongBodyLabel(self.task_name)
         self.name_label.setStyleSheet("color: #ffffff; font-size: 14px; font-weight: 600;")
-        top_layout.addWidget(self.name_label)
+        left_layout.addWidget(self.name_label)
 
+        # request_id 标签（初始隐藏）
+        self.request_id_label = CaptionLabel("")
+        self.request_id_label.setStyleSheet("color: #ff9800; font-size: 11px; font-weight: 500; padding: 4px 8px; background: #3a2a1a; border-radius: 4px;")
+        self.request_id_label.setVisible(False)
+        left_layout.addWidget(self.request_id_label)
+
+        top_layout.addWidget(left_container)
         top_layout.addStretch()
 
-        # 右上角容器：状态和密钥类型在同一行
+        # 右上角容器：状态、模式和密钥类型在同一行
         right_container = QWidget()
         right_layout = QHBoxLayout(right_container)
         right_layout.setContentsMargins(0, 0, 0, 0)
@@ -1352,6 +1387,11 @@ class Sora2TaskStatusCard(CardWidget):
         self.status_label = CaptionLabel(self.status)
         self.status_label.setStyleSheet("color: #ffffff; font-size: 11px; font-weight: 600; padding: 4px 8px; background: #333333; border-radius: 4px;")
         right_layout.addWidget(self.status_label)
+
+        # 模式标签（WebHook/轮询）
+        self.mode_label = CaptionLabel("轮询")
+        self.mode_label.setStyleSheet("color: #ffffff; font-size: 11px; font-weight: 600; padding: 4px 8px; background: #666666; border-radius: 4px;")
+        right_layout.addWidget(self.mode_label)
 
         self.key_type_label = CaptionLabel(self.key_source)
         self.key_type_label.setStyleSheet("color: #4a90e2; font-size: 11px; font-weight: 600; padding: 4px 8px; background: #2a3a4a; border-radius: 4px;")
@@ -1461,6 +1501,27 @@ class Sora2TaskStatusCard(CardWidget):
         else:
             self.key_type_label.setStyleSheet("color: #28a745; font-size: 11px; font-weight: 600; padding: 4px 8px; background: #e8f5e8; border-radius: 4px;height: 40px;")
 
+    def set_webhook_mode(self, enabled):
+        """设置 WebHook 模式标识"""
+        self.webhook_mode = enabled
+        if enabled:
+            self.mode_label.setText("WebHook")
+            self.mode_label.setStyleSheet("color: #ffffff; font-size: 11px; font-weight: 600; padding: 4px 8px; background: #9c27b0; border-radius: 4px;")
+        else:
+            self.mode_label.setText("轮询")
+            self.mode_label.setStyleSheet("color: #ffffff; font-size: 11px; font-weight: 600; padding: 4px 8px; background: #666666; border-radius: 4px;")
+
+    def set_request_id(self, request_id):
+        """设置 request_id 并显示"""
+        self.request_id = request_id
+        if request_id:
+            # 显示前 40 个字符，太长则截断
+            display_id = request_id[:40] + "..." if len(request_id) > 40 else request_id
+            self.request_id_label.setText(f"ID: {display_id}")
+            self.request_id_label.setVisible(True)
+        else:
+            self.request_id_label.setVisible(False)
+
     def set_completed(self, success=True, message=""):
         """Set task completed status"""
         self.progress = 100
@@ -1537,6 +1598,7 @@ class Sora2VideoGenerationWidget(QWidget):
         self.batch_manager.log_updated.connect(self.add_log)
         self.batch_manager.batch_progress_updated.connect(self.update_batch_progress)
         self.batch_manager.all_tasks_finished.connect(self.on_all_tasks_finished)
+        self.batch_manager.webhook_info_updated.connect(self.update_task_webhook_info)
 
     def init_ui(self):
         layout = QVBoxLayout(self)
@@ -2093,6 +2155,13 @@ class Sora2VideoGenerationWidget(QWidget):
         """Update task time"""
         if task_id in self.task_status_cards:
             self.task_status_cards[task_id].update_time(time_string)
+
+    def update_task_webhook_info(self, webhook_enabled, request_id, task_id):
+        """Update task webhook mode and request_id"""
+        if task_id in self.task_status_cards:
+            self.task_status_cards[task_id].set_webhook_mode(webhook_enabled)
+            if request_id:
+                self.task_status_cards[task_id].set_request_id(request_id)
 
     def on_task_finished(self, success, message, result_data, task_id):
         """Task finished callback"""
