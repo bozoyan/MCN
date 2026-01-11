@@ -15,7 +15,8 @@ import traceback
 import re
 import subprocess
 import platform
-from datetime import datetime
+import threading
+from datetime import datetime, timedelta
 from PyQt5.QtCore import QObject, QTimer
 
 try:
@@ -207,6 +208,36 @@ class Sora2SettingsManager:
                 result[key] = value
         return result
 
+    def get_webhook_settings(self):
+        """获取 WebHook 配置"""
+        settings = self.load_settings()
+        return {
+            "enabled": settings.get("api_settings", {}).get("webhook_enabled", False),
+            "url": settings.get("api_settings", {}).get("webhook_url", ""),
+            "token": settings.get("api_settings", {}).get("webhook_token", ""),
+            "query_url": settings.get("api_settings", {}).get("query_url",
+                "https://api.bizyair.cn/w/v1/webapp/task/openapi/outputs"),
+            "delay_minutes": settings.get("api_settings", {}).get("query_delay_minutes", 10),
+            "fallback_to_polling": settings.get("api_settings", {}).get("fallback_to_polling", False)
+        }
+
+    def set_webhook_settings(self, enabled=False, url="", token="",
+                             query_url=None, delay_minutes=10, fallback_to_polling=False):
+        """设置 WebHook 配置"""
+        settings = self.load_settings()
+        if "api_settings" not in settings:
+            settings["api_settings"] = {}
+
+        settings["api_settings"]["webhook_enabled"] = enabled
+        settings["api_settings"]["webhook_url"] = url
+        settings["api_settings"]["webhook_token"] = token
+        settings["api_settings"]["query_url"] = query_url or \
+            "https://api.bizyair.cn/w/v1/webapp/task/openapi/outputs"
+        settings["api_settings"]["query_delay_minutes"] = delay_minutes
+        settings["api_settings"]["fallback_to_polling"] = fallback_to_polling
+
+        return self.save_settings(settings)
+
 # ==================== API Key Manager ====================
 class Sora2APIKeyManager:
     """Sora2 API 密钥管理器"""
@@ -306,6 +337,165 @@ class Sora2APIKeyManager:
         else:
             return "文件密钥"
 
+# ==================== Task History Manager ====================
+class Sora2TaskHistoryManager:
+    """Sora2 任务历史记录管理器"""
+
+    def __init__(self, history_file="sora2_tasks_history.json"):
+        self.history_file = history_file
+        self.lock = threading.Lock()
+
+    def load_history(self):
+        """加载任务历史"""
+        try:
+            if os.path.exists(self.history_file):
+                with open(self.history_file, 'r', encoding='utf-8') as f:
+                    return json.load(f)
+            else:
+                return self._get_empty_history()
+        except Exception as e:
+            print(f"加载任务历史失败: {e}")
+            return self._get_empty_history()
+
+    def save_history(self, history):
+        """保存任务历史"""
+        try:
+            with self.lock:
+                history["last_updated"] = datetime.now().isoformat()
+                self._update_statistics(history)
+                with open(self.history_file, 'w', encoding='utf-8') as f:
+                    json.dump(history, f, ensure_ascii=False, indent=2)
+                return True
+        except Exception as e:
+            print(f"保存任务历史失败: {e}")
+            return False
+
+    def add_task(self, task_id, task_data, request_id, api_key_used):
+        """添加新任务记录"""
+        history = self.load_history()
+
+        history["tasks"][task_id] = {
+            "task_id": task_id,
+            "name": task_data.get('name', ''),
+            "request_id": request_id,
+            "status": "pending",
+            "video_mode": task_data.get('video_mode', 't2v'),
+            "prompt": task_data.get('prompt', ''),
+            "aspect_ratio": task_data.get('aspect_ratio', '9:16'),
+            "duration": task_data.get('duration', 10),
+            "api_key_used": self._mask_api_key(api_key_used),
+            "web_app_id": task_data.get('web_app_id', 0),
+            "timestamps": {
+                "created_at": datetime.now().isoformat(),
+                "submitted_at": datetime.now().isoformat(),
+                "completed_at": None
+            },
+            "result": {
+                "video_url": None,
+                "error_message": None
+            },
+            "webhook_mode": True
+        }
+
+        return self.save_history(history)
+
+    def update_task_status(self, task_id, status, video_url=None, error_message=None):
+        """更新任务状态"""
+        history = self.load_history()
+
+        if task_id in history["tasks"]:
+            task = history["tasks"][task_id]
+            task["status"] = status
+
+            if status in ("success", "failed"):
+                task["timestamps"]["completed_at"] = datetime.now().isoformat()
+                if status == "success" and video_url:
+                    task["result"]["video_url"] = video_url
+                elif status == "failed":
+                    task["result"]["error_message"] = error_message
+
+            return self.save_history(history)
+        return False
+
+    def get_task_by_request_id(self, request_id):
+        """通过 request_id 查询任务"""
+        history = self.load_history()
+        for task_id, task in history["tasks"].items():
+            if task.get("request_id") == request_id:
+                return task
+        return None
+
+    def get_pending_tasks(self, older_than_minutes=10):
+        """获取待查询的任务(超过指定分钟数)"""
+        history = self.load_history()
+        pending_tasks = []
+        cutoff_time = datetime.now() - timedelta(minutes=older_than_minutes)
+
+        for task_id, task in history["tasks"].items():
+            if task.get("status") == "pending":
+                submitted_at = datetime.fromisoformat(task["timestamps"]["submitted_at"])
+                if submitted_at < cutoff_time:
+                    pending_tasks.append(task)
+
+        return pending_tasks
+
+    def delete_task(self, task_id):
+        """删除任务记录"""
+        history = self.load_history()
+        if task_id in history["tasks"]:
+            del history["tasks"][task_id]
+            return self.save_history(history)
+        return False
+
+    def clear_completed_tasks(self, days=7):
+        """清理已完成的旧任务"""
+        history = self.load_history()
+        cutoff_time = datetime.now() - timedelta(days=days)
+        tasks_to_delete = []
+
+        for task_id, task in history["tasks"].items():
+            if task.get("status") in ("success", "failed"):
+                completed_at = task["timestamps"].get("completed_at")
+                if completed_at:
+                    completed_time = datetime.fromisoformat(completed_at)
+                    if completed_time < cutoff_time:
+                        tasks_to_delete.append(task_id)
+
+        for task_id in tasks_to_delete:
+            del history["tasks"][task_id]
+
+        return self.save_history(history), len(tasks_to_delete)
+
+    def _mask_api_key(self, api_key):
+        """脱敏 API 密钥"""
+        if len(api_key) > 10:
+            return api_key[:4] + "****" + api_key[-4:]
+        return "****"
+
+    def _update_statistics(self, history):
+        """更新统计信息"""
+        tasks = list(history["tasks"].values())
+        history["statistics"] = {
+            "total_tasks": len(tasks),
+            "completed_tasks": sum(1 for t in tasks if t["status"] == "success"),
+            "pending_tasks": sum(1 for t in tasks if t["status"] == "pending"),
+            "failed_tasks": sum(1 for t in tasks if t["status"] == "failed")
+        }
+
+    def _get_empty_history(self):
+        """获取空历史记录结构"""
+        return {
+            "version": "2.0.0",
+            "last_updated": datetime.now().isoformat(),
+            "statistics": {
+                "total_tasks": 0,
+                "completed_tasks": 0,
+                "pending_tasks": 0,
+                "failed_tasks": 0
+            },
+            "tasks": {}
+        }
+
 # ==================== Video Download Thread ====================
 class VideoDownloadThread(QThread):
     """视频下载线程"""
@@ -358,12 +548,15 @@ class Sora2VideoGenerationWorker(QThread):
     time_updated = pyqtSignal(str, str)
     log_updated = pyqtSignal(str)
 
-    def __init__(self, task, task_id, api_key, api_manager):
+    def __init__(self, task, task_id, api_key, api_manager, webhook_enabled=False, webhook_settings=None):
         super().__init__()
         self.task = task
         self.task_id = task_id
         self.api_key = api_key
         self.api_manager = api_manager
+        self.webhook_enabled = webhook_enabled
+        self.webhook_settings = webhook_settings or {}
+        self.history_manager = Sora2TaskHistoryManager()
         self.start_time = None
         self.is_cancelled = False
 
@@ -380,6 +573,12 @@ class Sora2VideoGenerationWorker(QThread):
         try:
             self.log_message(f"Starting Sora2 video generation: {task_name}")
             self.progress_updated.emit(5, "Initializing task...", self.task_id)
+
+            # 检查是否使用 WebHook 模式
+            if self.webhook_enabled and self.webhook_settings.get("enabled", False):
+                self.log_message("使用 WebHook 模式提交任务")
+                self._run_webhook_mode()
+                return
 
             if not self.api_key:
                 self.log_message("API key not configured or empty")
@@ -621,6 +820,201 @@ class Sora2VideoGenerationWorker(QThread):
 
         self.log_message(f"Video generation timeout ({max_attempts * check_interval // 60} minutes)")
         return None
+
+    def _run_webhook_mode(self):
+        """WebHook 模式处理"""
+        try:
+            task_name = self.task.get('name', f'Task {self.task_id}')
+            video_mode = self.task.get('video_mode', 't2v')
+
+            # 构建 API 请求数据
+            request_data = self._build_request_data()
+
+            # 构建请求头(包含 WebHook 配置)
+            headers = self._build_headers_with_webhook()
+
+            # 发送请求
+            api_url = "https://api.bizyair.cn/w/v1/webapp/task/openapi/create"
+            if hasattr(self.api_manager, 'api_url') and self.api_manager.api_url:
+                api_url = self.api_manager.api_url
+
+            self.log_message(f"[WebHook] 发送请求到: {api_url}")
+            self.progress_updated.emit(20, "WebHook 模式: 提交中...", self.task_id)
+
+            proxies = {"http": None, "https": None}
+            response = requests.post(
+                api_url,
+                headers=headers,
+                json=request_data,
+                timeout=(10, 30),
+                proxies=proxies
+            )
+
+            self.log_message(f"[WebHook] 响应状态码: {response.status_code}")
+            response.raise_for_status()
+
+            result_data = response.json()
+            self.log_message(f"[WebHook] API 响应: {json.dumps(result_data, ensure_ascii=False, indent=2)}")
+
+            request_id = result_data.get('request_id')
+
+            if not request_id:
+                error_msg = result_data.get('message', 'API response format error: missing request_id')
+                self.task_finished.emit(False, error_msg, {}, self.task_id)
+                return
+
+            # 保存到任务历史
+            web_app_id = self.api_manager.web_app_id_t2v if video_mode == 't2v' else self.api_manager.web_app_id_i2v
+            self.task['web_app_id'] = web_app_id
+            self.history_manager.add_task(self.task_id, self.task, request_id, self.api_key)
+
+            self.progress_updated.emit(100, "WebHook 模式: 任务已提交", self.task_id)
+
+            result = {
+                'id': request_id,
+                'url': None,
+                'prompt': self.task.get('prompt', ''),
+                'aspect_ratio': self.task.get('aspect_ratio', '9:16'),
+                'video_mode': video_mode,
+                'task_name': task_name,
+                'timestamp': datetime.now().isoformat(),
+                'webhook_mode': True,
+                'request_id': request_id
+            }
+
+            self.task_finished.emit(True, "WebHook 任务已提交，等待回调", result, self.task_id)
+
+        except requests.exceptions.HTTPError as http_err:
+            error_msg = f"API request failed: HTTP {response.status_code}"
+            try:
+                error_detail = response.json()
+                detail_msg = error_detail.get('message', 'Unknown error')
+                error_msg += f" - {detail_msg}"
+            except:
+                error_msg += f" - {response.text[:200]}"
+            self.log_message(f"[WebHook] HTTP Error: {error_msg}")
+
+            # 检查是否回退到轮询模式
+            if self.webhook_settings.get("fallback_to_polling", False):
+                self.log_message(f"[WebHook] 回退到轮询模式")
+                self._run_polling_fallback()
+            else:
+                self.task_finished.emit(False, error_msg, {}, self.task_id)
+
+        except Exception as e:
+            self.log_message(f"[WebHook] 异常: {str(e)}")
+
+            # 检查是否回退到轮询模式
+            if self.webhook_settings.get("fallback_to_polling", False):
+                self.log_message(f"[WebHook] 回退到轮询模式")
+                self._run_polling_fallback()
+            else:
+                self.task_finished.emit(False, f"WebHook 提交失败: {str(e)}", {}, self.task_id)
+
+    def _run_polling_fallback(self):
+        """回退到轮询模式"""
+        try:
+            self.log_message("[轮询模式] 启动轮询查询...")
+            self.progress_updated.emit(10, "轮询模式: 准备查询...", self.task_id)
+
+            # 重新执行原有的轮询逻辑
+            # 这里需要重新构建请求数据并获取 request_id
+            request_data = self._build_request_data()
+            headers = {
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {self.api_key}"
+            }
+
+            api_url = "https://api.bizyair.cn/w/v1/webapp/task/openapi/create"
+            if hasattr(self.api_manager, 'api_url') and self.api_manager.api_url:
+                api_url = self.api_manager.api_url
+
+            proxies = {"http": None, "https": None}
+            response = requests.post(
+                api_url,
+                headers=headers,
+                json=request_data,
+                timeout=(10, 1800),
+                proxies=proxies
+            )
+
+            response.raise_for_status()
+            result_data = response.json()
+            request_id = result_data.get('request_id')
+
+            if not request_id:
+                self.task_finished.emit(False, "轮询模式: 缺少 request_id", {}, self.task_id)
+                return
+
+            video_url = self.check_video_status(request_id)
+
+            if video_url:
+                self.progress_updated.emit(100, "轮询模式: 任务完成", self.task_id)
+                result = {
+                    'id': request_id,
+                    'url': video_url,
+                    'prompt': self.task.get('prompt', ''),
+                    'aspect_ratio': self.task.get('aspect_ratio', '9:16'),
+                    'video_mode': self.task.get('video_mode', 't2v'),
+                    'task_name': self.task.get('name', f'Task {self.task_id}'),
+                    'timestamp': datetime.now().isoformat(),
+                    'webhook_mode': False
+                }
+                self.task_finished.emit(True, "轮询模式: 视频生成成功", result, self.task_id)
+            else:
+                self.task_finished.emit(False, "轮询模式: 视频生成失败或超时", {}, self.task_id)
+
+        except Exception as e:
+            self.log_message(f"[轮询模式] 异常: {str(e)}")
+            self.task_finished.emit(False, f"轮询模式: {str(e)}", {}, self.task_id)
+
+    def _build_headers_with_webhook(self):
+        """构建请求头(包含 WebHook 配置)"""
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {self.api_key}"
+        }
+
+        if self.webhook_settings.get("enabled", False):
+            webhook_url = self.webhook_settings.get("url", "")
+            webhook_token = self.webhook_settings.get("token", "")
+
+            if webhook_url:
+                headers["X-BizyAir-Task-WebHook-Url"] = webhook_url
+            if webhook_token:
+                headers["X-BizyAir-Task-Authorization"] = f"Bearer {webhook_token}"
+
+        return headers
+
+    def _build_request_data(self):
+        """构建 API 请求数据"""
+        video_mode = self.task.get('video_mode', 't2v')
+        prompt = self.task.get('prompt', '')
+        aspect_ratio = self.task.get('aspect_ratio', '9:16')
+        duration = self.task.get('duration', 10)
+        image_input = self.task.get('image_input', '')
+
+        if video_mode == "i2v":
+            return {
+                "web_app_id": self.api_manager.web_app_id_i2v,
+                "suppress_preview_output": True,
+                "input_values": {
+                    "18:LoadImage.image": image_input,
+                    "6:CR Prompt Text.prompt": prompt,
+                    "54:BizyAir_Sora_V2_I2V_API.aspect_ratio": aspect_ratio,
+                    "54:BizyAir_Sora_V2_I2V_API.duration": duration
+                }
+            }
+        else:
+            return {
+                "web_app_id": self.api_manager.web_app_id_t2v,
+                "suppress_preview_output": True,
+                "input_values": {
+                    "57:BizyAir_Sora_V2_T2V_API.prompt": prompt,
+                    "57:BizyAir_Sora_V2_T2V_API.aspect_ratio": aspect_ratio,
+                    "57:BizyAir_Sora_V2_T2V_API.duration": duration
+                }
+            }
 
     def cancel(self):
         """取消 task"""
@@ -922,7 +1316,8 @@ class Sora2TaskStatusCard(CardWidget):
 
     def init_ui(self):
         """初始化界面"""
-        self.setFixedHeight(145)
+        self.setMinimumHeight(145)
+        self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
         self.setStyleSheet("""
             CardWidget {
                 background-color: #2A2A2A;
@@ -1200,6 +1595,11 @@ class Sora2VideoGenerationWidget(QWidget):
         self.api_settings_btn.setFixedSize(100, 32)
         self.api_settings_btn.clicked.connect(self.show_api_settings_dialog)
         layout.addWidget(self.api_settings_btn)
+
+        self.history_btn = PushButton(FluentIcon.HISTORY, "任务历史")
+        self.history_btn.setFixedSize(110, 32)
+        self.history_btn.clicked.connect(self.show_task_history)
+        layout.addWidget(self.history_btn)
 
         self.key_status_label = QLabel("密钥未配置")
         self.key_status_label.setStyleSheet("color: #dc3545; font-size: 12px; padding: 6px 12px; background: #fff3cd; border-radius: 4px;")
@@ -1501,7 +1901,7 @@ class Sora2VideoGenerationWidget(QWidget):
 
         # 日志颜色说明
         legend_label = QLabel(
-            "<span style='color: #ff6b6b;'>● 错误</span> | "
+            "<span style='color: #ff6b6b;'>● 响应</span> | "
             "<span style='color: #ffd93d;'>● 警告</span> | "
             "<span style='color: #4d96ff;'>● API</span> | "
             "<span style='color: #6bcb77;'>● 成功</span> | "
@@ -1718,8 +2118,25 @@ class Sora2VideoGenerationWidget(QWidget):
 
         layout = QVBoxLayout(result_card)
 
-        title = QLabel(f"Task: {video_data.get('task_name', f'Task_{task_id}')}")
-        title.setStyleSheet("font-size: 14px; font-weight: bold; color: #ffffff;")
+        # 获取计时时间和 request_id
+        time_str = ""
+        if task_id in self.task_status_cards:
+            time_str = self.task_status_cards[task_id].time_string
+
+        request_id = video_data.get('request_id') or video_data.get('id', '')
+
+        # 构建标题行：任务名称 | 用时 | request_id
+        task_name = video_data.get('task_name', f'Task_{task_id}')
+        if time_str and request_id:
+            title = QLabel(f"Task: {task_name} | 用时: {time_str} | ID: {request_id[:16]}...")
+        elif time_str:
+            title = QLabel(f"Task: {task_name} | 用时: {time_str}")
+        elif request_id:
+            title = QLabel(f"Task: {task_name} | ID: {request_id[:16]}...")
+        else:
+            title = QLabel(f"Task: {task_name}")
+
+        title.setStyleSheet("font-size: 13px; font-weight: bold; color: #ffffff;")
         layout.addWidget(title)
 
         url = video_data.get('url', '')
@@ -2004,6 +2421,11 @@ class Sora2VideoGenerationWidget(QWidget):
             duration_i2v=current_duration
         )
 
+    def show_task_history(self):
+        """显示任务历史"""
+        dialog = Sora2TaskHistoryDialog(self)
+        dialog.exec_()
+
 # ==================== API Settings Dialog ====================
 class Sora2APISettingsDialog(QDialog):
     """Sora2 API settings dialog"""
@@ -2017,11 +2439,24 @@ class Sora2APISettingsDialog(QDialog):
         self.load_settings()
 
     def init_ui(self):
-        layout = QVBoxLayout(self)
-        layout.setSpacing(15)
+        main_layout = QVBoxLayout(self)
+        main_layout.setSpacing(15)
+
+        # 创建滚动区域
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        scroll_area.setFrameShape(QFrame.NoFrame)
+
+        # 滚动区域的内容容器
+        scroll_content = QWidget()
+        scroll_layout = QVBoxLayout(scroll_content)
+        scroll_layout.setSpacing(15)
+        scroll_layout.setContentsMargins(0, 0, 0, 10)
 
         # Key source selection
-        source_group = QGroupBox("API Key Source")
+        source_group = QGroupBox("API Key 来源")
         source_group.setStyleSheet("""
             QGroupBox {
                 color: #ffffff;
@@ -2044,54 +2479,54 @@ class Sora2APISettingsDialog(QDialog):
         self.key_source_combo.addItems(["文件密钥", "系统变量", "密钥文本"])
         self.key_source_combo.setFixedHeight(35)
         self.key_source_combo.currentIndexChanged.connect(self.on_key_source_changed)
-        source_layout.addWidget(QLabel("Key Source:"))
+        source_layout.addWidget(QLabel("密钥来源:"))
         source_layout.addWidget(self.key_source_combo)
 
         source_group.setLayout(source_layout)
-        layout.addWidget(source_group)
+        scroll_layout.addWidget(source_group)
 
         # File key settings
-        self.file_group = QGroupBox("文件密钥 Settings")
+        self.file_group = QGroupBox("文件密钥配置")
         self.file_group.setStyleSheet(source_group.styleSheet())
         file_layout = QVBoxLayout()
 
         file_select_layout = QHBoxLayout()
         self.key_file_edit = LineEdit()
-        self.key_file_edit.setPlaceholderText("Select file containing API keys (one key per line)")
+        self.key_file_edit.setPlaceholderText("选择文件密钥文件（每行一个密钥）")
         self.key_file_edit.setFixedHeight(35)
         file_select_layout.addWidget(self.key_file_edit)
 
-        browse_btn = PushButton("浏览...")
+        browse_btn = PushButton("浏览文件密钥...")
         browse_btn.setFixedHeight(35)
         browse_btn.clicked.connect(self.browse_key_file)
         file_select_layout.addWidget(browse_btn)
 
         file_layout.addLayout(file_select_layout)
 
-        help_label = QLabel("File format: One API key per line, lines starting with # will be ignored")
+        help_label = QLabel("文件格式：每行一个密钥，#开头的行会被忽略")
         help_label.setStyleSheet("color: #888888; font-size: 11px;")
         file_layout.addWidget(help_label)
 
         self.file_group.setLayout(file_layout)
-        layout.addWidget(self.file_group)
+        scroll_layout.addWidget(self.file_group)
 
         # Key text settings
-        self.text_group = QGroupBox("密钥文本 Settings")
+        self.text_group = QGroupBox("密钥文本配置")
         self.text_group.setStyleSheet(source_group.styleSheet())
         text_layout = QVBoxLayout()
 
         self.key_text_edit = QTextEdit()
-        self.key_text_edit.setPlaceholderText("Enter API keys directly (one key per line)")
+        self.key_text_edit.setPlaceholderText("输入API密钥（每行一个密钥）")
         self.key_text_edit.setMinimumHeight(100)
         text_layout.addWidget(QLabel("密钥文本:"))
         text_layout.addWidget(self.key_text_edit)
 
         self.text_group.setLayout(text_layout)
         self.text_group.setVisible(False)
-        layout.addWidget(self.text_group)
+        scroll_layout.addWidget(self.text_group)
 
         # API parameters
-        api_group = QGroupBox("API参数")
+        api_group = QGroupBox("API 参数配置")
         api_group.setStyleSheet(source_group.styleSheet())
         api_layout = QVBoxLayout()
 
@@ -2111,7 +2546,72 @@ class Sora2APISettingsDialog(QDialog):
         api_layout.addWidget(self.api_url_edit)
 
         api_group.setLayout(api_layout)
-        layout.addWidget(api_group)
+        scroll_layout.addWidget(api_group)
+
+        # WebHook 设置
+        webhook_group = QGroupBox("WebHook 设置")
+        webhook_group.setStyleSheet(source_group.styleSheet())
+        webhook_layout = QVBoxLayout()
+
+        # WebHook 启用开关
+        webhook_enable_layout = QHBoxLayout()
+        self.webhook_enable_check = qf.SwitchButton()
+        self.webhook_enable_check.setChecked(False)
+        webhook_enable_layout.addWidget(QLabel("启用 WebHook 模式:"))
+        webhook_enable_layout.addWidget(self.webhook_enable_check)
+        webhook_enable_layout.addStretch()
+        webhook_layout.addLayout(webhook_enable_layout)
+
+        # WebHook URL
+        webhook_layout.addWidget(QLabel("回调服务器 URL:"))
+        self.webhook_url_edit = LineEdit()
+        self.webhook_url_edit.setPlaceholderText("https://bizyair.bozoyan.cn/api/callback")
+        self.webhook_url_edit.setFixedHeight(35)
+        webhook_layout.addWidget(self.webhook_url_edit)
+
+        # WebHook Token
+        webhook_layout.addWidget(QLabel("回调验证令牌:"))
+        self.webhook_token_edit = LineEdit()
+        self.webhook_token_edit.setPlaceholderText("输入回调验证令牌")
+        self.webhook_token_edit.setFixedHeight(35)
+        webhook_layout.addWidget(self.webhook_token_edit)
+
+        # 查询 URL
+        webhook_layout.addWidget(QLabel("查询接口 URL:"))
+        self.query_url_edit = LineEdit()
+        self.query_url_edit.setPlaceholderText("https://api.bizyair.cn/w/v1/webapp/task/openapi/outputs")
+        self.query_url_edit.setFixedHeight(35)
+        webhook_layout.addWidget(self.query_url_edit)
+
+        # 延迟查询时间
+        delay_layout = QHBoxLayout()
+        delay_layout.addWidget(QLabel("延迟查询时间(分钟):"))
+        self.delay_minutes_spin = qf.SpinBox()
+        self.delay_minutes_spin.setRange(1, 60)
+        self.delay_minutes_spin.setValue(10)
+        self.delay_minutes_spin.setFixedWidth(180)
+        delay_layout.addWidget(self.delay_minutes_spin)
+        delay_layout.addStretch()
+        webhook_layout.addLayout(delay_layout)
+
+        # 回退到轮询
+        fallback_layout = QHBoxLayout()
+        self.fallback_check = qf.SwitchButton()
+        self.fallback_check.setChecked(False)
+        fallback_layout.addWidget(QLabel("WebHook 失败时回退到轮询:"))
+        fallback_layout.addWidget(self.fallback_check)
+        fallback_layout.addStretch()
+        webhook_layout.addLayout(fallback_layout)
+
+        webhook_group.setLayout(webhook_layout)
+        scroll_layout.addWidget(webhook_group)
+
+        # 添加弹性空间，将内容推到顶部
+        scroll_layout.addStretch()
+
+        # 设置滚动区域的内容
+        scroll_area.setWidget(scroll_content)
+        main_layout.addWidget(scroll_area)
 
         # Bottom buttons
         button_layout = QHBoxLayout()
@@ -2123,7 +2623,7 @@ class Sora2APISettingsDialog(QDialog):
         button_layout.addStretch()
         button_layout.addWidget(save_btn)
         button_layout.addWidget(cancel_btn)
-        layout.addLayout(button_layout)
+        main_layout.addLayout(button_layout)
 
     def on_key_source_changed(self, index):
         """Key source changed event"""
@@ -2167,6 +2667,15 @@ class Sora2APISettingsDialog(QDialog):
         self.api_url_edit.setText(api_settings.get("api_url",
             "https://api.bizyair.cn/w/v1/webapp/task/openapi/create"))
 
+        # 加载 WebHook 设置
+        webhook_settings = self.settings_manager.get_webhook_settings()
+        self.webhook_enable_check.setChecked(webhook_settings.get("enabled", False))
+        self.webhook_url_edit.setText(webhook_settings.get("url", ""))
+        self.webhook_token_edit.setText(webhook_settings.get("token", ""))
+        self.query_url_edit.setText(webhook_settings.get("query_url", ""))
+        self.delay_minutes_spin.setValue(webhook_settings.get("delay_minutes", 10))
+        self.fallback_check.setChecked(webhook_settings.get("fallback_to_polling", False))
+
     def save_settings(self):
         """保存设置"""
         key_source_map = {0: "file", 1: "env", 2: "text"}
@@ -2188,11 +2697,309 @@ class Sora2APISettingsDialog(QDialog):
             key_source=key_source
         )
 
-        if success:
+        # 保存 WebHook 设置
+        webhook_success = self.settings_manager.set_webhook_settings(
+            enabled=self.webhook_enable_check.isChecked(),
+            url=self.webhook_url_edit.text().strip(),
+            token=self.webhook_token_edit.text().strip(),
+            query_url=self.query_url_edit.text().strip(),
+            delay_minutes=self.delay_minutes_spin.value(),
+            fallback_to_polling=self.fallback_check.isChecked()
+        )
+
+        if success and webhook_success:
             QMessageBox.information(self, "成功", "Sora2 API设置已保存")
             self.accept()
         else:
             QMessageBox.critical(self, "错误", "设置保存失败")
+
+# ==================== Task Query Scheduler ====================
+class Sora2TaskQueryScheduler(QObject):
+    """Sora2 任务查询调度器"""
+
+    task_status_updated = pyqtSignal(str, str, str)  # task_id, status, video_url
+    log_updated = pyqtSignal(str)
+
+    def __init__(self, api_manager, parent=None):
+        super().__init__(parent)
+        self.api_manager = api_manager
+        self.history_manager = Sora2TaskHistoryManager()
+        self.settings_manager = Sora2SettingsManager()
+        self.query_timer = QTimer(self)
+        self.query_timer.timeout.connect(self.query_pending_tasks)
+        self.is_running = False
+
+    def start_scheduler(self, interval_minutes=1):
+        """启动调度器"""
+        if not self.is_running:
+            self.is_running = True
+            interval_ms = interval_minutes * 60 * 1000
+            self.query_timer.start(interval_ms)
+            Utils.log_message("任务查询调度器已启动", self.log_updated)
+
+    def stop_scheduler(self):
+        """停止调度器"""
+        if self.is_running:
+            self.is_running = False
+            self.query_timer.stop()
+            Utils.log_message("任务查询调度器已停止", self.log_updated)
+
+    def query_pending_tasks(self):
+        """查询待处理任务"""
+        try:
+            webhook_settings = self.settings_manager.get_webhook_settings()
+            delay_minutes = webhook_settings.get("delay_minutes", 10)
+
+            # 获取需要查询的任务
+            pending_tasks = self.history_manager.get_pending_tasks(delay_minutes)
+
+            if not pending_tasks:
+                return
+
+            Utils.log_message(f"发现 {len(pending_tasks)} 个待查询任务", self.log_updated)
+
+            for task in pending_tasks:
+                self._query_single_task(task)
+
+        except Exception as e:
+            Utils.log_message(f"查询任务失败: {str(e)}", self.log_updated)
+
+    def _query_single_task(self, task):
+        """查询单个任务状态"""
+        task_id = task.get("task_id")
+        request_id = task.get("request_id")
+        api_key_masked = task.get("api_key_used", "")
+
+        try:
+            webhook_settings = self.settings_manager.get_webhook_settings()
+            query_url = webhook_settings.get("query_url",
+                "https://api.bizyair.cn/w/v1/webapp/task/openapi/outputs")
+
+            # 从原始 API 密钥存储中获取完整密钥
+            api_key = self._get_full_api_key(api_key_masked)
+            if not api_key:
+                Utils.log_message(f"无法获取任务 {task_id} 的 API 密钥", self.log_updated)
+                return
+
+            headers = {
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {api_key}"
+            }
+
+            response = requests.get(
+                f"{query_url}?requestId={request_id}",
+                headers=headers,
+                timeout=30,
+                proxies={"http": None, "https": None}
+            )
+
+            response.raise_for_status()
+            data = response.json()
+
+            # 解析响应
+            if data.get("code") == 20000:
+                task_data = data.get("data", {})
+                status = task_data.get("status", "")
+
+                if status == "Success":
+                    outputs = task_data.get("outputs", [])
+                    if outputs:
+                        video_url = outputs[0].get("object_url", "")
+                        self.history_manager.update_task_status(
+                            task_id, "success", video_url=video_url
+                        )
+                        self.task_status_updated.emit(task_id, "success", video_url)
+                        Utils.log_message(f"任务 {task_id} 完成: {video_url}", self.log_updated)
+
+                elif status == "Failed":
+                    self.history_manager.update_task_status(
+                        task_id, "failed", error_message="任务执行失败"
+                    )
+                    self.task_status_updated.emit(task_id, "failed", "")
+                    Utils.log_message(f"任务 {task_id} 失败", self.log_updated)
+
+                else:
+                    # 仍在运行中
+                    Utils.log_message(f"任务 {task_id} 仍在运行中 ({status})", self.log_updated)
+
+        except Exception as e:
+            Utils.log_message(f"查询任务 {task_id} 失败: {str(e)}", self.log_updated)
+
+    def _get_full_api_key(self, masked_key):
+        """根据脱敏密钥获取完整密钥"""
+        # 从 API 管理器中获取匹配的密钥
+        all_keys = self.api_manager.get_all_keys()
+        for key in all_keys:
+            if len(key) >= 8:
+                if key[:4] == masked_key[:4] and key[-4:] == masked_key[-4:]:
+                    return key
+        return None
+
+# ==================== Task History Dialog ====================
+class Sora2TaskHistoryDialog(QDialog):
+    """Sora2 任务历史查看对话框"""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("任务历史记录")
+        self.setMinimumSize(900, 600)
+        self.history_manager = Sora2TaskHistoryManager()
+        self.init_ui()
+        self.load_tasks()
+
+    def init_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setSpacing(15)
+
+        # 顶部工具栏
+        toolbar = QHBoxLayout()
+
+        refresh_btn = PushButton("刷新")
+        refresh_btn.clicked.connect(self.load_tasks)
+        toolbar.addWidget(refresh_btn)
+
+        clear_btn = PushButton("清理已完成(7天前)")
+        clear_btn.clicked.connect(self.clear_old_tasks)
+        toolbar.addWidget(clear_btn)
+
+        toolbar.addStretch()
+        layout.addLayout(toolbar)
+
+        # 统计信息
+        self.stats_label = QLabel()
+        self.stats_label.setStyleSheet("color: #888888; font-size: 12px;")
+        layout.addWidget(self.stats_label)
+
+        # 任务列表
+        self.task_table = qf.TableWidget()
+        self.task_table.setColumnCount(7)
+        self.task_table.setHorizontalHeaderLabels([
+            "任务ID", "名称", "Request ID", "状态",
+            "模式", "提交时间", "视频URL"
+        ])
+        self.task_table.setStyleSheet("""
+            QTableWidget {
+                background-color: #1e1e1e;
+                gridline-color: #404040;
+                color: #ffffff;
+                font-size: 12px;
+            }
+            QHeaderView::section {
+                background-color: #2a2a2a;
+                color: #ffffff;
+                padding: 8px;
+                border: 1px solid #404040;
+            }
+        """)
+        layout.addWidget(self.task_table)
+
+        # 详情区域
+        details_group = QGroupBox("任务详情")
+        details_layout = QVBoxLayout()
+        self.details_text = QTextEdit()
+        self.details_text.setReadOnly(True)
+        self.details_text.setMaximumHeight(150)
+        self.details_text.setStyleSheet("background-color: #1e1e1e; color: #aaaaaa; font-size: 11px;")
+        details_layout.addWidget(self.details_text)
+        details_group.setLayout(details_layout)
+        layout.addWidget(details_group)
+
+        # 底部按钮
+        button_layout = QHBoxLayout()
+        delete_btn = PushButton("删除选中")
+        delete_btn.clicked.connect(self.delete_selected)
+        button_layout.addWidget(delete_btn)
+
+        export_btn = PushButton("导出记录")
+        export_btn.clicked.connect(self.export_history)
+        button_layout.addWidget(export_btn)
+
+        button_layout.addStretch()
+        close_btn = PushButton("关闭")
+        close_btn.clicked.connect(self.accept)
+        button_layout.addWidget(close_btn)
+        layout.addLayout(button_layout)
+
+        # 表格点击事件
+        self.task_table.itemClicked.connect(self.show_task_details)
+
+    def load_tasks(self):
+        """加载任务列表"""
+        history = self.history_manager.load_history()
+        tasks = list(history["tasks"].values())
+        tasks.sort(key=lambda x: x["timestamps"]["created_at"], reverse=True)
+
+        self.task_table.setRowCount(len(tasks))
+
+        for row, task in enumerate(tasks):
+            self.task_table.setItem(row, 0, qf.TableItem(task["task_id"]))
+            self.task_table.setItem(row, 1, qf.TableItem(task["name"]))
+            self.task_table.setItem(row, 2, qf.TableItem(task.get("request_id", "")))
+            self.task_table.setItem(row, 3, qf.TableItem(task["status"]))
+            self.task_table.setItem(row, 4, qf.TableItem("WebHook" if task.get("webhook_mode") else "轮询"))
+            self.task_table.setItem(row, 5, qf.TableItem(task["timestamps"]["created_at"]))
+            self.task_table.setItem(row, 6, qf.TableItem(task["result"].get("video_url", "")))
+
+        # 更新统计信息
+        stats = history["statistics"]
+        self.stats_label.setText(
+            f"总计: {stats['total_tasks']} | "
+            f"已完成: {stats['completed_tasks']} | "
+            f"待处理: {stats['pending_tasks']} | "
+            f"失败: {stats['failed_tasks']}"
+        )
+
+    def show_task_details(self, item):
+        """显示任务详情"""
+        row = item.row()
+        task_id = self.task_table.item(row, 0).text()
+
+        history = self.history_manager.load_history()
+        if task_id in history["tasks"]:
+            task = history["tasks"][task_id]
+            details = json.dumps(task, ensure_ascii=False, indent=2)
+            self.details_text.setPlainText(details)
+
+    def clear_old_tasks(self):
+        """清理旧任务"""
+        success, count = self.history_manager.clear_completed_tasks(days=7)
+        if success:
+            QMessageBox.information(self, "成功", f"已清理 {count} 个已完成任务")
+            self.load_tasks()
+        else:
+            QMessageBox.warning(self, "失败", "清理任务失败")
+
+    def delete_selected(self):
+        """删除选中的任务"""
+        current_row = self.task_table.currentRow()
+        if current_row >= 0:
+            task_id = self.task_table.item(current_row, 0).text()
+            reply = QMessageBox.question(
+                self, "确认删除",
+                f"确定要删除任务 {task_id} 吗?",
+                QMessageBox.Yes | QMessageBox.No
+            )
+            if reply == QMessageBox.Yes:
+                if self.history_manager.delete_task(task_id):
+                    self.load_tasks()
+                    QMessageBox.information(self, "成功", "任务已删除")
+                else:
+                    QMessageBox.warning(self, "失败", "删除任务失败")
+
+    def export_history(self):
+        """导出任务历史"""
+        file_path, _ = QFileDialog.getSaveFileName(
+            self, "导出任务历史",
+            f"sora2_tasks_history_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
+            "JSON 文件 (*.json)"
+        )
+        if file_path:
+            try:
+                import shutil
+                shutil.copy(self.history_manager.history_file, file_path)
+                QMessageBox.information(self, "成功", f"任务历史已导出到: {file_path}")
+            except Exception as e:
+                QMessageBox.warning(self, "失败", f"导出失败: {str(e)}")
 
 # ==================== Main Entry Point ====================
 if __name__ == "__main__":
