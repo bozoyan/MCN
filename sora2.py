@@ -974,7 +974,7 @@ class Sora2TaskStatusCard(CardWidget):
 
         params_text = f"{'图生视频' if video_mode == 'i2v' else '文生视频'} - {aspect_ratio} - {duration}秒"
         self.params_label = CaptionLabel(params_text)
-        self.params_label.setStyleSheet("color: #888888; font-size: 12px;")
+        self.params_label.setStyleSheet("color: #888888; font-size: 12px; background: #353535;")
         params_layout.addWidget(self.params_label)
 
         params_layout.addStretch()
@@ -989,12 +989,12 @@ class Sora2TaskStatusCard(CardWidget):
                 prompt_display = prompt
 
             self.prompt_label = CaptionLabel(prompt_display)
-            self.prompt_label.setStyleSheet("color: #aaaaaa; font-size: 11px;")
+            self.prompt_label.setStyleSheet("color: #aaaaaa; font-size: 11px; background: #353535;")
             self.prompt_label.setWordWrap(False)
             layout.addWidget(self.prompt_label)
 
         self.progress_msg_label = CaptionLabel("")
-        self.progress_msg_label.setStyleSheet("color: #999999; font-size: 11px; min-height: 14px;")
+        self.progress_msg_label.setStyleSheet("color: #999999; font-size: 11px; min-height: 14px; background: #353535;")
         layout.addWidget(self.progress_msg_label)
 
         # Row 4: Progress bar and time
@@ -1019,9 +1019,9 @@ class Sora2TaskStatusCard(CardWidget):
         if progress < 100:
             self.status = "生成中"
             if progress >= 50:
-                self.status_label.setStyleSheet("color: #ffffff; font-size: 11px; font-weight: 600; padding: 4px 8px; background: #ffc107; border-radius: 4px;")
+                self.status_label.setStyleSheet("color: #ffffff; font-size: 11px; font-weight: 600; padding: 4px 8px; background: #ffc107; border-radius: 4px;height: 40px;")
             else:
-                self.status_label.setStyleSheet("color: #ffffff; font-size: 11px; font-weight: 600; padding: 4px 8px; background: #17a2b8; border-radius: 4px;")
+                self.status_label.setStyleSheet("color: #ffffff; font-size: 11px; font-weight: 600; padding: 4px 8px; background: #17a2b8; border-radius: 4px;height: 40px;")
 
             self.progress_msg_label.setText(message)
 
@@ -1062,9 +1062,9 @@ class Sora2TaskStatusCard(CardWidget):
         self.key_type_label.setText(key_source)
 
         if key_source == "系统变量":
-            self.key_type_label.setStyleSheet("color: #17a2b8; font-size: 11px; font-weight: 600; padding: 4px 8px; background: #e6f7ff; border-radius: 4px;")
+            self.key_type_label.setStyleSheet("color: #17a2b8; font-size: 11px; font-weight: 600; padding: 4px 8px; background: #e6f7ff; border-radius: 4px;height: 40px;")
         else:
-            self.key_type_label.setStyleSheet("color: #28a745; font-size: 11px; font-weight: 600; padding: 4px 8px; background: #e8f5e8; border-radius: 4px;")
+            self.key_type_label.setStyleSheet("color: #28a745; font-size: 11px; font-weight: 600; padding: 4px 8px; background: #e8f5e8; border-radius: 4px;height: 40px;")
 
     def set_completed(self, success=True, message=""):
         """Set task completed status"""
