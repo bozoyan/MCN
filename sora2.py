@@ -2170,10 +2170,10 @@ class Sora2VideoGenerationWidget(QWidget):
             self.task_status_cards[task_id].set_webhook_mode(webhook_enabled)
             if request_id:
                 self.task_status_cards[task_id].set_request_id(request_id)
-                # WebHook 模式：启动自动查询调度器（10分钟后开始查询）
+                # WebHook 模式：启动自动查询调度器（15分钟后开始查询）
                 if webhook_enabled:
                     webhook_settings = self.settings_manager.get_webhook_settings()
-                    delay_minutes = webhook_settings.get("delay_minutes", 10)
+                    delay_minutes = webhook_settings.get("delay_minutes", 15)
                     self.webhook_scheduler.start_monitoring(task_id, request_id, delay_minutes)
 
     def on_task_finished(self, success, message, result_data, task_id):
