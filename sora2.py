@@ -509,14 +509,26 @@ class VideoDownloadThread(QThread):
 
     def run(self):
         """下载视频"""
-        try:
-            proxies = {"http": None, "https": None}
+        # 临时清除系统代理环境变量，确保不使用任何代理
+        old_env = {}
+        proxy_vars = ['http_proxy', 'https_proxy', 'HTTP_PROXY', 'HTTPS_PROXY',
+                      'all_proxy', 'ALL_PROXY', 'socks_proxy', 'SOCKS_PROXY']
+        for var in proxy_vars:
+            if var in os.environ:
+                old_env[var] = os.environ[var]
+                del os.environ[var]
 
-            response = requests.get(
+        try:
+            # 使用 trust_env=False 完全禁用系统代理
+            session = requests.Session()
+            session.trust_env = False
+            session.proxies = {"http": None, "https": None}
+
+            response = session.get(
                 self.url,
                 stream=True,
                 timeout=60,
-                proxies=proxies
+                headers={'User-Agent': 'Mozilla/5.0'}
             )
             response.raise_for_status()
 
@@ -540,6 +552,10 @@ class VideoDownloadThread(QThread):
         except Exception as e:
             print(f"Download error: {e}")
             self.finished.emit(False, "")
+        finally:
+            # 恢复环境变量
+            for var, val in old_env.items():
+                os.environ[var] = val
 
 # ==================== Video Generation Worker ====================
 class Sora2VideoGenerationWorker(QThread):
@@ -2170,14 +2186,34 @@ class Sora2VideoGenerationWidget(QWidget):
             self.task_status_cards[task_id].set_webhook_mode(webhook_enabled)
             if request_id:
                 self.task_status_cards[task_id].set_request_id(request_id)
-                # WebHook 模式：启动自动查询调度器（15分钟后开始查询）
+                # WebHook 模式：启动自动查询调度器（10分钟后开始查询）
                 if webhook_enabled:
                     webhook_settings = self.settings_manager.get_webhook_settings()
-                    delay_minutes = webhook_settings.get("delay_minutes", 15)
+                    delay_minutes = webhook_settings.get("delay_minutes", 10)
                     self.webhook_scheduler.start_monitoring(task_id, request_id, delay_minutes)
+
+    def play_completion_sound(self):
+        """播放任务完成提示音"""
+        try:
+            sound_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ok.mp3")
+            if os.path.exists(sound_file):
+                if platform.system() == 'Darwin':  # macOS
+                    subprocess.Popen(['afplay', sound_file], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                elif platform.system() == 'Windows':
+                    import winsound
+                    winsound.PlaySound(sound_file, winsound.SND_FILENAME | winsound.SND_ASYNC)
+                else:  # Linux
+                    subprocess.Popen(['aplay', sound_file], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except Exception as e:
+            self.add_log(f"[提示音] 播放失败: {str(e)}")
 
     def on_task_finished(self, success, message, result_data, task_id):
         """Task finished callback"""
+        # 轮询模式且成功时播放提示音
+        is_webhook = result_data.get('webhook_mode', False)
+        if success and not is_webhook:
+            self.play_completion_sound()
+
         if task_id in self.task_status_cards:
             # WebHook 模式下不停计时，继续等待回调结果
             is_webhook = result_data.get('webhook_mode', False)
@@ -2203,6 +2239,8 @@ class Sora2VideoGenerationWidget(QWidget):
 
         if success and video_url:
             self.add_log(f"[调度器] 任务 {task_name} 完成！URL: {video_url[:60]}...")
+            # 播放任务完成提示音
+            self.play_completion_sound()
 
             # 停止任务状态卡片的计时器
             if task_id in self.task_status_cards:
@@ -2244,6 +2282,10 @@ class Sora2VideoGenerationWidget(QWidget):
 
             if not card_exists:
                 self.add_simple_result_card(result_data, task_id)
+
+            # 自动下载视频到 output 目录
+            self.add_log(f"[调度器] 开始自动下载视频...")
+            self.download_video_to_output(video_url)
 
             InfoBar.success(
                 title="查询成功",
@@ -2429,6 +2471,9 @@ class Sora2VideoGenerationWidget(QWidget):
                             if task_id in self.task_status_cards:
                                 self.task_status_cards[task_id].stop_timing()
 
+                            # 播放任务完成提示音
+                            self.play_completion_sound()
+
                             InfoBar.success(
                                 title="查询成功",
                                 content=f"视频已生成，URL 已更新到输入框",
@@ -2541,7 +2586,7 @@ class Sora2VideoGenerationWidget(QWidget):
             )
 
     def play_video(self, url):
-        """下载并播放视频"""
+        """播放视频（优先使用本地已下载的文件）"""
         # 创建 output 目录
         output_dir = "output"
         if not os.path.exists(output_dir):
@@ -2557,20 +2602,51 @@ class Sora2VideoGenerationWidget(QWidget):
 
         local_path = os.path.join(output_dir, filename)
 
-        # 创建下载线程
-        download_thread = VideoDownloadThread(url, local_path, self)
-        download_thread.finished.connect(lambda success, path: self.on_download_finished(success, path, filename))
-        download_thread.start()
+        # 检查本地是否已有该文件
+        if os.path.exists(local_path) and os.path.getsize(local_path) > 0:
+            # 直接播放本地文件
+            try:
+                if platform.system() == 'Darwin':  # macOS
+                    subprocess.run(['open', local_path])
+                elif platform.system() == 'Windows':
+                    os.startfile(local_path)
+                else:  # Linux
+                    subprocess.run(['xdg-open', local_path])
 
-        InfoBar.info(
-            title="下载中",
-            content=f"正在下载视频到：{local_path}",
-            orient=Qt.Horizontal,
-            isClosable=True,
-            position=InfoBarPosition.TOP,
-            duration=3000,
-            parent=self
-        )
+                InfoBar.success(
+                    title="播放中",
+                    content=f"已打开本地视频：{filename}",
+                    orient=Qt.Horizontal,
+                    isClosable=True,
+                    position=InfoBarPosition.TOP,
+                    duration=2000,
+                    parent=self
+                )
+            except Exception as e:
+                InfoBar.error(
+                    title="错误",
+                    content=f"无法打开视频：{str(e)}",
+                    orient=Qt.Horizontal,
+                    isClosable=True,
+                    position=InfoBarPosition.TOP,
+                    duration=3000,
+                    parent=self
+                )
+        else:
+            # 创建下载线程
+            download_thread = VideoDownloadThread(url, local_path, self)
+            download_thread.finished.connect(lambda success, path: self.on_download_finished(success, path, filename))
+            download_thread.start()
+
+            InfoBar.info(
+                title="下载中",
+                content=f"正在下载视频到：{local_path}",
+                orient=Qt.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=3000,
+                parent=self
+            )
 
     def on_download_finished(self, success, local_path, filename):
         """下载完成回调"""
