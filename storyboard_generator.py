@@ -2887,7 +2887,7 @@ class MainWindow(FluentWindow):
 
     def init_window(self):
         """初始化主窗口"""
-        self.setWindowTitle("🎬 BOZO-MCN 分镜脚本与图片生成器 v2.0")
+        self.setWindowTitle("🎬 BOZO-MCN 分镜脚本与图片生成器 v1.0.1")
         self.setMinimumSize(1600, 1000)
 
         width = config_manager.get('ui.window_width', 1600)

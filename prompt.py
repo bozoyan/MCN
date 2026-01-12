@@ -1057,9 +1057,9 @@ class HistoryDetailDialog(QDialog):
         row += 1
 
         # 任务ID
-        task_id = self.record.get('task_id', '')
+        record_id = self.record.get('id', '')
         info_layout.addWidget(QLabel("任务ID:"), row, 0)
-        info_layout.addWidget(QLabel(task_id if task_id else 'N/A'), row, 1)
+        info_layout.addWidget(QLabel(record_id if record_id else 'N/A'), row, 1)
         row += 1
 
         # 图片类型
@@ -1074,7 +1074,7 @@ class HistoryDetailDialog(QDialog):
         if local_file:
             info_layout.addWidget(QLabel("结果文件:"), row, 0)
             file_label = QLabel(local_file)
-            file_label.setStyleSheet("color: #4CAF50; font-size: 11px;")
+            file_label.setStyleSheet("color: #4CAF50; font-size: 14px;")
             file_label.setWordWrap(True)
             info_layout.addWidget(file_label, row, 1)
             row += 1
@@ -1084,7 +1084,7 @@ class HistoryDetailDialog(QDialog):
         if result_url:
             info_layout.addWidget(QLabel("结果URL:"), row, 0)
             url_label = QLabel(result_url[:60] + '...' if len(result_url) > 60 else result_url)
-            url_label.setStyleSheet("color: #2196f3; font-size: 11px;")
+            url_label.setStyleSheet("color: #2196f3; font-size: 14px;")
             url_label.setWordWrap(True)
             info_layout.addWidget(url_label, row, 1)
             row += 1
@@ -1093,7 +1093,7 @@ class HistoryDetailDialog(QDialog):
         if webp_path:
             info_layout.addWidget(QLabel("图片路径:"), row, 0)
             img_label = QLabel(webp_path)
-            img_label.setStyleSheet("color: #FFA726; font-size: 11px;")
+            img_label.setStyleSheet("color: #FFA726; font-size: 14px;")
             img_label.setWordWrap(True)
             info_layout.addWidget(img_label, row, 1)
 
@@ -1218,14 +1218,27 @@ class HistoryDetailDialog(QDialog):
         button_layout = QHBoxLayout()
         button_layout.setSpacing(10)
 
-        # 为每个选项卡添加复制按钮
+        # 为每个选项卡添加复制按钮和导出按钮
         for tab_name, result_key in tabs_data:
-            btn = PushButton(f"复制{tab_name}")
-            btn.setFixedHeight(36)
-            btn.clicked.connect(lambda checked, k=result_key, n=tab_name: self.copy_result(k, n))
-            button_layout.addWidget(btn)
+            # 复制按钮
+            copy_btn = PushButton(f"复制{tab_name}")
+            copy_btn.setFixedHeight(36)
+            copy_btn.clicked.connect(lambda checked, k=result_key, n=tab_name: self.copy_result(k, n))
+            button_layout.addWidget(copy_btn)
+
+            # 导出按钮
+            export_btn = PushButton(FluentIcon.SAVE, f"导出")
+            export_btn.setFixedHeight(36)
+            export_btn.clicked.connect(lambda checked, k=result_key, n=tab_name: self.export_tab(k, n))
+            button_layout.addWidget(export_btn)
 
         button_layout.addStretch()
+
+        # 删除按钮
+        delete_btn = PushButton(FluentIcon.DELETE, "删除")
+        delete_btn.setFixedHeight(36)
+        delete_btn.clicked.connect(self.delete_current_record)
+        button_layout.addWidget(delete_btn)
 
         # 导出全部按钮
         export_all_btn = PrimaryPushButton(FluentIcon.SAVE, "导出全部")
@@ -1259,6 +1272,41 @@ class HistoryDetailDialog(QDialog):
                 QMessageBox.information(self, "成功", f"{tab_name}已复制到剪贴板")
             else:
                 QMessageBox.warning(self, "提示", "没有可复制的内容")
+
+    def export_tab(self, result_key, tab_name):
+        """导出指定选项卡内容到txt文件（与图片同目录）"""
+        text_edit = getattr(self, f'{result_key}_text_edit', None)
+        if not text_edit:
+            QMessageBox.warning(self, "提示", "无法获取内容")
+            return
+
+        text = text_edit.toPlainText()
+        if not text:
+            QMessageBox.warning(self, "提示", "没有可导出的内容")
+            return
+
+        # 获取图片路径
+        webp_path = self.record.get('webp_image_path', '')
+        if not webp_path or not os.path.exists(webp_path):
+            QMessageBox.warning(self, "提示", "无法找到图片路径")
+            return
+
+        # 获取图片所在目录和文件名
+        img_dir = os.path.dirname(webp_path)
+        img_filename = os.path.basename(webp_path)
+
+        # 将文件扩展名改为 .txt
+        name_without_ext = os.path.splitext(img_filename)[0]
+        txt_filename = f"{name_without_ext}.txt"
+        txt_path = os.path.join(img_dir, txt_filename)
+
+        # 保存到txt文件（直接覆盖）
+        try:
+            with open(txt_path, 'w', encoding='utf-8') as f:
+                f.write(text)
+            QMessageBox.information(self, "成功", f"{tab_name}已导出到:\n{txt_path}")
+        except Exception as e:
+            QMessageBox.critical(self, "错误", f"导出失败: {str(e)}")
 
     def copy_to_clipboard(self, text):
         """复制到剪贴板（保留兼容性）"""
@@ -1294,6 +1342,50 @@ class HistoryDetailDialog(QDialog):
                 QMessageBox.information(self, "成功", f"文件已保存到: {file_path}")
             except Exception as e:
                 QMessageBox.critical(self, "错误", f"导出失败: {str(e)}")
+
+    def delete_current_record(self):
+        """删除当前记录并跳转到下一条"""
+        # 确认删除
+        reply = QMessageBox.question(
+            self, "确认删除",
+            "确定要删除这条记录吗？",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No
+        )
+        if reply == QMessageBox.No:
+            return
+
+        record_id = self.record.get('id')
+
+        # 删除记录
+        if hasattr(self.parent_dialog, 'vlm_history'):
+            self.parent_dialog.vlm_history.delete_record(record_id)
+
+            # 更新父对话框的记录列表和显示
+            if hasattr(self.parent_dialog, 'history_records'):
+                self.parent_dialog.history_records = self.parent_dialog.vlm_history.get_history()
+                self.parent_dialog.load_history()
+
+            # 检查是否还有记录
+            remaining_records = self.parent_dialog.vlm_history.get_history()
+            if not remaining_records:
+                QMessageBox.information(self, "提示", "无记录")
+                self.accept()
+                return
+
+            # 更新记录列表
+            self.records_list = remaining_records
+            self.total_records = len(remaining_records)
+
+            # 跳转到下一条记录（如果当前是最后一条，则跳到上一条）
+            if self.current_index >= self.total_records:
+                self.current_index = self.total_records - 1
+
+            if self.current_index >= 0:
+                self.load_record(self.current_index)
+            else:
+                QMessageBox.information(self, "提示", "无记录")
+                self.accept()
 
     def update_navigation_buttons(self):
         """更新导航按钮状态"""
@@ -1412,9 +1504,9 @@ class HistoryDetailDialog(QDialog):
         row += 1
 
         # 任务ID
-        task_id = self.record.get('task_id', '')
+        record_id = self.record.get('id', '')
         info_layout.addWidget(QLabel("任务ID:"), row, 0)
-        info_layout.addWidget(QLabel(task_id if task_id else 'N/A'), row, 1)
+        info_layout.addWidget(QLabel(record_id if record_id else 'N/A'), row, 1)
         row += 1
 
         # 图片类型
@@ -1429,7 +1521,7 @@ class HistoryDetailDialog(QDialog):
         if local_file:
             info_layout.addWidget(QLabel("结果文件:"), row, 0)
             file_label = QLabel(local_file)
-            file_label.setStyleSheet("color: #4CAF50; font-size: 11px;")
+            file_label.setStyleSheet("color: #4CAF50; font-size: 14px;")
             file_label.setWordWrap(True)
             info_layout.addWidget(file_label, row, 1)
             row += 1
@@ -1439,7 +1531,7 @@ class HistoryDetailDialog(QDialog):
         if result_url:
             info_layout.addWidget(QLabel("结果URL:"), row, 0)
             url_label = QLabel(result_url[:60] + '...' if len(result_url) > 60 else result_url)
-            url_label.setStyleSheet("color: #2196f3; font-size: 11px;")
+            url_label.setStyleSheet("color: #2196f3; font-size: 14px;")
             url_label.setWordWrap(True)
             info_layout.addWidget(url_label, row, 1)
             row += 1
@@ -1448,7 +1540,7 @@ class HistoryDetailDialog(QDialog):
         if webp_path:
             info_layout.addWidget(QLabel("图片路径:"), row, 0)
             img_label = QLabel(webp_path)
-            img_label.setStyleSheet("color: #FFA726; font-size: 11px;")
+            img_label.setStyleSheet("color: #FFA726; font-size: 14px;")
             img_label.setWordWrap(True)
             info_layout.addWidget(img_label, row, 1)
 
@@ -1573,14 +1665,27 @@ class HistoryDetailDialog(QDialog):
         button_layout = QHBoxLayout()
         button_layout.setSpacing(10)
 
-        # 为每个选项卡添加复制按钮
+        # 为每个选项卡添加复制按钮和导出按钮
         for tab_name, result_key in tabs_data:
-            btn = PushButton(f"复制{tab_name}")
-            btn.setFixedHeight(36)
-            btn.clicked.connect(lambda checked, k=result_key, n=tab_name: self.copy_result(k, n))
-            button_layout.addWidget(btn)
+            # 复制按钮
+            copy_btn = PushButton(f"复制{tab_name}")
+            copy_btn.setFixedHeight(36)
+            copy_btn.clicked.connect(lambda checked, k=result_key, n=tab_name: self.copy_result(k, n))
+            button_layout.addWidget(copy_btn)
+
+            # 导出按钮
+            export_btn = PushButton(FluentIcon.SAVE, f"导出")
+            export_btn.setFixedHeight(36)
+            export_btn.clicked.connect(lambda checked, k=result_key, n=tab_name: self.export_tab(k, n))
+            button_layout.addWidget(export_btn)
 
         button_layout.addStretch()
+
+        # 删除按钮
+        delete_btn = PushButton(FluentIcon.DELETE, "删除")
+        delete_btn.setFixedHeight(36)
+        delete_btn.clicked.connect(self.delete_current_record)
+        button_layout.addWidget(delete_btn)
 
         # 导出全部按钮
         export_all_btn = PrimaryPushButton(FluentIcon.SAVE, "导出全部")
@@ -1892,7 +1997,7 @@ class ImagePromptPage(SmoothScrollArea):
         log_layout.addWidget(QLabel("")) #API 操作日志
         self.log_edit = QTextEdit()
         self.log_edit.setReadOnly(True)
-        self.log_edit.setStyleSheet("font-family: 'Menlo', 'Monaco', 'Courier New', monospace; font-size: 11px; background: #1e1e1e; color: #d4d4d4;")
+        self.log_edit.setStyleSheet("font-family: 'Menlo', 'Monaco', 'Courier New', monospace; font-size: 12px; background: #1e1e1e; color: #d4d4d4;")
         log_layout.addWidget(self.log_edit)
         # 日志操作按钮
         log_btn_layout = QHBoxLayout()
@@ -2265,8 +2370,8 @@ class ImagePromptPage(SmoothScrollArea):
             self.add_log(f"  CN: {result.get('CN', '')[:50]}...")
             self.add_log(f"  EN: {result.get('EN', '')[:50]}...")
 
-            # 清空 webp 路径（避免重复使用）
-            self.current_webp_path = ""
+            # 注意：不清空 current_webp_path，保留用于导出功能
+            # 下一张图片上传时会自然覆盖
 
             QMessageBox.information(self, "成功", "识别完成！")
         else:
@@ -2289,25 +2394,34 @@ class ImagePromptPage(SmoothScrollArea):
             QMessageBox.warning(self, "警告", "没有可复制的内容")
 
     def export_result(self, field):
-        """导出结果为 TXT 文件"""
+        """导出结果为 TXT 文件（保存到图片所在目录）"""
         text = self.current_result.get(field, "")
         if not text:
             QMessageBox.warning(self, "警告", "没有可导出的内容")
             return
 
-        file_path, _ = QFileDialog.getSaveFileName(
-            self, "导出文本",
-            f"prompt_{field}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
-            "文本文件 (*.txt);;所有文件 (*)"
-        )
+        # 获取当前 WebP 图片路径
+        webp_path = getattr(self, 'current_webp_path', '')
+        if not webp_path or not os.path.exists(webp_path):
+            QMessageBox.warning(self, "警告", "无法找到图片路径，请先上传图片")
+            return
 
-        if file_path:
-            try:
-                with open(file_path, 'w', encoding='utf-8') as f:
-                    f.write(text)
-                QMessageBox.information(self, "成功", f"文件已保存到: {file_path}")
-            except Exception as e:
-                QMessageBox.critical(self, "错误", f"导出失败: {str(e)}")
+        # 获取图片所在目录和文件名
+        img_dir = os.path.dirname(webp_path)
+        img_filename = os.path.basename(webp_path)
+
+        # 将文件扩展名改为 .txt
+        name_without_ext = os.path.splitext(img_filename)[0]
+        txt_filename = f"{name_without_ext}.txt"
+        txt_path = os.path.join(img_dir, txt_filename)
+
+        # 直接保存到 txt 文件（覆盖已存在的文件）
+        try:
+            with open(txt_path, 'w', encoding='utf-8') as f:
+                f.write(text)
+            QMessageBox.information(self, "成功", f"已导出到:\n{txt_path}")
+        except Exception as e:
+            QMessageBox.critical(self, "错误", f"导出失败: {str(e)}")
 
     def on_image_dropped(self, path_or_url):
         """处理图片拖拽事件"""
