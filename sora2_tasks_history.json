@@ -1,9 +1,9 @@
 {
   "version": "2.0.0",
-  "last_updated": "2026-01-12T09:17:45.399583",
+  "last_updated": "2026-01-12T10:11:18.264802",
   "statistics": {
-    "total_tasks": 4,
-    "completed_tasks": 4,
+    "total_tasks": 5,
+    "completed_tasks": 5,
     "pending_tasks": 0,
     "failed_tasks": 0
   },
@@ -92,6 +92,28 @@
       },
       "result": {
         "video_url": "https://storage.bizyair.cn/outputs/b8650b08-081d-462a-a079-cd5f82e69679_7f9ca11a53b6e31311a03334ae44cf42_video_ComfyUI_e393bbbc_00001_.mp4",
+        "error_message": null
+      },
+      "webhook_mode": true
+    },
+    "task_1768183216": {
+      "task_id": "task_1768183216",
+      "name": "Sora2_文生视频_100016",
+      "request_id": "515b0c86-8775-4bb8-b893-14dafb19205c",
+      "status": "success",
+      "video_mode": "t2v",
+      "prompt": "1. 主体描述 (Subject) @yanbo1984 是一位气质自信的男性，身穿一套具有金属质感的高定奢华滑雪服（Luxury Ski Suit），面料在阳光下呈现细腻的高级光泽。他佩戴着大框防紫外线镀膜墨镜，墨镜中清晰倒映着雪山美景。脚踏专业竞技级滑雪单板，整体造型展现出高端、专业的运动时尚感。\n+3\n起始状态：@yanbo1984 身体直立，正对镜头，面带微笑进行约 3 秒的口播讲解，手势自然有力。\n动态转换：随即他调整护目镜，身体重心迅速压低，转身发力。\n核心动作：以 1.5 倍速冲入雪道，展示出丝滑的 S 型卡宾（Carving）动作，雪板边缘切开雪面，激起晶莹的雪浪（Snow Spray），动作持续且连贯，展现出极佳的平衡能力。\n3. 环境设定 (Environment) \n+4\n开场：使用**中景（Medium Shot）**平视拍摄，聚焦于 @yanbo1984 的上半身及面部表情，背景虚化以突出人物。\n运镜切换：随着滑行开始，镜头无缝切换为高速跟拍（Tracking Shot），模拟 GoPro 或无人机视角，保持低角度广角，紧紧跟随人物运动轨迹，强调速度感与视觉冲击力。\n5. 风格要求 (Style) 融合高端户外运动广告大片与纪实 Vlog 风格。画面具备 8K 超高清分辨率，色彩高饱和度且对比度鲜明（蓝天与白雪的强烈对比），光影处理强调通透感与极致的清晰度，呈现出电影级的视觉质感。",
+      "aspect_ratio": "9:16",
+      "duration": 10,
+      "api_key_used": "sk-f****skdx",
+      "web_app_id": 42921,
+      "timestamps": {
+        "created_at": "2026-01-12T10:00:16.816127",
+        "submitted_at": "2026-01-12T10:00:16.816136",
+        "completed_at": "2026-01-12T10:11:18.264786"
+      },
+      "result": {
+        "video_url": "https://storage.bizyair.cn/outputs/a7959e7b-55ba-432c-940e-3c0a518ad682_4ffd61fc407d12049b9f7fa475307b26_video_ComfyUI_273e6fb9_00001_.mp4",
         "error_message": null
       },
       "webhook_mode": true

@@ -868,7 +868,9 @@ class TemplateManagerDialog(QDialog):
         self.setMinimumSize(800, 600)
         self.current_template_key = None
         self.is_editing = False  # 标记是否正在编辑已有模板
+        self._is_initializing = True  # 标记是否正在初始化，防止不必要的信号触发
         self.init_ui()
+        self._is_initializing = False
 
     def init_ui(self):
         layout = QVBoxLayout(self)
@@ -884,8 +886,7 @@ class TemplateManagerDialog(QDialog):
         self.template_type_combo.addItem("故事标题模板 (story_title)", "story_title")
         self.template_type_combo.addItem("故事描述模板 (story_summary)", "story_summary")
         self.template_type_combo.addItem("AI绘图提示词模板 (image_prompt)", "image_prompt")
-        self.template_type_combo.currentIndexChanged.connect(self.on_template_type_changed)
-
+        # 先不加信号，等初始化完成后再加
         type_layout.addWidget(QLabel("模板类型:"))
         type_layout.addWidget(self.template_type_combo)
         type_group.setLayout(type_layout)
@@ -899,7 +900,7 @@ class TemplateManagerDialog(QDialog):
         self.template_combo.setFixedHeight(32)
         self.template_combo.setFont(QFont("font/Light.otf", 18))  # 增大字体
         self.template_combo.addItem("-- 选择要编辑的模板 --", None)
-        self.template_combo.currentIndexChanged.connect(self.on_template_name_changed)
+        # 先不加信号，等初始化完成后再加
         template_layout.addWidget(QLabel("选择要编辑的模板:"))
         template_layout.addWidget(self.template_combo)
 
@@ -960,15 +961,23 @@ class TemplateManagerDialog(QDialog):
         # 初始化加载模板列表（不清空编辑区域）
         self.update_template_names_combo()
 
+        # 初始化完成后，再连接信号
+        self.template_type_combo.currentIndexChanged.connect(self.on_template_type_changed)
+        self.template_combo.currentIndexChanged.connect(self.on_template_name_changed)
+
     def on_template_type_changed(self, index):
         """模板类型改变时的处理"""
+        # 如果正在初始化，跳过处理
+        if self._is_initializing:
+            return
+
         current_type = self.template_type_combo.currentData()
         if not current_type:
             return
 
+        # 只更新模板列表，不自动清空编辑区域
+        # 用户需要手动点击"新建模板"按钮来清空编辑区域
         self.update_template_names_combo()
-        # 清空编辑区域
-        self.new_template()
 
     def on_template_name_changed(self, index):
         """模板名称改变时的处理"""
