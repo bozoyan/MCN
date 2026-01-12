@@ -1519,7 +1519,7 @@ class VideoResultCard(CardWidget):
         # 任务标题、状态和控制按钮
         header_layout = QHBoxLayout()
         title_label = StrongBodyLabel(f"{self.video_data.get('task_name', f'任务_{self.task_id}')}")
-        title_label.setStyleSheet("font-size: 14px; font-weight: bold; color: #ffffff;")
+        title_label.setStyleSheet("font-size: 14px; font-weight: bold; color: #ffffff;background-color: #3c3c3c;")
         header_layout.addWidget(title_label)
 
         header_layout.addStretch()
@@ -1577,13 +1577,13 @@ class VideoResultCard(CardWidget):
         info_layout = QHBoxLayout()
 
         size_label = CaptionLabel(f"尺寸: {self.video_data.get('width', 480)}×{self.video_data.get('height', 854)}")
-        size_label.setStyleSheet("color: #cccccc; font-size: 12px;")
+        size_label.setStyleSheet("color: #cccccc; font-size: 12px;background-color: #3c3c3c;")
         info_layout.addWidget(size_label)
 
         info_layout.addSpacing(15)
 
         frames_label = CaptionLabel(f"帧数: {self.video_data.get('num_frames', 81)}帧")
-        frames_label.setStyleSheet("color: #cccccc; font-size: 12px;")
+        frames_label.setStyleSheet("color: #cccccc; font-size: 12px;background-color: #3c3c3c;")
         info_layout.addWidget(frames_label)
 
         info_layout.addStretch()
@@ -1595,7 +1595,7 @@ class VideoResultCard(CardWidget):
         if prompt_text:
             prompt_preview = prompt_text[:120] + "..." if len(prompt_text) > 80 else prompt_text
             prompt_label = CaptionLabel(f"提示词: {prompt_preview}")
-            prompt_label.setStyleSheet("color: #888888; font-size: 11px;")
+            prompt_label.setStyleSheet("color: #888888; font-size: 11px; background-color: #3c3c3c;")
             prompt_label.setWordWrap(True)
             layout.addWidget(prompt_label)
 
@@ -1764,7 +1764,7 @@ class VideoResultCard(CardWidget):
             # 恢复原始样式
             self.setStyleSheet("""
                 VideoResultCard {
-                    background-color: #2a2a2a;
+                    background-color: #3C3C3C;
                     border: 1px solid #404040;
                     border-radius: 8px;
                     margin: 5px;
@@ -2869,7 +2869,7 @@ class VideoGenerationWidget(QWidget):
         info_layout.addWidget(name_label)
 
         prompt_label = QLabel(f"提示词: {task['prompt'][:30]}...")
-        prompt_label.setStyleSheet("color: #cccccc; font-size: 12px;")
+        prompt_label.setStyleSheet("color: #cccccc; font-size: 12px; background-color: #3c3c3c;")
         info_layout.addWidget(prompt_label)
 
         layout.addLayout(info_layout)
