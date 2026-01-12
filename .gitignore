@@ -18,6 +18,9 @@ storyboard_config.json
 video_settings.json
 sora2_settings.json
 sora2_tasks_history.json
+vlm_config.json 
+vlm_prompt_templates.json
+vlm_history.json
 
 # C extensions
 *.so

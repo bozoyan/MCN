@@ -2702,7 +2702,7 @@ class VideoGenerationWidget(QWidget):
         prompt_edit.setMinimumHeight(40)
         prompt_edit.setMaximumHeight(200)
         prompt_edit.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        prompt_edit.setStyleSheet("padding: 10px; background: #202020; border-radius: 4px;font-size:18px; margin-right:20px;")
+        prompt_edit.setStyleSheet("padding: 10px; background: #202020; border-radius: 4px;font-size:18px; margin-right:10px; margin-top:-60px;")
 
         # 根据调用位置返回不同的引用
         # 如果 self.prompt_edit 还不存在,说明是第一次调用(单图片选项卡)
