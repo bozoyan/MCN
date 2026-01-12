@@ -161,12 +161,19 @@ class AdvancedConfigManager:
     def save_config(self):
         """保存配置文件"""
         try:
+            print(f"[DEBUG] save_config: 保存到 {self.config_file}")
+            print(f"[DEBUG] save_config: 配置键数量 = {len(self.config)}")
+            if 'prompt_templates' in self.config:
+                print(f"[DEBUG] save_config: prompt_templates 键数量 = {len(self.config['prompt_templates'])}")
+
             with open(self.config_file, 'w', encoding='utf-8') as f:
                 json.dump(self.config, f, indent=4, ensure_ascii=False)
             logger.info("配置文件保存成功")
+            print("[DEBUG] save_config: 保存成功")
             return True
         except Exception as e:
             logger.error(f"保存配置文件失败: {e}")
+            print(f"[DEBUG] save_config: 保存失败 - {e}")
             return False
 
     def get(self, key_path, default=None):
@@ -195,9 +202,22 @@ class AdvancedConfigManager:
         return self.get(f'prompt_templates.{template_name}', {})
 
     def save_template(self, template_name, template_data):
-        """保存模板"""
-        self.set(f'prompt_templates.{template_name}', template_data)
-        return self.save_config()
+        """保存模板到配置文件"""
+        print(f"[DEBUG] save_template 被调用: template_name={template_name}")
+
+        # 确保 prompt_templates 字典存在
+        if 'prompt_templates' not in self.config:
+            self.config['prompt_templates'] = {}
+            print("[DEBUG] 创建 prompt_templates 字典")
+
+        # 直接在 config 字典中设置模板
+        self.config['prompt_templates'][template_name] = template_data
+        print(f"[DEBUG] 设置模板: {template_name} = {template_data}")
+
+        # 保存整个配置到文件
+        result = self.save_config()
+        print(f"[DEBUG] save_config 返回: {result}")
+        return result
 
 # 全局配置管理器
 config_manager = AdvancedConfigManager()
@@ -937,8 +957,8 @@ class TemplateManagerDialog(QDialog):
 
         layout.addLayout(button_layout)
 
-        # 初始化加载模板
-        self.on_template_type_changed(0)
+        # 初始化加载模板列表（不清空编辑区域）
+        self.update_template_names_combo()
 
     def on_template_type_changed(self, index):
         """模板类型改变时的处理"""
@@ -973,15 +993,22 @@ class TemplateManagerDialog(QDialog):
 
     def update_template_names_combo(self):
         """更新模板名称下拉框"""
+        print(f"[DEBUG] update_template_names_combo 被调用")
+
         # 保留第一个选项，清空其余选项
         while self.template_combo.count() > 1:
             self.template_combo.removeItem(1)
 
         current_type = self.template_type_combo.currentData()
+        print(f"[DEBUG] current_type = {current_type}")
+
         if not current_type:
+            print("[DEBUG] current_type 为空，返回")
             return
 
-        templates = config_manager.get('prompt_templates', {})
+        # 直接访问 config_manager.config
+        templates = config_manager.config.get('prompt_templates', {})
+        print(f"[DEBUG] 找到 {len(templates)} 个模板: {list(templates.keys())}")
 
         # 显示指定类型的模板（支持两种格式：完全匹配或前缀匹配）
         type_templates = {}
@@ -989,6 +1016,9 @@ class TemplateManagerDialog(QDialog):
             # 支持完全匹配（如 'story_title'）和前缀匹配（如 'story_title_custom'）
             if k == current_type or k.startswith(f"{current_type}_"):
                 type_templates[k] = v
+                print(f"[DEBUG] 匹配模板: {k}")
+
+        print(f"[DEBUG] 类型匹配的模板数量: {len(type_templates)}")
 
         if type_templates:
             # 按名称排序显示
@@ -997,9 +1027,11 @@ class TemplateManagerDialog(QDialog):
 
             for key, template in sorted_templates:
                 name = template.get('name', key)
+                print(f"[DEBUG] 添加模板到下拉框: {name} ({key})")
                 self.template_combo.addItem(name, key)
         else:
             # 没有模板时添加提示
+            print("[DEBUG] 没有找到匹配的模板，添加提示")
             self.template_combo.addItem("-- 暂无模板 --", None)
 
     def new_template(self):
@@ -1018,14 +1050,21 @@ class TemplateManagerDialog(QDialog):
 
     def save_template_content(self):
         """保存模板内容"""
+        print("[DEBUG] save_template_content 被调用")
+
         template_name = self.template_name_edit.text().strip()
         template_content = self.template_content_edit.toPlainText().strip()
+
+        print(f"[DEBUG] template_name = '{template_name}'")
+        print(f"[DEBUG] template_content 长度 = {len(template_content)}")
 
         if not template_name or not template_content:
             QMessageBox.warning(self, "警告", "模板名称和内容不能为空")
             return
 
         current_type = self.template_type_combo.currentData()
+        print(f"[DEBUG] current_type = {current_type}")
+
         if not current_type:
             QMessageBox.warning(self, "警告", "请选择模板类型")
             return
@@ -1035,27 +1074,40 @@ class TemplateManagerDialog(QDialog):
             # 编辑现有模板，保持原有key
             template_key = self.current_template_key
             action = "更新"
+            print(f"[DEBUG] 编辑现有模板: {template_key}")
         else:
             # 新建模板，检查是否为默认模板的覆盖
-            templates = config_manager.get('prompt_templates', {})
+            templates = config_manager.config.get('prompt_templates', {})
             default_key = current_type  # 如 'story_title'
 
             if default_key in templates and templates[default_key].get('name') == template_name:
                 # 覆盖默认模板
                 template_key = default_key
                 action = "更新默认"
+                print(f"[DEBUG] 覆盖默认模板: {template_key}")
             else:
                 # 创建新的自定义模板
                 base_name = template_name.replace(' ', '_').lower()
                 template_key = f"{current_type}_{base_name}"
                 action = "保存"
+                print(f"[DEBUG] 创建新模板: {template_key}")
 
         template_data = {
             'name': template_name,
             'template': template_content
         }
 
+        print(f"[DEBUG] 准备保存模板: {template_key}")
+        print(f"[DEBUG] 模板数据: {template_data}")
+
+        # 保存前检查
+        print(f"[DEBUG] 保存前 prompt_templates 中的键: {list(config_manager.config.get('prompt_templates', {}).keys())}")
+
         if config_manager.save_template(template_key, template_data):
+            print(f"[DEBUG] 模板保存成功")
+            # 保存后检查
+            print(f"[DEBUG] 保存后 prompt_templates 中的键: {list(config_manager.config.get('prompt_templates', {}).keys())}")
+
             QMessageBox.information(self, "成功", f"模板{action}成功！")
             # 刷新模板列表
             self.update_template_names_combo()
@@ -1068,6 +1120,7 @@ class TemplateManagerDialog(QDialog):
                         self.on_template_name_changed(i)  # 更新编辑状态
                         break
         else:
+            print(f"[DEBUG] 模板保存失败")
             QMessageBox.critical(self, "错误", "模板保存失败")
 
     def delete_template(self):
@@ -1083,16 +1136,22 @@ class TemplateManagerDialog(QDialog):
                                    QMessageBox.No)
 
         if reply == QMessageBox.Yes:
-            templates = config_manager.get('prompt_templates', {})
-            if self.current_template_key in templates:
-                del templates[self.current_template_key]
-                config_manager.set('prompt_templates', templates)
-                config_manager.save_config()
-
-                QMessageBox.information(self, "成功", "模板删除成功")
-                # 重置界面
-                self.new_template()
-                self.update_template_names_combo()
+            # 直接在 config_manager.config 中删除模板
+            if 'prompt_templates' in config_manager.config:
+                if self.current_template_key in config_manager.config['prompt_templates']:
+                    del config_manager.config['prompt_templates'][self.current_template_key]
+                    # 保存到文件
+                    if config_manager.save_config():
+                        QMessageBox.information(self, "成功", "模板删除成功")
+                        # 重置界面
+                        self.new_template()
+                        self.update_template_names_combo()
+                    else:
+                        QMessageBox.critical(self, "错误", "模板删除失败：保存配置时出错")
+                else:
+                    QMessageBox.warning(self, "警告", "模板不存在")
+            else:
+                QMessageBox.warning(self, "警告", "模板数据不存在")
 
 
 # 图片预览小部件 (保留不变，但精简了不用的导入)

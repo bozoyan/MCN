@@ -907,7 +907,7 @@ class Sora2VideoGenerationWorker(QThread):
                 'request_id': request_id
             }
 
-            self.task_finished.emit(True, "WebHook 任务已提交，等待回调", result, self.task_id)
+            self.task_finished.emit(True, "WebHook 任务已提交，等待 10 分钟后回调，超过 10 分钟，每分钟回调一次", result, self.task_id)
 
         except requests.exceptions.HTTPError as http_err:
             error_msg = f"API request failed: HTTP {response.status_code}"

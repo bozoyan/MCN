@@ -1,9 +1,9 @@
 {
   "version": "2.0.0",
-  "last_updated": "2026-01-12T08:30:24.410386",
+  "last_updated": "2026-01-12T09:17:45.399583",
   "statistics": {
-    "total_tasks": 3,
-    "completed_tasks": 3,
+    "total_tasks": 4,
+    "completed_tasks": 4,
     "pending_tasks": 0,
     "failed_tasks": 0
   },
@@ -70,6 +70,28 @@
       },
       "result": {
         "video_url": "https://storage.bizyair.cn/outputs/8398af4d-408f-4db3-a272-4b0f12805c02_f8a26ede8d1688b58e44b3a322175b16_video_ComfyUI_cc3c2beb_00001_.mp4",
+        "error_message": null
+      },
+      "webhook_mode": true
+    },
+    "task_1768180004": {
+      "task_id": "task_1768180004",
+      "name": "Sora2_文生视频_090644",
+      "request_id": "e91f61b6-1854-4387-991a-cb05a2e2669b",
+      "status": "success",
+      "video_mode": "t2v",
+      "prompt": "A cinematic 8k video featuring @yanbo1984 as the main subject. @yanbo1984 is a confident man wearing a metallic high-end luxury ski suit and reflective designer sunglasses, standing on a professional snowboard. The video begins with a Medium Shot of @yanbo1984 facing the camera directly, explaining with natural hand gestures for 3 seconds. The scene seamlessly transitions as he lowers his center of gravity and accelerates into a high-speed descent. @yanbo1984 performs elegant S-shaped carving turns at 1.5x speed, kicking up sprays of powder snow. The environment is a sunny, top-tier alpine ski resort with deep blue skies and majestic snow peaks in the background. The camera switches to a low-angle wide Tracking Shot to capture the speed and adrenaline. The lighting highlights the diamond dust in the air and the creamy texture of the powder snow. The style is a blend of high-fashion commercial and action sports documentary, highly detailed and realistic.",
+      "aspect_ratio": "9:16",
+      "duration": 10,
+      "api_key_used": "sk-f****skdx",
+      "web_app_id": 42921,
+      "timestamps": {
+        "created_at": "2026-01-12T09:06:44.936873",
+        "submitted_at": "2026-01-12T09:06:44.936882",
+        "completed_at": "2026-01-12T09:17:45.399569"
+      },
+      "result": {
+        "video_url": "https://storage.bizyair.cn/outputs/b8650b08-081d-462a-a079-cd5f82e69679_7f9ca11a53b6e31311a03334ae44cf42_video_ComfyUI_e393bbbc_00001_.mp4",
         "error_message": null
       },
       "webhook_mode": true
