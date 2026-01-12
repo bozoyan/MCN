@@ -1,10 +1,10 @@
 {
   "version": "2.0.0",
-  "last_updated": "2026-01-12T10:11:18.264802",
+  "last_updated": "2026-01-12T10:57:21.875150",
   "statistics": {
-    "total_tasks": 5,
+    "total_tasks": 6,
     "completed_tasks": 5,
-    "pending_tasks": 0,
+    "pending_tasks": 1,
     "failed_tasks": 0
   },
   "tasks": {
@@ -114,6 +114,28 @@
       },
       "result": {
         "video_url": "https://storage.bizyair.cn/outputs/a7959e7b-55ba-432c-940e-3c0a518ad682_4ffd61fc407d12049b9f7fa475307b26_video_ComfyUI_273e6fb9_00001_.mp4",
+        "error_message": null
+      },
+      "webhook_mode": true
+    },
+    "task_1768186641": {
+      "task_id": "task_1768186641",
+      "name": "Sora2_文生视频_105721",
+      "request_id": "8c1b3935-a89a-45b3-abe0-5b720edef613",
+      "status": "pending",
+      "video_mode": "t2v",
+      "prompt": "一位名为@yanbo1984 的成年男性身穿豪华功能性冲锋衣、佩戴防眩光墨镜，在暴风雪肆虐的雪山之巅以0.8倍速缓慢转身正对镜头进行登山讲解。他左手紧握登山杖、右手比划手势，并伴随轻微喘息与抗风姿态持续10秒，身后是能见度极低的雪山背景与高速飞舞的雪花颗粒。画面采用中景仰角固定机位拍摄，镜头记录其在极寒环境下面部表情与衣物细节（包括防水拉链与积雪翻卷效果），全程带有手持设备特有的微晃动感，呈现为8K分辨率写实纪录片风格结合户外极限运动电影质感，冷色调HDR渲染强化风雪侵袭的视觉冲击力与真实临场感。",
+      "aspect_ratio": "9:16",
+      "duration": 10,
+      "api_key_used": "sk-f****skdx",
+      "web_app_id": 42921,
+      "timestamps": {
+        "created_at": "2026-01-12T10:57:21.875111",
+        "submitted_at": "2026-01-12T10:57:21.875135",
+        "completed_at": null
+      },
+      "result": {
+        "video_url": null,
         "error_message": null
       },
       "webhook_mode": true
