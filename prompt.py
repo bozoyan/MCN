@@ -954,7 +954,8 @@ class VLMHistoryDialog(QDialog):
             return
 
         record = self.history_records[idx]
-        dialog = HistoryDetailDialog(record, self)
+        # 传递当前索引、总记录数和历史记录列表
+        dialog = HistoryDetailDialog(record, self, idx, len(self.history_records), self.history_records)
         dialog.exec_()
 
     def clear_all_history(self):
@@ -976,9 +977,13 @@ class VLMHistoryDialog(QDialog):
 class HistoryDetailDialog(QDialog):
     """历史记录详情弹出窗口 - 简约无边框风格"""
 
-    def __init__(self, record, parent=None):
+    def __init__(self, record, parent=None, current_index=0, total_records=0, records_list=None):
         super().__init__(parent)
         self.record = record
+        self.current_index = current_index
+        self.total_records = total_records
+        self.records_list = records_list or []
+        self.parent_dialog = parent  # 保存父对话框引用
         self.setWindowTitle("历史记录详情")
         self.setMinimumSize(1100, 750)
 
@@ -987,21 +992,22 @@ class HistoryDetailDialog(QDialog):
         self.setAttribute(Qt.WA_TranslucentBackground)
 
         self.init_ui()
+        self.update_navigation_buttons()  # 更新导航按钮状态
 
     def init_ui(self):
         # 主容器（带圆角和阴影效果）
-        main_container = QWidget()
-        main_container.setStyleSheet("""
+        self.main_container = QWidget()
+        self.main_container.setStyleSheet("""
             QWidget {
                 background: #1E1E1E;
                 border-radius: 12px;
             }
         """)
-        main_layout = QVBoxLayout(main_container)
+        main_layout = QVBoxLayout(self.main_container)
         main_layout.setSpacing(12)
         main_layout.setContentsMargins(20, 20, 20, 20)
 
-        # ==================== 顶部区域（图片缩略图 + 信息） ====================
+        # ==================== 顶部区域（图片缩略图 + 信息 + 导航按钮） ====================
         top_widget = QWidget()
         top_layout = QHBoxLayout(top_widget)
         top_layout.setSpacing(15)
@@ -1010,7 +1016,7 @@ class HistoryDetailDialog(QDialog):
         # 左边：图片缩略图
         webp_path = self.record.get('webp_image_path', '')
         image_label = QLabel()
-        image_label.setFixedSize(200, 200)
+        image_label.setFixedSize(200, 290)
         image_label.setStyleSheet("""
             QLabel {
                 background: #2d2d2d;
@@ -1024,7 +1030,7 @@ class HistoryDetailDialog(QDialog):
             pixmap = QPixmap(webp_path)
             if not pixmap.isNull():
                 scaled_pixmap = pixmap.scaled(
-                    190, 190,
+                    190, 280,
                     Qt.KeepAspectRatio,
                     Qt.SmoothTransformation
                 )
@@ -1093,6 +1099,35 @@ class HistoryDetailDialog(QDialog):
 
         info_layout.setColumnStretch(1, 1)
         top_layout.addWidget(info_widget, 1)
+
+        # 右边：导航按钮区域
+        nav_widget = QWidget()
+        nav_layout = QVBoxLayout(nav_widget)
+        nav_layout.setSpacing(8)
+        nav_layout.setContentsMargins(0, 0, 0, 0)
+
+        # 上一个按钮
+        self.prev_btn = PushButton(FluentIcon.LEFT_ARROW, "上一个")
+        self.prev_btn.setFixedHeight(40)
+        self.prev_btn.setFixedWidth(90)
+        self.prev_btn.clicked.connect(self.go_to_previous)
+        nav_layout.addWidget(self.prev_btn)
+
+        # 当前记录显示
+        self.record_index_label = QLabel(f"{self.current_index + 1}/{self.total_records}")
+        self.record_index_label.setAlignment(Qt.AlignCenter)
+        self.record_index_label.setStyleSheet("color: #aaa; font-size: 13px; font-weight: bold;")
+        nav_layout.addWidget(self.record_index_label)
+
+        # 下一个按钮
+        self.next_btn = PushButton(FluentIcon.RIGHT_ARROW, "下一个")
+        self.next_btn.setFixedHeight(40)
+        self.next_btn.setFixedWidth(90)
+        self.next_btn.clicked.connect(self.go_to_next)
+        nav_layout.addWidget(self.next_btn)
+
+        nav_layout.addStretch()
+        top_layout.addWidget(nav_widget)
 
         main_layout.addWidget(top_widget)
 
@@ -1210,7 +1245,7 @@ class HistoryDetailDialog(QDialog):
         # 创建外层容器以支持半透明背景
         outer_layout = QVBoxLayout(self)
         outer_layout.setContentsMargins(10, 10, 10, 10)
-        outer_layout.addWidget(main_container)
+        outer_layout.addWidget(self.main_container)
 
     def copy_result(self, result_key, tab_name):
         """复制指定结果到剪贴板"""
@@ -1259,6 +1294,307 @@ class HistoryDetailDialog(QDialog):
                 QMessageBox.information(self, "成功", f"文件已保存到: {file_path}")
             except Exception as e:
                 QMessageBox.critical(self, "错误", f"导出失败: {str(e)}")
+
+    def update_navigation_buttons(self):
+        """更新导航按钮状态"""
+        # 禁用"上一个"按钮（如果是第一条记录）
+        self.prev_btn.setEnabled(self.current_index > 0)
+
+        # 禁用"下一个"按钮（如果是最后一条记录）
+        self.next_btn.setEnabled(self.current_index < self.total_records - 1)
+
+        # 更新记录索引显示
+        self.record_index_label.setText(f"{self.current_index + 1}/{self.total_records}")
+
+    def go_to_previous(self):
+        """跳转到上一条记录"""
+        if self.current_index > 0:
+            self.current_index -= 1
+            self.load_record(self.current_index)
+
+    def go_to_next(self):
+        """跳转到下一条记录"""
+        if self.current_index < self.total_records - 1:
+            self.current_index += 1
+            self.load_record(self.current_index)
+
+    def load_record(self, index):
+        """加载指定索引的记录"""
+        if 0 <= index < len(self.records_list):
+            self.record = self.records_list[index]
+
+            # 保存对话框的几何状态
+            geometry = self.geometry()
+
+            # 清空 main_container 的布局
+            if hasattr(self, 'main_container') and self.main_container:
+                main_container_layout = self.main_container.layout()
+                if main_container_layout:
+                    while main_container_layout.count():
+                        item = main_container_layout.takeAt(0)
+                        if item.widget():
+                            item.widget().deleteLater()
+                        elif item.layout():
+                            # 清空子布局
+                            sub_layout = item.layout()
+                            while sub_layout.count():
+                                sub_item = sub_layout.takeAt(0)
+                                if sub_item.widget():
+                                    sub_item.widget().deleteLater()
+
+            # 重新初始化 main_container 的内容
+            # 手动重新创建 main_container 的内容，不调用 init_ui()
+            self._rebuild_main_container()
+
+            # 更新导航按钮状态
+            self.update_navigation_buttons()
+
+            # 恢复对话框大小和位置
+            self.setGeometry(geometry)
+
+    def _rebuild_main_container(self):
+        """重新构建 main_container 的内容"""
+        # 获取现有的布局或创建新的布局
+        main_layout = self.main_container.layout()
+        if main_layout is None:
+            main_layout = QVBoxLayout(self.main_container)
+
+        main_layout.setSpacing(12)
+        main_layout.setContentsMargins(20, 20, 20, 20)
+
+        # ==================== 顶部区域（图片缩略图 + 信息 + 导航按钮） ====================
+        top_widget = QWidget()
+        top_layout = QHBoxLayout(top_widget)
+        top_layout.setSpacing(15)
+        top_layout.setContentsMargins(0, 0, 0, 0)
+
+        # 左边：图片缩略图
+        webp_path = self.record.get('webp_image_path', '')
+        image_label = QLabel()
+        image_label.setFixedSize(200, 290)
+        image_label.setStyleSheet("""
+            QLabel {
+                background: #2d2d2d;
+                border-radius: 8px;
+                border: 2px solid #3d3d3d;
+            }
+        """)
+        image_label.setAlignment(Qt.AlignCenter)
+
+        if webp_path and os.path.exists(webp_path):
+            pixmap = QPixmap(webp_path)
+            if not pixmap.isNull():
+                scaled_pixmap = pixmap.scaled(
+                    190, 280,
+                    Qt.KeepAspectRatio,
+                    Qt.SmoothTransformation
+                )
+                image_label.setPixmap(scaled_pixmap)
+            else:
+                image_label.setText("📷\n图片加载失败")
+                image_label.setStyleSheet("color: #666; font-size: 14px;")
+        else:
+            image_label.setText("📷\n无图片")
+            image_label.setStyleSheet("color: #666; font-size: 14px;")
+
+        top_layout.addWidget(image_label)
+
+        # 右边：信息区域
+        info_widget = QWidget()
+        info_layout = QGridLayout(info_widget)
+        info_layout.setSpacing(8)
+        info_layout.setContentsMargins(0, 0, 0, 0)
+
+        row = 0
+        # 时间
+        info_layout.addWidget(QLabel("时间:"), row, 0)
+        info_layout.addWidget(QLabel(self.record.get('timestamp', '')), row, 1)
+        row += 1
+
+        # 任务ID
+        task_id = self.record.get('task_id', '')
+        info_layout.addWidget(QLabel("任务ID:"), row, 0)
+        info_layout.addWidget(QLabel(task_id if task_id else 'N/A'), row, 1)
+        row += 1
+
+        # 图片类型
+        image_type = self.record.get('image_type', '')
+        type_text = "📁 WebP" if image_type == 'webp' else ("📁 本地" if image_type == 'local' else "🌐 网络")
+        info_layout.addWidget(QLabel("类型:"), row, 0)
+        info_layout.addWidget(QLabel(type_text), row, 1)
+        row += 1
+
+        # 本地结果文件路径
+        local_file = self.record.get('local_file_path', '')
+        if local_file:
+            info_layout.addWidget(QLabel("结果文件:"), row, 0)
+            file_label = QLabel(local_file)
+            file_label.setStyleSheet("color: #4CAF50; font-size: 11px;")
+            file_label.setWordWrap(True)
+            info_layout.addWidget(file_label, row, 1)
+            row += 1
+
+        # 结果文件URL
+        result_url = self.record.get('result_file_url', '')
+        if result_url:
+            info_layout.addWidget(QLabel("结果URL:"), row, 0)
+            url_label = QLabel(result_url[:60] + '...' if len(result_url) > 60 else result_url)
+            url_label.setStyleSheet("color: #2196f3; font-size: 11px;")
+            url_label.setWordWrap(True)
+            info_layout.addWidget(url_label, row, 1)
+            row += 1
+
+        # WebP 图片路径
+        if webp_path:
+            info_layout.addWidget(QLabel("图片路径:"), row, 0)
+            img_label = QLabel(webp_path)
+            img_label.setStyleSheet("color: #FFA726; font-size: 11px;")
+            img_label.setWordWrap(True)
+            info_layout.addWidget(img_label, row, 1)
+
+        info_layout.setColumnStretch(1, 1)
+        top_layout.addWidget(info_widget, 1)
+
+        # 右边：导航按钮区域
+        nav_widget = QWidget()
+        nav_layout = QVBoxLayout(nav_widget)
+        nav_layout.setSpacing(8)
+        nav_layout.setContentsMargins(0, 0, 0, 0)
+
+        # 上一个按钮
+        self.prev_btn = PushButton(FluentIcon.LEFT_ARROW, "上一个")
+        self.prev_btn.setFixedHeight(40)
+        self.prev_btn.setFixedWidth(90)
+        self.prev_btn.clicked.connect(self.go_to_previous)
+        nav_layout.addWidget(self.prev_btn)
+
+        # 当前记录显示
+        self.record_index_label = QLabel(f"{self.current_index + 1}/{self.total_records}")
+        self.record_index_label.setAlignment(Qt.AlignCenter)
+        self.record_index_label.setStyleSheet("color: #aaa; font-size: 13px; font-weight: bold;")
+        nav_layout.addWidget(self.record_index_label)
+
+        # 下一个按钮
+        self.next_btn = PushButton(FluentIcon.RIGHT_ARROW, "下一个")
+        self.next_btn.setFixedHeight(40)
+        self.next_btn.setFixedWidth(90)
+        self.next_btn.clicked.connect(self.go_to_next)
+        nav_layout.addWidget(self.next_btn)
+
+        nav_layout.addStretch()
+        top_layout.addWidget(nav_widget)
+
+        main_layout.addWidget(top_widget)
+
+        # ==================== 提示词选项卡 ====================
+        result = self.record.get('result', {})
+
+        tab_widget = QTabWidget()
+        tab_widget.setStyleSheet("""
+            QTabWidget::pane {
+                border: none;
+                background: #2d2d2d;
+                border-radius: 8px;
+            }
+            QTabBar::tab {
+                background: #3d3d3d;
+                color: #aaa;
+                padding: 10px 20px;
+                font-size: 14px;
+                border: none;
+                border-top-left-radius: 6px;
+                border-top-right-radius: 6px;
+                margin-right: 2px;
+            }
+            QTabBar::tab:selected {
+                background: #2d2d2d;
+                color: white;
+                font-weight: bold;
+            }
+            QTabBar::tab:hover:!selected {
+                background: #4d4d4d;
+            }
+        """)
+
+        # 计算文本框高度（8行）
+        font_height = 40  # 每行约40px
+        text_height = font_height * 8
+
+        # 创建四个选项卡（无内部复制按钮）
+        tabs_data = [
+            ("中文描述", "CN"),
+            ("英文描述", "EN"),
+            ("中文标签", "CN_tag"),
+            ("英文标签", "EN_tag")
+        ]
+
+        for tab_name, result_key in tabs_data:
+            page = QWidget()
+            page_layout = QVBoxLayout(page)
+            page_layout.setContentsMargins(0, 0, 0, 0)
+
+            text_edit = QTextEdit()
+            text_edit.setReadOnly(True)
+            text_edit.setText(result.get(result_key, ''))
+            text_edit.setFixedHeight(text_height)
+            text_edit.setStyleSheet("""
+                QTextEdit {
+                    background: #1a1a1a;
+                    color: white;
+                    border: none;
+                    border-radius: 8px;
+                    padding: 15px;
+                    font-size: 28px;
+                    line-height: 1.6;
+                }
+                QScrollBar:vertical {
+                    background: #2d2d2d;
+                    width: 10px;
+                    border-radius: 5px;
+                }
+                QScrollBar::handle:vertical {
+                    background: #555;
+                    border-radius: 5px;
+                    min-height: 30px;
+                }
+                QScrollBar::handle:vertical:hover {
+                    background: #666;
+                }
+            """)
+            page_layout.addWidget(text_edit)
+
+            tab_widget.addTab(page, tab_name)
+            # 保存引用以便底部复制按钮使用
+            setattr(self, f'{result_key}_text_edit', text_edit)
+
+        main_layout.addWidget(tab_widget)
+
+        # ==================== 底部按钮栏 ====================
+        button_layout = QHBoxLayout()
+        button_layout.setSpacing(10)
+
+        # 为每个选项卡添加复制按钮
+        for tab_name, result_key in tabs_data:
+            btn = PushButton(f"复制{tab_name}")
+            btn.setFixedHeight(36)
+            btn.clicked.connect(lambda checked, k=result_key, n=tab_name: self.copy_result(k, n))
+            button_layout.addWidget(btn)
+
+        button_layout.addStretch()
+
+        # 导出全部按钮
+        export_all_btn = PrimaryPushButton(FluentIcon.SAVE, "导出全部")
+        export_all_btn.setFixedHeight(36)
+        export_all_btn.clicked.connect(self.export_all)
+        button_layout.addWidget(export_all_btn)
+
+        # 关闭按钮
+        close_btn = PushButton("关闭")
+        close_btn.setFixedHeight(36)
+        close_btn.clicked.connect(self.accept)
+        button_layout.addWidget(close_btn)
+
+        main_layout.addLayout(button_layout)
 
 
 # ==================== 图片提示词生成页面 ====================
@@ -1398,6 +1734,7 @@ class ImagePromptPage(SmoothScrollArea):
         self.batch_list_edit = QTextEdit()
         self.batch_list_edit.setReadOnly(True)
         self.batch_list_edit.setFixedHeight(120)
+        self.batch_list_edit.setStyleSheet("margin-top:-60px;")
         batch_layout.addWidget(self.batch_list_edit)
 
         upload_layout.addWidget(self.batch_group)
