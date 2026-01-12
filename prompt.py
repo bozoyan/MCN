@@ -15,13 +15,15 @@ import threading
 import time
 from datetime import datetime
 from io import BytesIO
+from PIL import Image
 
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                             QHBoxLayout, QGridLayout, QLabel, QLineEdit,
                             QPushButton, QFileDialog, QTextEdit, QSpinBox,
                             QMessageBox, QGroupBox, QDialog, QToolButton,
-                            QSizePolicy, QSplitter, QTabWidget, QScrollArea)
-from PyQt5.QtCore import Qt, QThread, pyqtSignal, QUrl, QSize
+                            QSizePolicy, QSplitter, QTabWidget, QScrollArea,
+                            QListWidget, QListWidgetItem, QFrame)
+from PyQt5.QtCore import Qt, QThread, pyqtSignal, QUrl, QSize, QTimer
 from PyQt5.QtGui import QFont, QIcon, QDesktopServices, QPixmap
 from qfluentwidgets import (FluentIcon, NavigationInterface, NavigationItemPosition,
                           FluentWindow, SubtitleLabel, BodyLabel, PrimaryPushButton,
@@ -164,12 +166,44 @@ class VLMHistoryManager:
             logger.error(f"保存历史记录失败: {e}")
             return False
 
-    def add_record(self, image_url, result):
-        """添加历史记录"""
+    def add_record(self, image_url, result, task_id=None, result_file_url=None, local_file_path=None, webp_image_path=None):
+        """添加历史记录
+
+        Args:
+            image_url: 图片URL（可能是网络URL或base64 data URL）
+            result: 识别结果字典
+            task_id: API任务ID
+            result_file_url: 结果文件的下载URL
+            local_file_path: 保存到本地的结果文件路径
+            webp_image_path: 保存到本地的 webp 图片路径
+        """
+        # 确定图片类型和显示名称
+        image_display = ""
+        image_type = ""
+        if webp_image_path:
+            # 优先使用 webp 图片路径
+            image_type = "webp"
+            image_display = webp_image_path
+        elif image_url.startswith('data:image/'):
+            image_type = "local"
+            image_display = local_file_path if local_file_path else "[本地图片]"
+        elif image_url.startswith(('http://', 'https://')):
+            image_type = "network"
+            image_display = image_url
+        else:
+            image_type = "local"
+            image_display = image_url if image_url else "[本地图片]"
+
         record = {
             "id": str(int(time.time() * 1000)),
             "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "image_url": image_url,
+            "task_id": task_id or "",
+            "image_type": image_type,
+            "image_url": image_url[:500] if len(image_url) > 500 else image_url,  # 限制长度
+            "image_display": image_display,
+            "webp_image_path": webp_image_path or "",  # webp 图片路径
+            "result_file_url": result_file_url or "",
+            "local_file_path": local_file_path or "",
             "result": {
                 "CN": result.get("CN", ""),
                 "EN": result.get("EN", ""),
@@ -224,11 +258,11 @@ class DragDropImageLabel(QLabel):
     def dragLeaveEvent(self, event):
         """拖拽离开事件"""
         event.accept()
-        self.setStyleSheet("border: 2px dashed #ccc; border-radius: 8px; background: #f9f9f9;")
+        self.setStyleSheet("border: 2px dashed #ccc; border-radius: 8px; background: #1E1E1E;")
 
     def dropEvent(self, event):
         """拖拽放下事件"""
-        self.setStyleSheet("border: 2px dashed #ccc; border-radius: 8px; background: #f9f9f9;")
+        self.setStyleSheet("border: 2px dashed #ccc; border-radius: 8px; background: #1E1E1E;")
 
         # 首先检查是否有URL（支持拖拽文件）
         if event.mimeData().hasUrls():
@@ -276,8 +310,9 @@ class VLMImageWorker(QThread):
 
     progress_updated = pyqtSignal(str)
     time_updated = pyqtSignal(str)
-    finished = pyqtSignal(bool, dict, str)  # success, result, image_url
+    finished = pyqtSignal(bool, dict, str, str, str, str)  # success, result, image_url, task_id, result_file_url, local_file_path
     error_occurred = pyqtSignal(str)
+    log_message = pyqtSignal(str)  # 新增：日志消息信号
 
     def __init__(self, image_url, config_manager, template):
         super().__init__()
@@ -286,21 +321,33 @@ class VLMImageWorker(QThread):
         self.template = template
         self.is_cancelled = False
         self.start_time = None
+        # 存储任务信息
+        self.task_id = ""
+        self.result_file_url = ""
+        self.local_file_path = ""
 
     def cancel(self):
         """取消任务"""
         self.is_cancelled = True
+
+    def _log(self, message):
+        """内部日志方法"""
+        self.log_message.emit(message)
+        logger.info(message)
 
     def run(self):
         """运行图片识别"""
         try:
             self.start_time = time.time()
             self.progress_updated.emit("正在初始化 VLM API...")
+            self._log("=" * 60)
+            self._log("开始 VLM 图片识别任务")
 
             # 使用全局MODEL_API_KEY作为API密钥
             api_key = MODEL_API_KEY
             if not api_key:
-                self.finished.emit(False, {}, self.image_url)
+                self._log("❌ 错误：API密钥未配置")
+                self.finished.emit(False, {}, self.image_url, "", "", "")
                 self.error_occurred.emit("API密钥未配置")
                 return
 
@@ -311,11 +358,31 @@ class VLMImageWorker(QThread):
             }
 
             # 构建请求参数
+            web_app_id = self.config_manager.get("web_app_id", 40122)
+            model = self.config_manager.get("model", "SiliconFlow:Qwen/Qwen3-VL-8B-Instruct")
+            suppress_preview = self.config_manager.get("suppress_preview_output", True)
+
             input_values = {
                 "65:LoadImage.image": self.image_url,
-                "64:BizyAirSiliconCloudVLMAPI.model": self.config_manager.get("model", "SiliconFlow:Qwen/Qwen3-VL-8B-Instruct"),
+                "64:BizyAirSiliconCloudVLMAPI.model": model,
                 "64:BizyAirSiliconCloudVLMAPI.user_prompt": self.template
             }
+
+            # 输出完整的 API 请求信息
+            self._log("📤 API 请求信息:")
+            self._log(f"  URL: {base_url}")
+            self._log(f"  Web App ID: {web_app_id}")
+            self._log(f"  模型: {model}")
+            self._log(f"  抑制预览输出: {suppress_preview}")
+            self._log(f"  图片大小: {len(self.image_url)} 字符")
+            self._log(f"  提示词模板长度: {len(self.template)} 字符")
+
+            request_data = {
+                "web_app_id": web_app_id,
+                "suppress_preview_output": suppress_preview,
+                "input_values": input_values
+            }
+            self._log(f"  请求数据: {json.dumps(request_data, ensure_ascii=False)[:500]}...")
 
             self.progress_updated.emit("正在提交识别请求...")
 
@@ -332,53 +399,149 @@ class VLMImageWorker(QThread):
             time_thread.start()
 
             try:
+                self._log("🔄 正在发送 API 请求...")
                 response = requests.post(
                     base_url,
                     headers=headers,
-                    json={
-                        "web_app_id": self.config_manager.get("web_app_id", 40122),
-                        "suppress_preview_output": self.config_manager.get("suppress_preview_output", True),
-                        "input_values": input_values
-                    },
+                    json=request_data,
                     timeout=180  # 3分钟超时
                 )
 
                 stop_time_update.set()
                 time_thread.join(timeout=0.5)
 
+                # 输出响应状态
+                self._log(f"📥 API 响应状态: HTTP {response.status_code}")
+
                 response.raise_for_status()
                 result = response.json()
+
+                # 输出完整响应信息
+                self._log("📋 API 响应数据:")
+                self._log(f"  状态: {result.get('status', 'Unknown')}")
+                self._log(f"  任务ID: {result.get('task_id', 'N/A')}")
+                self._log(f"  消息: {result.get('message', 'N/A')}")
+
+                # 保存任务ID
+                self.task_id = result.get('task_id', '')
+
+                if "outputs" in result:
+                    self._log(f"  输出数量: {len(result.get('outputs', []))}")
+                    for i, output in enumerate(result.get('outputs', [])):
+                        self._log(f"    输出[{i}]: {output.get('object_url', 'N/A')[:100]}...")
 
                 if result.get("status") == "Success" and result.get("outputs"):
                     # 获取提示词文件 URL
                     prompt_url = result["outputs"][0].get("object_url", "")
+                    self.result_file_url = prompt_url  # 保存结果文件URL
                     if prompt_url:
+                        self._log(f"✅ 成功获取结果文件 URL")
+                        self._log(f"  文件 URL: {prompt_url}")
                         self.progress_updated.emit("正在下载识别结果...")
+
+                        # 确保 output 目录存在
+                        output_dir = "output"
+                        os.makedirs(output_dir, exist_ok=True)
+
+                        # 从远程 URL 中提取原始文件名
+                        original_filename = os.path.basename(prompt_url)
+                        if not original_filename or original_filename == '':
+                            # 如果无法提取文件名，使用默认命名
+                            original_filename = f"vlm_result_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+
+                        # 构建保存路径
+                        save_path = os.path.join(output_dir, original_filename)
+                        self.local_file_path = save_path  # 保存本地文件路径
+
+                        self._log(f"💾 开始下载结果文件到: {save_path}")
+                        self._log(f"  远程文件名: {original_filename}")
 
                         # 下载提示词文件
                         prompt_response = requests.get(prompt_url, timeout=30)
+                        self._log(f"  下载状态: HTTP {prompt_response.status_code}")
+
                         if prompt_response.status_code == 200:
-                            # 判断文件类型
-                            if prompt_url.endswith('.json'):
-                                prompt_data = prompt_response.json()
+                            # 保存文件到 output 目录
+                            with open(save_path, 'wb') as f:
+                                f.write(prompt_response.content)
+                            self._log(f"  文件已保存: {save_path} ({len(prompt_response.content)} 字节)")
+
+                            # 判断文件类型并解析
+                            self._log("🔍 开始解析结果文件...")
+                            prompt_data = None
+
+                            if prompt_url.endswith('.json') or save_path.endswith('.json'):
+                                # JSON 文件
+                                self._log("  检测到 JSON 格式")
+                                try:
+                                    prompt_data = prompt_response.json()
+                                    self._log(f"  JSON 解析成功，包含键: {list(prompt_data.keys()) if isinstance(prompt_data, dict) else 'N/A'}")
+                                except json.JSONDecodeError as e:
+                                    self._log(f"  ❌ JSON 解析失败: {e}")
+                                    # 尝试作为文本解析
+                                    import chardet
+                                    raw_data = prompt_response.content
+                                    encoding = chardet.detect(raw_data)['encoding'] or 'utf-8'
+                                    text_content = raw_data.decode(encoding)
+                                    self._log(f"  尝试解析为文本，编码: {encoding}")
+                                    prompt_data = json.loads(text_content)
                             else:
-                                # TXT 文件使用 UTF-8 解码
+                                # TXT 文件 - 尝试检测编码并解析
+                                self._log("  检测到 TXT 格式")
                                 import chardet
                                 raw_data = prompt_response.content
                                 encoding = chardet.detect(raw_data)['encoding'] or 'utf-8'
+                                self._log(f"  检测到编码: {encoding}")
                                 text_content = raw_data.decode(encoding)
-                                prompt_data = json.loads(text_content)
+                                self._log(f"  文本内容长度: {len(text_content)} 字符")
+                                self._log(f"  文本内容预览: {text_content[:200]}...")
+
+                                # 尝试解析为 JSON
+                                try:
+                                    prompt_data = json.loads(text_content)
+                                    self._log(f"  ✅ 成功从文本中解析 JSON")
+                                except json.JSONDecodeError:
+                                    # 如果不是 JSON，保持原文本
+                                    self._log(f"  ⚠️ 文本内容不是 JSON 格式，保持原样")
+                                    prompt_data = {"raw_text": text_content}
+
+                            # 验证解析结果
+                            if prompt_data:
+                                if isinstance(prompt_data, dict):
+                                    required_fields = ["CN", "EN", "CN_tag", "EN_tag"]
+                                    missing_fields = [f for f in required_fields if f not in prompt_data]
+                                    if missing_fields:
+                                        self._log(f"  ⚠️ 缺少字段: {missing_fields}")
+                                    else:
+                                        self._log(f"  ✅ 包含所有必需字段: {required_fields}")
+
+                                    # 输出解析后的数据预览
+                                    for key, value in prompt_data.items():
+                                        if isinstance(value, str):
+                                            self._log(f"    {key}: {value[:100]}{'...' if len(value) > 100 else ''}")
+                                        elif isinstance(value, (dict, list)):
+                                            self._log(f"    {key}: {str(type(value).__name__)}")
+                                else:
+                                    self._log(f"  ⚠️ 解析结果不是字典类型: {type(prompt_data)}")
 
                             total_time = time.time() - self.start_time
                             self.time_updated.emit(f"运行时间: {total_time:.1f}秒")
                             self.progress_updated.emit("识别完成！")
-                            self.finished.emit(True, prompt_data, self.image_url)
+                            self._log(f"✅ 识别完成！总耗时: {total_time:.1f}秒")
+                            self._log("=" * 60)
+                            self.finished.emit(True, prompt_data, self.image_url, self.task_id, self.result_file_url, self.local_file_path)
                         else:
-                            raise Exception(f"下载提示词文件失败: HTTP {prompt_response.status_code}")
+                            error_msg = f"下载提示词文件失败: HTTP {prompt_response.status_code}"
+                            self._log(f"❌ {error_msg}")
+                            raise Exception(error_msg)
                     else:
-                        raise Exception("未获取到提示词文件 URL")
+                        error_msg = "未获取到提示词文件 URL"
+                        self._log(f"❌ {error_msg}")
+                        raise Exception(error_msg)
                 else:
                     error_msg = result.get("message", "未知错误")
+                    self._log(f"❌ VLM API 返回错误: {error_msg}")
+                    self._log(f"  完整响应: {json.dumps(result, ensure_ascii=False, indent=2)}")
                     raise Exception(f"VLM API 返回错误: {error_msg}")
 
             except Exception as e:
@@ -390,14 +553,18 @@ class VLMImageWorker(QThread):
         except requests.exceptions.Timeout:
             total_time = time.time() - self.start_time if self.start_time else 0
             self.time_updated.emit(f"运行时间: {total_time:.1f}秒")
+            self._log(f"❌ 请求超时，耗时: {total_time:.1f}秒")
             self.error_occurred.emit("请求超时，请稍后重试")
-            self.finished.emit(False, {}, self.image_url)
+            self.finished.emit(False, {}, self.image_url, "", "", "")
         except Exception as e:
             total_time = time.time() - self.start_time if self.start_time else 0
             self.time_updated.emit(f"运行时间: {total_time:.1f}秒")
-            logger.error(f"VLM 图片识别失败: {e}")
-            self.error_occurred.emit(f"识别失败: {str(e)}")
-            self.finished.emit(False, {}, self.image_url)
+            error_msg = str(e)
+            self._log(f"❌ VLM 图片识别失败: {error_msg}")
+            self._log(f"  错误类型: {type(e).__name__}")
+            self._log("=" * 60)
+            self.error_occurred.emit(f"识别失败: {error_msg}")
+            self.finished.emit(False, {}, self.image_url, "", "", "")
 
 
 # ==================== VLM 设置对话框（增强版） ====================
@@ -690,7 +857,8 @@ class VLMHistoryDialog(QDialog):
         super().__init__(parent)
         self.vlm_history = vlm_history
         self.setWindowTitle("历史记录管理")
-        self.setMinimumSize(900, 600)
+        self.setMinimumSize(1000, 700)
+        self.history_records = []
         self.init_ui()
         self.load_history()
 
@@ -704,88 +872,393 @@ class VLMHistoryDialog(QDialog):
         top_layout.addStretch()
         self.clear_all_btn = PushButton(FluentIcon.DELETE, "清空全部")
         self.clear_all_btn.clicked.connect(self.clear_all_history)
+        self.refresh_btn = PushButton(FluentIcon.SYNC, "刷新")
+        self.refresh_btn.clicked.connect(self.load_history)
+        top_layout.addWidget(self.refresh_btn)
         top_layout.addWidget(self.clear_all_btn)
         layout.addLayout(top_layout)
 
-        # 历史记录列表
-        self.history_table = QTextEdit()
-        self.history_table.setReadOnly(True)
-        self.history_table.setMinimumHeight(400)
-        layout.addWidget(self.history_table)
+        # 历史记录列表（使用 QListWidget）
+        self.history_list = QListWidget()
+        self.history_list.setMinimumHeight(600)
+        # 增大字体
+        self.history_list.setStyleSheet("QListWidget { font-size: 14px; } QListWidget::item { height: 40px; padding: 8px; }")
+        self.history_list.itemDoubleClicked.connect(self.on_item_double_clicked)
+        layout.addWidget(self.history_list)
 
         # 底部按钮
         button_layout = QHBoxLayout()
+        self.view_detail_btn = PushButton(FluentIcon.VIEW, "查看详情")
+        self.view_detail_btn.clicked.connect(self.show_selected_detail)
         self.close_btn = PushButton("关闭")
         self.close_btn.clicked.connect(self.accept)
         button_layout.addStretch()
+        button_layout.addWidget(self.view_detail_btn)
         button_layout.addWidget(self.close_btn)
         layout.addLayout(button_layout)
 
     def load_history(self):
         """加载历史记录"""
+        self.history_list.clear()
+        self.history_records = []
         history = self.vlm_history.get_history()
+
         if not history:
-            self.history_table.setText("暂无历史记录")
+            item = QListWidgetItem("暂无历史记录")
+            item.setFlags(Qt.NoItemFlags)
+            self.history_list.addItem(item)
             return
 
-        html_content = "<html><head><style>"
-        html_content += """
-            body { font-family: 'PingFang SC', sans-serif; font-size: 14px; }
-            .record { border: 1px solid #ddd; margin: 10px 0; padding: 10px; border-radius: 8px; }
-            .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
-            .timestamp { color: #666; font-size: 12px; }
-            .image-url { color: #2196f3; word-break: break-all; }
-            .result-section { margin-top: 10px; }
-            .result-title { font-weight: bold; color: #333; margin-top: 10px; }
-            .result-content { background: #f5f5f5; padding: 8px; border-radius: 4px; margin-top: 5px; white-space: pre-wrap; }
-        """
-        html_content += "</style></head><body>"
+        for idx, record in enumerate(history):
+            self.history_records.append(record)
 
-        for record in history:
-            result = record.get("result", {})
-            html_content += f"""
-                <div class="record">
-                    <div class="header">
-                        <span class="timestamp">{record.get('timestamp', '')}</span>
-                    </div>
-                    <div class="result-section">
-                        <div class="result-title">图片 URL:</div>
-                        <div class="image-url">{record.get('image_url', '')}</div>
-                    </div>
-                    <div class="result-section">
-                        <div class="result-title">中文描述 (CN):</div>
-                        <div class="result-content">{result.get('CN', '')}</div>
-                    </div>
-                    <div class="result-section">
-                        <div class="result-title">英文描述 (EN):</div>
-                        <div class="result-content">{result.get('EN', '')}</div>
-                    </div>
-                    <div class="result-section">
-                        <div class="result-title">中文标签 (CN_tag):</div>
-                        <div class="result-content">{result.get('CN_tag', '')}</div>
-                    </div>
-                    <div class="result-section">
-                        <div class="result-title">英文标签 (EN_tag):</div>
-                        <div class="result-content">{result.get('EN_tag', '')}</div>
-                    </div>
-                </div>
-            """
+            # 格式化显示文本
+            timestamp = record.get('timestamp', '')
+            task_id = record.get('task_id', '')
+            image_type = record.get('image_type', '')
+            image_display = record.get('image_display', '')
 
-        html_content += "</body></html>"
-        self.history_table.setHtml(html_content)
+            if image_type == 'local':
+                type_icon = "📁"
+                display_name = os.path.basename(image_display) if image_display and image_display != '[本地图片]' else '本地图片'
+            else:
+                type_icon = "🌐"
+                display_name = image_display[:60] + '...' if len(image_display) > 60 else image_display
+
+            item_text = f"{idx + 1}. [{timestamp}] {type_icon} {display_name}"
+            if task_id:
+                item_text += f" | 任务ID: {task_id}"
+
+            item = QListWidgetItem(item_text)
+            item.setData(Qt.UserRole, idx)  # 存储索引
+            self.history_list.addItem(item)
+
+    def show_selected_detail(self):
+        """显示选中项的详情"""
+        current_item = self.history_list.currentItem()
+        if current_item:
+            idx = current_item.data(Qt.UserRole)
+            if idx is not None and 0 <= idx < len(self.history_records):
+                self.show_detail_dialog(idx)
+
+    def on_item_double_clicked(self, item):
+        """处理列表项双击事件"""
+        if item:
+            idx = item.data(Qt.UserRole)
+            if idx is not None and 0 <= idx < len(self.history_records):
+                self.show_detail_dialog(idx)
+
+    def show_detail_dialog(self, idx):
+        """显示详情对话框"""
+        if idx < 0 or idx >= len(self.history_records):
+            return
+
+        record = self.history_records[idx]
+        dialog = HistoryDetailDialog(record, self)
+        dialog.exec_()
 
     def clear_all_history(self):
         """清空所有历史记录"""
         reply = QMessageBox.question(
             self, "确认清空",
             "确定要清空所有历史记录吗？此操作不可恢复！",
-            QMessageBox.Yes | QMessageBox.No
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No
         )
 
         if reply == QMessageBox.Yes:
             self.vlm_history.clear_all()
             self.load_history()
             QMessageBox.information(self, "成功", "历史记录已清空")
+
+
+# ==================== 历史记录详情弹出窗口（简约无边框风格） ====================
+class HistoryDetailDialog(QDialog):
+    """历史记录详情弹出窗口 - 简约无边框风格"""
+
+    def __init__(self, record, parent=None):
+        super().__init__(parent)
+        self.record = record
+        self.setWindowTitle("历史记录详情")
+        self.setMinimumSize(1100, 750)
+
+        # 设置无边框窗口
+        self.setWindowFlags(Qt.FramelessWindowHint | Qt.Dialog)
+        self.setAttribute(Qt.WA_TranslucentBackground)
+
+        self.init_ui()
+
+    def init_ui(self):
+        # 主容器（带圆角和阴影效果）
+        main_container = QWidget()
+        main_container.setStyleSheet("""
+            QWidget {
+                background: #1E1E1E;
+                border-radius: 12px;
+            }
+        """)
+        main_layout = QVBoxLayout(main_container)
+        main_layout.setSpacing(12)
+        main_layout.setContentsMargins(20, 20, 20, 20)
+
+        # ==================== 顶部区域（图片缩略图 + 信息） ====================
+        top_widget = QWidget()
+        top_layout = QHBoxLayout(top_widget)
+        top_layout.setSpacing(15)
+        top_layout.setContentsMargins(0, 0, 0, 0)
+
+        # 左边：图片缩略图
+        webp_path = self.record.get('webp_image_path', '')
+        image_label = QLabel()
+        image_label.setFixedSize(200, 200)
+        image_label.setStyleSheet("""
+            QLabel {
+                background: #2d2d2d;
+                border-radius: 8px;
+                border: 2px solid #3d3d3d;
+            }
+        """)
+        image_label.setAlignment(Qt.AlignCenter)
+
+        if webp_path and os.path.exists(webp_path):
+            pixmap = QPixmap(webp_path)
+            if not pixmap.isNull():
+                scaled_pixmap = pixmap.scaled(
+                    190, 190,
+                    Qt.KeepAspectRatio,
+                    Qt.SmoothTransformation
+                )
+                image_label.setPixmap(scaled_pixmap)
+            else:
+                image_label.setText("📷\n图片加载失败")
+                image_label.setStyleSheet("color: #666; font-size: 14px;")
+        else:
+            image_label.setText("📷\n无图片")
+            image_label.setStyleSheet("color: #666; font-size: 14px;")
+
+        top_layout.addWidget(image_label)
+
+        # 右边：信息区域
+        info_widget = QWidget()
+        info_layout = QGridLayout(info_widget)
+        info_layout.setSpacing(8)
+        info_layout.setContentsMargins(0, 0, 0, 0)
+
+        row = 0
+        # 时间
+        info_layout.addWidget(QLabel("时间:"), row, 0)
+        info_layout.addWidget(QLabel(self.record.get('timestamp', '')), row, 1)
+        row += 1
+
+        # 任务ID
+        task_id = self.record.get('task_id', '')
+        info_layout.addWidget(QLabel("任务ID:"), row, 0)
+        info_layout.addWidget(QLabel(task_id if task_id else 'N/A'), row, 1)
+        row += 1
+
+        # 图片类型
+        image_type = self.record.get('image_type', '')
+        type_text = "📁 WebP" if image_type == 'webp' else ("📁 本地" if image_type == 'local' else "🌐 网络")
+        info_layout.addWidget(QLabel("类型:"), row, 0)
+        info_layout.addWidget(QLabel(type_text), row, 1)
+        row += 1
+
+        # 本地结果文件路径
+        local_file = self.record.get('local_file_path', '')
+        if local_file:
+            info_layout.addWidget(QLabel("结果文件:"), row, 0)
+            file_label = QLabel(local_file)
+            file_label.setStyleSheet("color: #4CAF50; font-size: 11px;")
+            file_label.setWordWrap(True)
+            info_layout.addWidget(file_label, row, 1)
+            row += 1
+
+        # 结果文件URL
+        result_url = self.record.get('result_file_url', '')
+        if result_url:
+            info_layout.addWidget(QLabel("结果URL:"), row, 0)
+            url_label = QLabel(result_url[:60] + '...' if len(result_url) > 60 else result_url)
+            url_label.setStyleSheet("color: #2196f3; font-size: 11px;")
+            url_label.setWordWrap(True)
+            info_layout.addWidget(url_label, row, 1)
+            row += 1
+
+        # WebP 图片路径
+        if webp_path:
+            info_layout.addWidget(QLabel("图片路径:"), row, 0)
+            img_label = QLabel(webp_path)
+            img_label.setStyleSheet("color: #FFA726; font-size: 11px;")
+            img_label.setWordWrap(True)
+            info_layout.addWidget(img_label, row, 1)
+
+        info_layout.setColumnStretch(1, 1)
+        top_layout.addWidget(info_widget, 1)
+
+        main_layout.addWidget(top_widget)
+
+        # ==================== 提示词选项卡 ====================
+        result = self.record.get('result', {})
+
+        tab_widget = QTabWidget()
+        tab_widget.setStyleSheet("""
+            QTabWidget::pane {
+                border: none;
+                background: #2d2d2d;
+                border-radius: 8px;
+            }
+            QTabBar::tab {
+                background: #3d3d3d;
+                color: #aaa;
+                padding: 10px 20px;
+                font-size: 14px;
+                border: none;
+                border-top-left-radius: 6px;
+                border-top-right-radius: 6px;
+                margin-right: 2px;
+            }
+            QTabBar::tab:selected {
+                background: #2d2d2d;
+                color: white;
+                font-weight: bold;
+            }
+            QTabBar::tab:hover:!selected {
+                background: #4d4d4d;
+            }
+        """)
+
+        # 计算文本框高度（8行）
+        font_height = 40  # 每行约40px
+        text_height = font_height * 8
+
+        # 创建四个选项卡（无内部复制按钮）
+        tabs_data = [
+            ("中文描述", "CN"),
+            ("英文描述", "EN"),
+            ("中文标签", "CN_tag"),
+            ("英文标签", "EN_tag")
+        ]
+
+        for tab_name, result_key in tabs_data:
+            page = QWidget()
+            page_layout = QVBoxLayout(page)
+            page_layout.setContentsMargins(0, 0, 0, 0)
+
+            text_edit = QTextEdit()
+            text_edit.setReadOnly(True)
+            text_edit.setText(result.get(result_key, ''))
+            text_edit.setFixedHeight(text_height)
+            text_edit.setStyleSheet("""
+                QTextEdit {
+                    background: #1a1a1a;
+                    color: white;
+                    border: none;
+                    border-radius: 8px;
+                    padding: 15px;
+                    font-size: 28px;
+                    line-height: 1.6;
+                }
+                QScrollBar:vertical {
+                    background: #2d2d2d;
+                    width: 10px;
+                    border-radius: 5px;
+                }
+                QScrollBar::handle:vertical {
+                    background: #555;
+                    border-radius: 5px;
+                    min-height: 30px;
+                }
+                QScrollBar::handle:vertical:hover {
+                    background: #666;
+                }
+            """)
+            page_layout.addWidget(text_edit)
+
+            tab_widget.addTab(page, tab_name)
+            # 保存引用以便底部复制按钮使用
+            setattr(self, f'{result_key}_text_edit', text_edit)
+
+        main_layout.addWidget(tab_widget)
+
+        # ==================== 底部按钮栏 ====================
+        button_layout = QHBoxLayout()
+        button_layout.setSpacing(10)
+
+        # 为每个选项卡添加复制按钮
+        for tab_name, result_key in tabs_data:
+            btn = PushButton(f"复制{tab_name}")
+            btn.setFixedHeight(36)
+            btn.clicked.connect(lambda checked, k=result_key, n=tab_name: self.copy_result(k, n))
+            button_layout.addWidget(btn)
+
+        button_layout.addStretch()
+
+        # 导出全部按钮
+        export_all_btn = PrimaryPushButton(FluentIcon.SAVE, "导出全部")
+        export_all_btn.setFixedHeight(36)
+        export_all_btn.clicked.connect(self.export_all)
+        button_layout.addWidget(export_all_btn)
+
+        # 关闭按钮
+        close_btn = PushButton("关闭")
+        close_btn.setFixedHeight(36)
+        close_btn.clicked.connect(self.accept)
+        button_layout.addWidget(close_btn)
+
+        main_layout.addLayout(button_layout)
+
+        # ==================== 设置主布局 ====================
+        # 创建外层容器以支持半透明背景
+        outer_layout = QVBoxLayout(self)
+        outer_layout.setContentsMargins(10, 10, 10, 10)
+        outer_layout.addWidget(main_container)
+
+    def copy_result(self, result_key, tab_name):
+        """复制指定结果到剪贴板"""
+        text_edit = getattr(self, f'{result_key}_text_edit', None)
+        if text_edit:
+            text = text_edit.toPlainText()
+            if text:
+                clipboard = QApplication.clipboard()
+                clipboard.setText(text)
+                # 使用 InfoBar 显示提示（更轻量）
+                QMessageBox.information(self, "成功", f"{tab_name}已复制到剪贴板")
+            else:
+                QMessageBox.warning(self, "提示", "没有可复制的内容")
+
+    def copy_to_clipboard(self, text):
+        """复制到剪贴板（保留兼容性）"""
+        clipboard = QApplication.clipboard()
+        clipboard.setText(text)
+        QMessageBox.information(self, "成功", "已复制到剪贴板")
+
+    def export_all(self):
+        """导出全部结果"""
+        result = self.record.get('result', {})
+        timestamp = self.record.get('timestamp', '').replace(' ', '_').replace(':', '-')
+
+        file_path, _ = QFileDialog.getSaveFileName(
+            self, "导出全部结果",
+            f"vlm_history_{timestamp}.json",
+            "JSON 文件 (*.json);;所有文件 (*)"
+        )
+
+        if file_path:
+            try:
+                export_data = {
+                    "timestamp": self.record.get('timestamp'),
+                    "task_id": self.record.get('task_id'),
+                    "image_type": self.record.get('image_type'),
+                    "image_display": self.record.get('image_display'),
+                    "webp_image_path": self.record.get('webp_image_path', ''),
+                    "result_file_url": self.record.get('result_file_url'),
+                    "local_file_path": self.record.get('local_file_path'),
+                    "result": result
+                }
+                with open(file_path, 'w', encoding='utf-8') as f:
+                    json.dump(export_data, f, indent=4, ensure_ascii=False)
+                QMessageBox.information(self, "成功", f"文件已保存到: {file_path}")
+            except Exception as e:
+                QMessageBox.critical(self, "错误", f"导出失败: {str(e)}")
 
 
 # ==================== 图片提示词生成页面 ====================
@@ -800,6 +1273,12 @@ class ImagePromptPage(SmoothScrollArea):
         self.current_worker = None
         self.current_result = {}
         self.operation_logs = []  # 操作日志列表
+        self.current_webp_path = ""  # 当前保存的 webp 图片路径
+        # 批量处理相关
+        self.batch_files = []  # 批量图片文件列表
+        self.batch_current_index = 0  # 当前处理的索引
+        self.batch_results = []  # 批量处理结果
+        self.is_batch_processing = False  # 是否正在批量处理
         self.init_ui()
 
     def init_ui(self):
@@ -817,6 +1296,20 @@ class ImagePromptPage(SmoothScrollArea):
         title = SubtitleLabel("🖼️ 图片提示词生成")
         title.setFont(QFont("", 16, QFont.Bold))
         top_bar_layout.addWidget(title)
+
+        # 模式选择按钮（移到标题后面）
+        self.single_mode_btn = PushButton("单个")
+        self.batch_mode_btn = PushButton("批量")
+        self.single_mode_btn.setCheckable(True)
+        self.batch_mode_btn.setCheckable(True)
+        self.single_mode_btn.setChecked(True)
+        self.single_mode_btn.setFixedHeight(36)
+        self.batch_mode_btn.setFixedHeight(36)
+        self.single_mode_btn.clicked.connect(lambda: self.switch_to_single_mode())
+        self.batch_mode_btn.clicked.connect(lambda: self.switch_to_batch_mode())
+        top_bar_layout.addWidget(self.single_mode_btn)
+        top_bar_layout.addWidget(self.batch_mode_btn)
+
         top_bar_layout.addStretch()
 
         # 设置按钮
@@ -848,26 +1341,10 @@ class ImagePromptPage(SmoothScrollArea):
         upload_layout.setContentsMargins(15, 15, 15, 15)
         upload_layout.setSpacing(10)
 
-        # 标题和模式选择（横向布局，节省垂直空间）
-        header_layout = QHBoxLayout()
+        # 标题（移除模式选择按钮，已移到顶部）
         upload_title = SubtitleLabel("📤 图片上传")
         upload_title.setFont(QFont("", 13, QFont.Bold))
-        header_layout.addWidget(upload_title)
-        header_layout.addStretch()
-
-        # 模式选择按钮
-        self.single_mode_btn = PushButton("单个")
-        self.batch_mode_btn = PushButton("批量")
-        self.single_mode_btn.setCheckable(True)
-        self.batch_mode_btn.setCheckable(True)
-        self.single_mode_btn.setChecked(True)
-        self.single_mode_btn.setFixedWidth(70)
-        self.batch_mode_btn.setFixedWidth(70)
-        self.single_mode_btn.clicked.connect(lambda: self.switch_to_single_mode())
-        self.batch_mode_btn.clicked.connect(lambda: self.switch_to_batch_mode())
-        header_layout.addWidget(self.single_mode_btn)
-        header_layout.addWidget(self.batch_mode_btn)
-        upload_layout.addLayout(header_layout)
+        upload_layout.addWidget(upload_title)
 
         # 单个图片输入组
         self.single_url_group = QWidget()
@@ -881,9 +1358,11 @@ class ImagePromptPage(SmoothScrollArea):
         self.image_url_edit = LineEdit()
         self.image_url_edit.setPlaceholderText("输入图片 URL...")
         self.image_url_edit.setFixedHeight(32)
+        # 移除最大长度限制（默认 32767 会截断长 Base64 数据）
+        self.image_url_edit.setMaxLength(10 * 1024 * 1024)  # 设置为 10MB
         url_input_layout.addWidget(self.image_url_edit, 1)
         self.select_file_btn = PushButton(FluentIcon.FOLDER, "")
-        self.select_file_btn.setFixedWidth(50)
+        self.select_file_btn.setFixedWidth(80)
         self.select_file_btn.setFixedHeight(32)
         self.select_file_btn.setToolTip("选择本地图片")
         self.select_file_btn.clicked.connect(self.select_local_file)
@@ -907,7 +1386,7 @@ class ImagePromptPage(SmoothScrollArea):
         self.folder_path_edit.setFixedHeight(32)
         folder_input_layout.addWidget(self.folder_path_edit, 1)
         self.select_folder_btn = PushButton(FluentIcon.FOLDER, "")
-        self.select_folder_btn.setFixedWidth(50)
+        self.select_folder_btn.setFixedWidth(80)
         self.select_folder_btn.setFixedHeight(32)
         self.select_folder_btn.setToolTip("选择文件夹")
         self.select_folder_btn.clicked.connect(self.select_folder)
@@ -924,16 +1403,22 @@ class ImagePromptPage(SmoothScrollArea):
         upload_layout.addWidget(self.batch_group)
         self.batch_group.setVisible(False)
 
-        # 图片预览区域（固定高度，支持拖拽）
-        upload_layout.addWidget(QLabel("图片预览 (支持拖拽):"))
+        # 图片预览区域（2:3 竖版比例，支持拖拽）
         self.image_preview_label = DragDropImageLabel()
         self.image_preview_label.setAlignment(Qt.AlignCenter)
-        self.image_preview_label.setFixedHeight(160)
-        self.image_preview_label.setStyleSheet("border: 2px dashed #ccc; border-radius: 8px; background: #f9f9f9;")
+        # 2:3 竖版比例：宽 400，高 600
+        self.image_preview_label.setFixedSize(400, 600)
+        self.image_preview_label.setStyleSheet("border: 2px dashed #ccc; border-radius: 8px; background: #1E1E1E;")
         self.image_preview_label.setText("暂无图片\n\n支持拖拽本地图片或网络 URL\n本地图片自动转换为 base64")
         # 连接拖拽信号
         self.image_preview_label.image_dropped.connect(self.on_image_dropped)
-        upload_layout.addWidget(self.image_preview_label)
+        # 居中显示预览区域
+        preview_container = QWidget()
+        preview_layout = QHBoxLayout(preview_container)
+        preview_layout.addStretch()
+        preview_layout.addWidget(self.image_preview_label)
+        preview_layout.addStretch()
+        upload_layout.addWidget(preview_container)
 
         left_layout.addWidget(upload_card)
 
@@ -987,9 +1472,10 @@ class ImagePromptPage(SmoothScrollArea):
         # 中文描述
         self.cn_page = QWidget()
         cn_layout = QVBoxLayout(self.cn_page)
-        cn_layout.addWidget(QLabel("完整中文描述"))
+        cn_layout.addWidget(QLabel("")) #完整中文描述
         self.cn_edit = QTextEdit()
         self.cn_edit.setReadOnly(True)
+        self.cn_edit.setStyleSheet("font-size: 32px; color: white; background: #2d2d2d; padding: 20px;")
         cn_layout.addWidget(self.cn_edit)
         # 复制/导出按钮移到右下角
         cn_btn_layout = QHBoxLayout()
@@ -1006,9 +1492,10 @@ class ImagePromptPage(SmoothScrollArea):
         # 英文描述
         self.en_page = QWidget()
         en_layout = QVBoxLayout(self.en_page)
-        en_layout.addWidget(QLabel("完整英文描述"))
+        en_layout.addWidget(QLabel("")) #完整英文描述
         self.en_edit = QTextEdit()
         self.en_edit.setReadOnly(True)
+        self.en_edit.setStyleSheet("font-size: 32px; color: white; background: #2d2d2d; padding: 20px;")
         en_layout.addWidget(self.en_edit)
         # 复制/导出按钮移到右下角
         en_btn_layout = QHBoxLayout()
@@ -1025,9 +1512,10 @@ class ImagePromptPage(SmoothScrollArea):
         # 中文Tag
         self.cn_tag_page = QWidget()
         cn_tag_layout = QVBoxLayout(self.cn_tag_page)
-        cn_tag_layout.addWidget(QLabel("中文标签 (逗号分隔)"))
+        cn_tag_layout.addWidget(QLabel("")) #中文标签 (逗号分隔)
         self.cn_tag_edit = QTextEdit()
         self.cn_tag_edit.setReadOnly(True)
+        self.cn_tag_edit.setStyleSheet("font-size: 32px; color: white; background: #2d2d2d; padding: 20px;")
         cn_tag_layout.addWidget(self.cn_tag_edit)
         # 复制/导出按钮移到右下角
         cn_tag_btn_layout = QHBoxLayout()
@@ -1044,9 +1532,10 @@ class ImagePromptPage(SmoothScrollArea):
         # 英文Tag
         self.en_tag_page = QWidget()
         en_tag_layout = QVBoxLayout(self.en_tag_page)
-        en_tag_layout.addWidget(QLabel("英文标签 (逗号分隔)"))
+        en_tag_layout.addWidget(QLabel("")) #英文标签 (逗号分隔)
         self.en_tag_edit = QTextEdit()
         self.en_tag_edit.setReadOnly(True)
+        self.en_tag_edit.setStyleSheet("font-size: 32px; color: white; background: #2d2d2d; padding: 20px;")
         en_tag_layout.addWidget(self.en_tag_edit)
         # 复制/导出按钮移到右下角
         en_tag_btn_layout = QHBoxLayout()
@@ -1063,7 +1552,7 @@ class ImagePromptPage(SmoothScrollArea):
         # 操作日志选项卡
         self.log_page = QWidget()
         log_layout = QVBoxLayout(self.log_page)
-        log_layout.addWidget(QLabel("API 操作日志"))
+        log_layout.addWidget(QLabel("")) #API 操作日志
         self.log_edit = QTextEdit()
         self.log_edit.setReadOnly(True)
         self.log_edit.setStyleSheet("font-family: 'Menlo', 'Monaco', 'Courier New', monospace; font-size: 11px; background: #1e1e1e; color: #d4d4d4;")
@@ -1120,18 +1609,8 @@ class ImagePromptPage(SmoothScrollArea):
             "图片文件 (*.png *.jpg *.jpeg *.gif *.bmp *.webp);;所有文件 (*)"
         )
         if file_path:
-            # 在 URL 输入框中显示文件路径
-            self.image_url_edit.setText(file_path)
-            # 显示预览
-            pixmap = QPixmap(file_path)
-            if not pixmap.isNull():
-                scaled_pixmap = pixmap.scaled(
-                    self.image_preview_label.size(),
-                    Qt.KeepAspectRatio,
-                    Qt.SmoothTransformation
-                )
-                self.image_preview_label.setPixmap(scaled_pixmap)
-                self.image_preview_label.setText("")
+            # 复用拖拽处理逻辑（包含 Base64 转换）
+            self.on_image_dropped(file_path)
 
     def select_folder(self):
         """选择文件夹"""
@@ -1204,7 +1683,9 @@ class ImagePromptPage(SmoothScrollArea):
         template_dict = self.vlm_config.templates.get(default_template, {})
         template = template_dict.get("template", "") if isinstance(template_dict, dict) else ""
 
-        self.add_log(f"开始识别图片: {image_url}")
+        # 简化日志显示：本地图片只显示文件名
+        display_name = self._format_image_url_for_log(image_url)
+        self.add_log(f"开始识别图片: {display_name}")
         self.add_log(f"使用模板: {default_template}")
 
         self.generate_btn.setEnabled(False)
@@ -1216,24 +1697,208 @@ class ImagePromptPage(SmoothScrollArea):
         self.current_worker.time_updated.connect(self.on_time_updated)
         self.current_worker.finished.connect(self.on_recognition_finished)
         self.current_worker.error_occurred.connect(self.on_recognition_error)
+        self.current_worker.log_message.connect(self.add_log)
         self.current_worker.start()
+
+    def _format_image_url_for_log(self, image_url):
+        """格式化图片 URL 用于日志显示"""
+        if image_url.startswith('data:image/'):
+            # Base64 编码的本地图片，提取文件名信息
+            return "[本地图片] base64编码图片"
+        elif image_url.startswith(('http://', 'https://')):
+            # 网络图片，显示完整 URL
+            return f"[网络图片] {image_url}"
+        else:
+            # 本地文件路径
+            filename = os.path.basename(image_url) if image_url else "未知"
+            return f"[本地图片] {filename}"
 
     def process_batch_images(self):
         """处理批量图片"""
-        # TODO: 实现批量处理逻辑
-        QMessageBox.information(self, "提示", "批量处理功能开发中...")
+        if not hasattr(self, 'batch_files') or not self.batch_files:
+            QMessageBox.warning(self, "警告", "请先选择包含图片的文件夹")
+            return
+
+        # 初始化批量处理
+        self.is_batch_processing = True
+        self.batch_current_index = 0
+        self.batch_results = []
+
+        total = len(self.batch_files)
+        self.add_log(f"=" * 60)
+        self.add_log(f"🚀 开始批量处理：共 {total} 张图片")
+        self.add_log(f"=" * 60)
+
+        # 禁用生成按钮
+        self.generate_btn.setEnabled(False)
+        self.generate_btn.setText("批量处理中...")
+
+        # 开始处理第一张
+        self.process_next_batch_image()
+
+    def process_next_batch_image(self):
+        """处理下一张批量图片"""
+        # 检查是否还有图片需要处理
+        if self.batch_current_index >= len(self.batch_files):
+            # 批量处理完成
+            self.batch_processing_complete()
+            return
+
+        # 获取当前图片
+        current_file = self.batch_files[self.batch_current_index]
+        total = len(self.batch_files)
+        current_num = self.batch_current_index + 1
+
+        self.add_log(f"\n[{current_num}/{total}] 处理图片: {os.path.basename(current_file)}")
+
+        # 处理图片（转换为 webp 并获取 data URL）
+        try:
+            # 使用图片处理逻辑
+            self._process_local_image(current_file)
+
+            # 等待图片处理完成后启动识别
+            # 由于 _process_local_image 是异步的，我们需要等待它完成
+            # 使用 QTimer 延迟启动识别
+            QTimer.singleShot(500, lambda: self.start_batch_recognition())
+
+        except Exception as e:
+            self.add_log(f"❌ 处理图片失败: {str(e)}")
+            # 跳过当前图片，处理下一张
+            self.batch_current_index += 1
+            QTimer.singleShot(100, self.process_next_batch_image)
+
+    def start_batch_recognition(self):
+        """启动批量图片识别"""
+        # 检查是否有 data URL
+        image_url = self.image_url_edit.text().strip()
+        if not image_url or not image_url.startswith('data:image/'):
+            self.add_log(f"⚠️ 图片未正确处理，跳过")
+            self.batch_current_index += 1
+            QTimer.singleShot(100, self.process_next_batch_image)
+            return
+
+        # 获取模板
+        default_template = self.vlm_config.get("default_template", "default")
+        template_dict = self.vlm_config.templates.get(default_template, {})
+        template = template_dict.get("template", "") if isinstance(template_dict, dict) else ""
+
+        # 更新进度
+        total = len(self.batch_files)
+        current_num = self.batch_current_index + 1
+        self.progress_bar.setRange(0, total)
+        self.progress_bar.setValue(current_num - 1)
+        self.status_label.setText(f"批量处理中: {current_num}/{total}")
+
+        # 启动识别线程
+        self.current_worker = VLMImageWorker(image_url, self.vlm_config, template)
+        self.current_worker.progress_updated.connect(self.on_batch_progress_updated)
+        self.current_worker.time_updated.connect(self.on_time_updated)
+        self.current_worker.finished.connect(self.on_batch_recognition_finished)
+        self.current_worker.error_occurred.connect(self.on_batch_recognition_error)
+        self.current_worker.log_message.connect(self.add_log)
+        self.current_worker.start()
+
+    def on_batch_progress_updated(self, msg):
+        """批量处理进度更新"""
+        current_num = self.batch_current_index + 1
+        total = len(self.batch_files)
+        self.status_label.setText(f"批量处理中: {current_num}/{total} - {msg}")
+
+    def on_batch_recognition_finished(self, success, result, image_url, task_id, result_file_url, local_file_path):
+        """批量识别完成"""
+        current_num = self.batch_current_index + 1
+        total = len(self.batch_files)
+
+        if success:
+            # 保存结果
+            self.batch_results.append({
+                'index': current_num,
+                'file': self.batch_files[self.batch_current_index],
+                'result': result,
+                'task_id': task_id,
+                'result_file_url': result_file_url,
+                'local_file_path': local_file_path,
+                'webp_path': getattr(self, 'current_webp_path', '')
+            })
+
+            # 添加到历史记录
+            self.vlm_history.add_record(
+                image_url=image_url,
+                result=result,
+                task_id=task_id,
+                result_file_url=result_file_url,
+                local_file_path=local_file_path,
+                webp_image_path=getattr(self, 'current_webp_path', '')
+            )
+
+            self.add_log(f"✅ [{current_num}/{total}] 识别成功！")
+            self.add_log(f"  任务ID: {task_id}")
+
+            # 更新结果显示最后一个成功的结果
+            self.current_result = result
+            self.cn_edit.setText(result.get("CN", ""))
+            self.en_edit.setText(result.get("EN", ""))
+            self.cn_tag_edit.setText(result.get("CN_tag", ""))
+            self.en_tag_edit.setText(result.get("EN_tag", ""))
+        else:
+            self.add_log(f"❌ [{current_num}/{total}] 识别失败")
+
+        # 清空 webp 路径
+        self.current_webp_path = ""
+
+        # 移动到下一张图片
+        self.batch_current_index += 1
+
+        # 延迟处理下一张（避免过快）
+        from PyQt5.QtCore import QTimer
+        QTimer.singleShot(1000, self.process_next_batch_image)
+
+    def on_batch_recognition_error(self, error_msg):
+        """批量识别错误"""
+        current_num = self.batch_current_index + 1
+        total = len(self.batch_files)
+        self.add_log(f"❌ [{current_num}/{total}] 识别错误: {error_msg}")
+
+    def batch_processing_complete(self):
+        """批量处理完成"""
+        self.is_batch_processing = False
+        self.generate_btn.setEnabled(True)
+        self.generate_btn.setText("开始识别")
+        self.progress_bar.setRange(0, 100)
+        self.progress_bar.setValue(100)
+        self.status_label.setText("批量处理完成")
+
+        total = len(self.batch_files)
+        success_count = len(self.batch_results)
+
+        self.add_log(f"=" * 60)
+        self.add_log(f"🎉 批量处理完成！")
+        self.add_log(f"  总数: {total}")
+        self.add_log(f"  成功: {success_count}")
+        self.add_log(f"  失败: {total - success_count}")
+        self.add_log(f"=" * 60)
+
+        QMessageBox.information(
+            self, "批量处理完成",
+            f"批量处理完成！\n\n总数: {total}\n成功: {success_count}\n失败: {total - success_count}"
+        )
 
     def on_progress_updated(self, msg):
         """更新进度"""
-        self.status_label.setText(msg)
-        self.add_log(f"进度: {msg}")
+        if not self.is_batch_processing:
+            self.status_label.setText(msg)
+            self.add_log(f"进度: {msg}")
 
     def on_time_updated(self, time_str):
         """更新运行时间"""
         self.time_label.setText(time_str)
 
-    def on_recognition_finished(self, success, result, image_url):
-        """识别完成"""
+    def on_recognition_finished(self, success, result, image_url, task_id, result_file_url, local_file_path):
+        """识别完成（单个模式）"""
+        # 如果是批量处理模式，不执行这里的逻辑
+        if self.is_batch_processing:
+            return
+
         self.generate_btn.setEnabled(True)
         self.progress_bar.setRange(0, 100)
         self.progress_bar.setValue(100 if success else 0)
@@ -1245,17 +1910,30 @@ class ImagePromptPage(SmoothScrollArea):
             self.cn_tag_edit.setText(result.get("CN_tag", ""))
             self.en_tag_edit.setText(result.get("EN_tag", ""))
 
-            # 添加到历史记录
-            self.vlm_history.add_record(image_url, result)
+            # 添加到历史记录（包含 webp 图片路径）
+            self.vlm_history.add_record(
+                image_url=image_url,
+                result=result,
+                task_id=task_id,
+                result_file_url=result_file_url,
+                local_file_path=local_file_path,
+                webp_image_path=getattr(self, 'current_webp_path', '')
+            )
 
             # 记录日志
-            self.add_log(f"识别成功！结果预览:")
+            self.add_log(f"✅ 识别成功！")
+            self.add_log(f"  任务ID: {task_id}")
+            self.add_log(f"  结果文件: {local_file_path}")
+            self.add_log(f"  WebP图片: {self.current_webp_path if hasattr(self, 'current_webp_path') else 'N/A'}")
             self.add_log(f"  CN: {result.get('CN', '')[:50]}...")
             self.add_log(f"  EN: {result.get('EN', '')[:50]}...")
 
+            # 清空 webp 路径（避免重复使用）
+            self.current_webp_path = ""
+
             QMessageBox.information(self, "成功", "识别完成！")
         else:
-            self.add_log(f"识别失败: {image_url}")
+            self.add_log(f"❌ 识别失败")
             QMessageBox.critical(self, "错误", "识别失败")
 
     def on_recognition_error(self, error_msg):
@@ -1298,55 +1976,187 @@ class ImagePromptPage(SmoothScrollArea):
         """处理图片拖拽事件"""
         # 判断是网络URL还是本地路径
         if path_or_url.startswith(('http://', 'https://')):
-            # 网络URL - 直接使用
-            self.image_url_edit.setText(path_or_url)
-            self.image_preview_label.setText(f"✓ 网络图片:\n{path_or_url}")
-            self.add_log(f"拖拽网络图片URL: {path_or_url}")
+            # 网络URL - 需要下载并转换为 webp
+            self._process_network_image(path_or_url)
         else:
-            # 本地文件路径 - 转换为 base64 data URL
-            abs_path = os.path.abspath(path_or_url)
-            self.add_log(f"拖拽本地图片，正在转换为 base64...")
+            # 本地文件路径 - 转换为 webp 并保存
+            self._process_local_image(path_or_url)
 
-            # 确定图片 MIME 类型
-            ext = os.path.splitext(abs_path)[1].lower()
-            mime_map = {
-                '.png': 'image/png',
-                '.jpg': 'image/jpeg',
-                '.jpeg': 'image/jpeg',
-                '.gif': 'image/gif',
-                '.bmp': 'image/bmp',
-                '.webp': 'image/webp'
-            }
-            mime_type = mime_map.get(ext, 'image/png')
+    def _process_network_image(self, url):
+        """处理网络图片：下载并转换为 webp"""
+        self.add_log(f"拖拽网络图片: {url}")
 
-            try:
-                # 读取图片文件并转换为 base64
-                with open(abs_path, 'rb') as f:
-                    image_data = f.read()
-                    base64_data = base64.b64encode(image_data).decode('utf-8')
+        try:
+            # 下载图片
+            self.add_log(f"正在下载网络图片...")
+            response = requests.get(url, timeout=30)
+            response.raise_for_status()
 
-                # 创建 data URL
-                data_url = f"data:{mime_type};base64,{base64_data}"
+            # 从响应中获取图片数据
+            image_data = response.content
+            self.add_log(f"  下载大小: {len(image_data)} 字节 ({len(image_data) / 1024:.2f} KB)")
 
-                # 显示预览
-                pixmap = QPixmap(abs_path)
-                if not pixmap.isNull():
-                    scaled_pixmap = pixmap.scaled(
-                        self.image_preview_label.size(),
-                        Qt.KeepAspectRatio,
-                        Qt.SmoothTransformation
-                    )
-                    self.image_preview_label.setPixmap(scaled_pixmap)
-                    self.image_preview_label.setText("")
+            # 使用 Pillow 打开图片
+            img = Image.open(BytesIO(image_data))
+            self.add_log(f"  图片尺寸: {img.size[0]}x{img.size[1]}")
 
-                # 将 data URL 设置到输入框
-                self.image_url_edit.setText(data_url)
-                self.add_log(f"本地图片已转换为 base64 data URL (大小: {len(image_data)} 字节)")
+            # 转换为 webp 并保存
+            self._save_as_webp(img, url, is_network=True)
 
-            except Exception as e:
-                self.image_preview_label.setText(f"❌ 转换失败:\n{str(e)}")
-                self.add_log(f"转换失败: {str(e)}")
-                QMessageBox.critical(self, "错误", f"无法读取图片文件:\n{str(e)}")
+        except Exception as e:
+            self.image_preview_label.setText(f"❌ 下载失败:\n{str(e)}")
+            self.add_log(f"❌ 下载网络图片失败: {str(e)}")
+            QMessageBox.critical(self, "错误", f"无法下载网络图片:\n{str(e)}")
+
+    def _process_local_image(self, path_or_url):
+        """处理本地图片：转换为 webp 并保存"""
+        abs_path = os.path.abspath(path_or_url)
+        filename = os.path.basename(abs_path)
+        file_size = os.path.getsize(abs_path)
+
+        self.add_log(f"拖拽本地图片: {filename}")
+        self.add_log(f"文件路径: {abs_path}")
+        self.add_log(f"文件大小: {file_size} 字节 ({file_size / 1024:.2f} KB)")
+
+        # 检查文件大小（建议限制在 5MB 以内）
+        if file_size > 5 * 1024 * 1024:
+            reply = QMessageBox.question(
+                self, "文件过大警告",
+                f"图片文件较大 ({file_size / 1024 / 1024:.2f} MB)\n\n"
+                f"建议：\n"
+                f"• 压缩图片后再试\n"
+                f"• 或使用网络图片 URL\n\n"
+                f"是否继续转换？",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No
+            )
+            if reply == QMessageBox.No:
+                self.add_log(f"❌ 用户取消转换（文件过大）")
+                return
+
+        try:
+            # 使用 Pillow 打开图片
+            self.add_log(f"正在使用 Pillow 处理图片...")
+            img = Image.open(abs_path)
+
+            # 获取原始图片信息
+            original_format = img.format or "UNKNOWN"
+            original_size = os.path.getsize(abs_path)
+            self.add_log(f"  原始格式: {original_format}")
+            self.add_log(f"  原始大小: {original_size} 字节 ({original_size / 1024:.2f} KB)")
+
+            # 转换为 webp 并保存
+            self._save_as_webp(img, abs_path, is_network=False)
+
+        except Exception as e:
+            self.image_preview_label.setText(f"❌ 转换失败:\n{str(e)}")
+            self.add_log(f"❌ 转换失败: {str(e)}")
+            self.add_log(f"  错误类型: {type(e).__name__}")
+            QMessageBox.critical(self, "错误", f"无法处理图片文件:\n{str(e)}")
+
+    def _save_as_webp(self, img, source_path, is_network=False):
+        """将图片转换为 webp 并保存到 output/up/ 文件夹
+
+        Args:
+            img: PIL Image 对象
+            source_path: 源路径（本地路径或网络URL）
+            is_network: 是否为网络图片
+        """
+        # 确保 output/up/ 目录存在
+        output_dir = os.path.join("output", "up")
+        os.makedirs(output_dir, exist_ok=True)
+
+        # 生成时间戳文件名
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S_%f')[:-3]  # 精确到毫秒
+        webp_filename = f"{timestamp}.webp"
+        webp_path = os.path.join(output_dir, webp_filename)
+        webp_abs_path = os.path.abspath(webp_path)
+
+        self.add_log(f"正在转换为 WebP 格式...")
+
+        # 获取原始图片信息
+        original_size = len(img.tobytes()) if hasattr(img, 'tobytes') else 0
+
+        # 转换为 RGB 模式（WebP 不支持 RGBA）
+        if img.mode in ('RGBA', 'LA', 'P'):
+            # 创建白色背景
+            background = Image.new('RGB', img.size, (255, 255, 255))
+            if img.mode == 'P':
+                img = img.convert('RGBA')
+            if img.mode in ('RGBA', 'LA'):
+                background.paste(img, mask=img.split()[-1] if img.mode == 'RGBA' else None)
+                img = background
+            else:
+                img = img.convert('RGB')
+        elif img.mode != 'RGB':
+            img = img.convert('RGB')
+
+        # 保存为 WebP 格式（95% 画质）
+        img.save(webp_abs_path, format='WebP', quality=95, method=6)
+
+        # 获取保存后的大小
+        webp_size = os.path.getsize(webp_abs_path)
+
+        # 计算压缩率
+        if original_size > 0:
+            compression_ratio = (1 - webp_size / original_size) * 100
+        else:
+            compression_ratio = 0
+
+        self.add_log(f"  保存格式: WebP (quality=95, method=6)")
+        self.add_log(f"  保存路径: {webp_abs_path}")
+        self.add_log(f"  保存大小: {webp_size} 字节 ({webp_size / 1024:.2f} KB)")
+        if compression_ratio != 0:
+            self.add_log(f"  压缩率: {compression_ratio:.1f}%")
+
+        # 读取 webp 文件并转换为 base64
+        with open(webp_abs_path, 'rb') as f:
+            webp_data = f.read()
+
+        base64_data = base64.b64encode(webp_data).decode('utf-8')
+
+        # 验证 Base64 长度（必须是 4 的倍数，否则需要填充）
+        base64_length = len(base64_data)
+        padding_needed = (4 - base64_length % 4) % 4
+        if padding_needed > 0:
+            self.add_log(f"⚠️ Base64 数据需要填充 {padding_needed} 个字符")
+            base64_data += '=' * padding_needed
+
+        # 创建 data URL
+        data_url = f"data:image/webp;base64,{base64_data}"
+
+        # 显示预览
+        pixmap = QPixmap(webp_abs_path)
+        if not pixmap.isNull():
+            scaled_pixmap = pixmap.scaled(
+                self.image_preview_label.size(),
+                Qt.KeepAspectRatio,
+                Qt.SmoothTransformation
+            )
+            self.image_preview_label.setPixmap(scaled_pixmap)
+            self.image_preview_label.setText("")
+
+        # 将 data URL 设置到输入框
+        self.image_url_edit.setText(data_url)
+
+        # 保存 webp 路径到实例变量（用于历史记录）
+        self.current_webp_path = webp_abs_path
+
+        source_type = "网络图片" if is_network else "本地图片"
+        source_display = source_path if is_network else os.path.basename(source_path)
+
+        self.add_log(f"✅ {source_type}已处理并保存")
+        self.add_log(f"  源文件: {source_display}")
+        self.add_log(f"  MIME类型: image/webp")
+        self.add_log(f"  Base64长度: {len(base64_data)} 字符 ({len(base64_data) / 1024:.2f} KB)")
+        self.add_log(f"  总URL长度: {len(data_url)} 字符 ({len(data_url) / 1024:.2f} KB)")
+
+        # 检查最终 Base64 长度是否正确
+        final_base64 = data_url.split(',', 1)[1]  # 提取 base64 部分
+        if len(final_base64) % 4 != 0:
+            self.add_log(f"❌ 警告: Base64 长度 ({len(final_base64)}) 不是 4 的倍数!")
+        else:
+            self.add_log(f"✅ Base64 长度验证通过")
 
     def add_log(self, message):
         """添加操作日志"""

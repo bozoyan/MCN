@@ -2904,70 +2904,19 @@ class MainWindow(FluentWindow):
             NavigationItemPosition.TOP
         )
 
-        # 添加图片提示词生成器（点击启动独立程序）
-        class PromptLauncherPage(QWidget):
-            """图片提示词生成器启动页面（自动启动）"""
-            def __init__(self, parent_window):
-                super().__init__()
-                self.parent_window = parent_window
-                self._launched = False
-
-            def showEvent(self, event):
-                """页面显示时自动启动程序"""
-                super().showEvent(event)
-                if not self._launched:
-                    self._launched = True
-                    # 延迟启动，让界面先刷新
-                    from PyQt5.QtCore import QTimer
-                    QTimer.singleShot(100, self.launch_app)
-                    # 启动后立即切换回首页
-                    QTimer.singleShot(300, lambda: self.parent_window.switchTo(self.parent_window.home_page))
-
-            def launch_app(self):
-                """启动图片提示词生成器独立程序"""
-                try:
-                    import subprocess
-                    prompt_path = os.path.join(os.path.dirname(__file__), "prompt.py")
-                    if os.path.exists(prompt_path):
-                        subprocess.Popen([sys.executable, prompt_path])
-                        InfoBar.success(
-                            title="启动成功",
-                            content="图片提示词生成器已在新窗口启动",
-                            orient=Qt.Horizontal,
-                            isClosable=True,
-                            position=InfoBarPosition.TOP,
-                            duration=3000,
-                            parent=self.parent_window
-                        )
-                    else:
-                        InfoBar.error(
-                            title="文件不存在",
-                            content=f"未找到 prompt.py 文件: {prompt_path}",
-                            orient=Qt.Horizontal,
-                            isClosable=True,
-                            position=InfoBarPosition.TOP,
-                            duration=5000,
-                            parent=self.parent_window
-                        )
-                except Exception as e:
-                    InfoBar.error(
-                        title="启动失败",
-                        content=f"无法启动图片提示词生成器: {str(e)}",
-                        orient=Qt.Horizontal,
-                        isClosable=True,
-                        position=InfoBarPosition.TOP,
-                        duration=5000,
-                        parent=self.parent_window
-                    )
-
-        self.prompt_launcher_page = PromptLauncherPage(self)
-        self.prompt_launcher_page.setObjectName("prompt_launcher_page")
-        self.addSubInterface(
-            self.prompt_launcher_page,
-            FluentIcon.PHOTO,
-            "图片提示词",
-            NavigationItemPosition.TOP
-        )
+        # 添加图片提示词生成器页面
+        try:
+            from prompt import ImagePromptPage
+            self.image_prompt_page = ImagePromptPage(self)
+            self.image_prompt_page.setObjectName("image_prompt_page")
+            self.addSubInterface(
+                self.image_prompt_page,
+                FluentIcon.PHOTO,
+                "图片提示词",
+                NavigationItemPosition.TOP
+            )
+        except ImportError as e:
+            print(f"无法导入图片提示词生成模块: {e}")
 
         self.storyboard_page = StoryboardPage(self)
         self.storyboard_page.setObjectName("storyboard_page")
@@ -3424,3 +3373,7 @@ def main():
     window.show()
 
     sys.exit(app.exec_())
+
+
+if __name__ == "__main__":
+    main()
