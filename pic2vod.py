@@ -1497,13 +1497,14 @@ class TaskStatusCard(CardWidget):
 class VideoResultCard(CardWidget):
     """视频结果展示卡片 (优化版本，用于展示已完成任务)"""
 
-    def __init__(self, video_data, task_id, parent=None):
+    def __init__(self, video_data, task_id, parent=None, elapsed_time=""):
         super().__init__(parent)
         self.video_data = video_data
         self.task_id = task_id
         self.parent = parent
         self.local_video_path = None # 用于存储本地下载路径
         self.completion_time = video_data.get('timestamp', '')  # 获取完成时间
+        self.elapsed_time = elapsed_time  # 任务执行耗时时间
         self.is_visible = True  # 控制卡片可见性
         self.init_ui()
 
@@ -1513,48 +1514,76 @@ class VideoResultCard(CardWidget):
 
     def init_ui(self):
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(15, 15, 15, 15)
-        layout.setSpacing(10)
+        layout.setContentsMargins(15, 12, 15, 12)
+        layout.setSpacing(8)
 
-        # 任务标题、状态和控制按钮
-        header_layout = QHBoxLayout()
+        # === 第一行：标题、尺寸、帧数、耗时时间、隐藏按钮 ===
+        # 这一行在卡片隐藏时保持可见
+        first_row_layout = QHBoxLayout()
+
+        # 任务标题
         title_label = StrongBodyLabel(f"{self.video_data.get('task_name', f'任务_{self.task_id}')}")
-        title_label.setStyleSheet("font-size: 14px; font-weight: bold; color: #ffffff;background-color: #3c3c3c;")
-        header_layout.addWidget(title_label)
+        title_label.setStyleSheet("font-size: 14px; font-weight: bold; color: #ffffff;")
+        first_row_layout.addWidget(title_label)
 
-        header_layout.addStretch()
+        first_row_layout.addSpacing(15)
+
+        # 尺寸
+        size_label = CaptionLabel(f"{self.video_data.get('width', 480)}×{self.video_data.get('height', 854)}")
+        size_label.setStyleSheet("color: #cccccc; font-size: 12px;")
+        first_row_layout.addWidget(size_label)
+
+        first_row_layout.addSpacing(15)
+
+        # 帧数
+        frames_label = CaptionLabel(f"{self.video_data.get('num_frames', 81)}帧")
+        frames_label.setStyleSheet("color: #cccccc; font-size: 12px;")
+        first_row_layout.addWidget(frames_label)
+
+        first_row_layout.addSpacing(15)
+
+        # 耗时时间
+        elapsed_time_label = CaptionLabel(f"⏱ {self.elapsed_time}" if self.elapsed_time else "")
+        elapsed_time_label.setStyleSheet("color: #4a90e2; font-size: 12px;")
+        first_row_layout.addWidget(elapsed_time_label)
+
+        first_row_layout.addStretch()
 
         # 隐藏按钮
         self.hide_btn = QPushButton("👁")
-        self.hide_btn.setFixedSize(24, 24)
+        self.hide_btn.setFixedSize(28, 24)
         self.hide_btn.setStyleSheet("""
             QPushButton {
-                background-color: transparent;
-                border: none;
-                border-radius: 12px;
+                background-color: #3a3a3a;
+                border: 1px solid #505050;
+                border-radius: 4px;
                 color: #888888;
-                font-size: 14px;
+                font-size: 12px;
                 padding: 0;
             }
             QPushButton:hover {
-                background-color: #404040;
+                background-color: #4a4a4a;
                 color: #ffffff;
             }
             QPushButton:pressed {
                 background-color: #505050;
             }
         """)
-        self.hide_btn.setToolTip("隐藏/显示任务卡片")
+        self.hide_btn.setToolTip("缩小/展开任务卡片")
         self.hide_btn.clicked.connect(self.toggle_visibility)
-        header_layout.addWidget(self.hide_btn)
+        first_row_layout.addWidget(self.hide_btn)
 
-        # 状态和时间标签容器
-        status_time_layout = QVBoxLayout()
-        status_time_layout.setSpacing(2)
+        layout.addLayout(first_row_layout)
+
+        # === 第二行：下载状态和完成时间 ===
+        status_time_layout = QHBoxLayout()
+        status_time_layout.setSpacing(10)
 
         self.download_status_label = QLabel("正在下载...")
         self.download_status_label.setStyleSheet("color: #f39c12; font-size: 12px; font-weight: bold;")
         status_time_layout.addWidget(self.download_status_label)
+
+        status_time_layout.addStretch()
 
         # 完成时间标签
         self.completion_time_label = QLabel("")
@@ -1570,41 +1599,23 @@ class VideoResultCard(CardWidget):
                 self.completion_time_label.setText(f"完成时间: {self.completion_time}")
         status_time_layout.addWidget(self.completion_time_label)
 
-        header_layout.addLayout(status_time_layout)
-        layout.addLayout(header_layout)
+        layout.addLayout(status_time_layout)
 
-        # 视频信息
-        info_layout = QHBoxLayout()
-
-        size_label = CaptionLabel(f"尺寸: {self.video_data.get('width', 480)}×{self.video_data.get('height', 854)}")
-        size_label.setStyleSheet("color: #cccccc; font-size: 12px;background-color: #3c3c3c;")
-        info_layout.addWidget(size_label)
-
-        info_layout.addSpacing(15)
-
-        frames_label = CaptionLabel(f"帧数: {self.video_data.get('num_frames', 81)}帧")
-        frames_label.setStyleSheet("color: #cccccc; font-size: 12px;background-color: #3c3c3c;")
-        info_layout.addWidget(frames_label)
-
-        info_layout.addStretch()
-
-        layout.addLayout(info_layout)
-        
-        # 提示词
+        # === 第三行：提示词 ===
         prompt_text = self.video_data.get('prompt', '')
         if prompt_text:
             prompt_preview = prompt_text[:120] + "..." if len(prompt_text) > 80 else prompt_text
-            prompt_label = CaptionLabel(f"提示词: {prompt_preview}")
-            prompt_label.setStyleSheet("color: #888888; font-size: 11px; background-color: #3c3c3c;")
-            prompt_label.setWordWrap(True)
-            layout.addWidget(prompt_label)
+            self.prompt_label = CaptionLabel(f"提示词: {prompt_preview}")
+            self.prompt_label.setStyleSheet("color: #888888; font-size: 11px;")
+            self.prompt_label.setWordWrap(True)
+            layout.addWidget(self.prompt_label)
 
-        # 操作按钮和URL展示区域
+        # === 第四行：操作按钮和URL展示区域 ===
         button_url_layout = QHBoxLayout()
 
         # 按钮组
         button_group = QVBoxLayout()
-        
+
         self.view_btn = PushButton("本地播放")
         self.view_btn.setFixedSize(80, 30)
         self.view_btn.clicked.connect(self.view_video)
@@ -1635,7 +1646,7 @@ class VideoResultCard(CardWidget):
         """)
         self.url_text_label.setMaximumHeight(80) # 限制高度
         button_url_layout.addWidget(self.url_text_label)
-        
+
         layout.addLayout(button_url_layout)
 
         # 设置卡片样式
@@ -1748,9 +1759,9 @@ class VideoResultCard(CardWidget):
         self.is_visible = not self.is_visible
 
         if self.is_visible:
-            # 恢复显示所有内容
+            # 展开卡片：显示所有内容
             self.hide_btn.setText("👁")
-            self.hide_btn.setToolTip("隐藏任务卡片")
+            self.hide_btn.setToolTip("缩小任务卡片")
             # 清除固定尺寸限制，恢复弹性大小
             self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
             # 使用最小/最大尺寸来清除固定尺寸
@@ -1759,12 +1770,19 @@ class VideoResultCard(CardWidget):
             # 显示所有子控件
             for i in range(self.layout().count()):
                 item = self.layout().itemAt(i)
-                if item and item.widget():
-                    item.widget().show()
+                if item:
+                    if item.widget():
+                        item.widget().show()
+                    elif item.layout():
+                        # 显示布局中的所有子项
+                        for j in range(item.layout().count()):
+                            sub_item = item.layout().itemAt(j)
+                            if sub_item and sub_item.widget():
+                                sub_item.widget().show()
             # 恢复原始样式
             self.setStyleSheet("""
                 VideoResultCard {
-                    background-color: #3C3C3C;
+                    background-color: #2a2a2a;
                     border: 1px solid #404040;
                     border-radius: 8px;
                     margin: 5px;
@@ -1774,35 +1792,30 @@ class VideoResultCard(CardWidget):
                 }
             """)
         else:
-            # 隐藏卡片内容，只保留标题栏和隐藏按钮
+            # 收缩卡片：只显示第一行（标题、尺寸、帧数、耗时、隐藏按钮）
             self.hide_btn.setText("👁‍🗨")
-            self.hide_btn.setToolTip("显示任务卡片")
-            # 设置固定高度，只显示标题栏
+            self.hide_btn.setToolTip("展开任务卡片")
+            # 设置固定高度，确保第一行内容完整显示
+            # 考虑到字体大小（14px标题 + 12px信息）和 padding（上下各12px），需要足够的高度
             current_width = self.width() if self.width() > 0 else 300
-            self.setFixedSize(current_width, 50)
+            self.setFixedSize(current_width, 75)
 
-            # 只保留 header_layout 的显示，隐藏其他内容
-            header_layout = self.layout().itemAt(0).layout() if self.layout().count() > 0 else None
-            if header_layout:
-                # 保留标题和隐藏按钮
-                for i in range(header_layout.count()):
-                    item = header_layout.itemAt(i)
-                    if item and item.widget():
-                        if item.widget() in [self.hide_btn]:
-                            item.widget().show()
-                        elif isinstance(item.widget(), QLabel) and "任务_" in item.widget().text():
-                            # 调整标题样式以适应小尺寸
-                            title_widget = item.widget()
-                            title_widget.setStyleSheet("font-size: 12px; font-weight: bold; color: #ffffff;")
-                            title_widget.show()
-                        else:
-                            item.widget().hide()
-
-            # 隐藏其他布局
+            # 隐藏除第一行外的所有内容
+            # layout().itemAt(0) 是 first_row_layout，需要保留
+            # layout().itemAt(1) 是 status_time_layout，需要隐藏
+            # layout().itemAt(2) 是 prompt_label，需要隐藏
+            # layout().itemAt(3) 是 button_url_layout，需要隐藏
             for i in range(1, self.layout().count()):
                 item = self.layout().itemAt(i)
-                if item and item.widget():
-                    item.widget().hide()
+                if item:
+                    if item.widget():
+                        item.widget().hide()
+                    elif item.layout():
+                        # 隐藏布局中的所有子项
+                        for j in range(item.layout().count()):
+                            sub_item = item.layout().itemAt(j)
+                            if sub_item and sub_item.widget():
+                                sub_item.widget().hide()
 
             # 设置简化样式
             self.setStyleSheet("""
@@ -3428,7 +3441,13 @@ class VideoGenerationWidget(QWidget):
         if success:
             self.add_log(f"✅ [{task_id}] 任务完成: {message}")
             self.complete_task_status_card(task_id, True, message)
-            self.create_video_result_card(result_data, task_id)
+
+            # 从 TaskStatusCard 获取执行时间并传递给 VideoResultCard
+            elapsed_time = ""
+            if task_id in self.task_status_cards:
+                elapsed_time = self.task_status_cards[task_id].time_string
+
+            self.create_video_result_card(result_data, task_id, elapsed_time)
         else:
             self.add_log(f"❌ [{task_id}] 任务失败: {message}")
             self.complete_task_status_card(task_id, False, message)
@@ -3449,11 +3468,11 @@ class VideoGenerationWidget(QWidget):
         self.add_log("🎉 所有并发任务已完成！")
         self.refresh_task_videos() # 刷新缩略图
 
-    def create_video_result_card(self, result_data, task_id):
+    def create_video_result_card(self, result_data, task_id, elapsed_time=""):
         """创建视频结果卡片（添加到响应结果选项卡）"""
         try:
             # 将结果卡片添加到"响应结果"选项卡，而不是"任务状态"选项卡
-            card = VideoResultCard(result_data, task_id, self)
+            card = VideoResultCard(result_data, task_id, self, elapsed_time)
             # 使用 results_scroll_layout 而不是 video_scroll_layout
             self.results_scroll_layout.insertWidget(self.results_scroll_layout.count() - 1, card)
         except Exception as e:
