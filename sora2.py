@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Sora2 Video Generation Module (sora2) - Based on BizyAir API
-Supports both text-to-video and image-to-video modes
+Sora2视频生成模块（sora2）——基于BizyAir API
+支持文本转视频和图像转视频两种模式
 """
 
 import os
@@ -104,6 +104,144 @@ class Utils:
         except Exception as e:
             Utils.log_message(f"Compression failed, using original: {str(e)}", log_updated_signal)
             return image_data
+
+# ==================== Video Utils ====================
+class VideoUtils:
+    """视频处理工具类"""
+
+    @staticmethod
+    def extract_filename_from_url(url):
+        """从视频 URL 中提取文件名"""
+        import re
+        from datetime import datetime
+
+        filename_match = re.search(r'/([^/]+\.mp4)', url)
+        if filename_match:
+            return filename_match.group(1)
+        else:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            return f"sora2_video_{timestamp}.mp4"
+
+    @staticmethod
+    def get_local_video_path(url, output_dir="output"):
+        """获取视频本地存储路径"""
+        import os
+
+        # 确保 output 目录存在
+        if not os.path.exists(output_dir):
+            os.makedirs(output_dir)
+
+        filename = VideoUtils.extract_filename_from_url(url)
+        return os.path.join(output_dir, filename)
+
+    @staticmethod
+    def open_video_file(local_path):
+        """跨平台打开视频文件"""
+        import platform
+        import subprocess
+
+        try:
+            if platform.system() == 'Darwin':  # macOS
+                subprocess.run(['open', local_path])
+            elif platform.system() == 'Windows':
+                os.startfile(local_path)
+            else:  # Linux
+                subprocess.run(['xdg-open', local_path])
+            return True, None
+        except Exception as e:
+            return False, str(e)
+
+    @staticmethod
+    def check_local_file_exists(local_path):
+        """检查本地文件是否存在且有效"""
+        import os
+
+        return os.path.exists(local_path) and os.path.getsize(local_path) > 0
+
+# ==================== Play Video Mixin ====================
+class PlayVideoMixin:
+    """视频播放功能混入类，提供统一的播放逻辑
+
+    使用方式：
+        class MyWidget(QWidget, PlayVideoMixin):
+            def __init__(self):
+                super().__init__()
+                # 可以直接使用 self.play_video(url)
+
+    子类需要实现的方法：
+        - show_success_message(title, content): 显示成功消息
+        - show_info_message(title, content): 显示信息消息
+        - show_error_message(title, content): 显示错误消息
+        - get_video_download_finished_callback(): 返回下载完成的回调函数
+    """
+
+    def play_video(self, url):
+        """播放视频（优先使用本地已下载的文件）
+
+        Args:
+            url: 视频 URL
+        """
+        local_path = VideoUtils.get_local_video_path(url)
+
+        # 检查本地是否已有该文件
+        if VideoUtils.check_local_file_exists(local_path):
+            filename = VideoUtils.extract_filename_from_url(url)
+            # 直接播放本地文件
+            success, error = VideoUtils.open_video_file(local_path)
+            if success:
+                self.show_play_success_message(filename)
+            else:
+                self.show_play_error_message(error)
+        else:
+            # 创建下载线程
+            from PyQt5.QtCore import QTimer
+            filename = VideoUtils.extract_filename_from_url(url)
+
+            download_thread = VideoDownloadThread(url, local_path, self)
+            download_thread.finished.connect(
+                lambda success, path, fn=filename: self._on_download_finished(success, path, fn)
+            )
+            download_thread.start()
+            self.show_download_start_message(local_path)
+
+    def _on_download_finished(self, success, local_path, filename):
+        """视频下载完成回调
+
+        Args:
+            success: 下载是否成功
+            local_path: 本地文件路径
+            filename: 文件名
+        """
+        if success:
+            # 下载完成后自动播放
+            success, error = VideoUtils.open_video_file(local_path)
+            if success:
+                self.show_download_success_message(filename)
+            else:
+                self.show_play_error_message(f"下载成功但无法播放: {error}")
+        else:
+            self.show_download_error_message()
+
+    # 子类需要实现的接口方法（提供默认实现）
+    def show_play_success_message(self, filename):
+        """播放成功消息"""
+        pass
+
+    def show_play_error_message(self, error):
+        """播放错误消息"""
+        pass
+
+    def show_download_start_message(self, local_path):
+        """下载开始消息"""
+        pass
+
+    def show_download_success_message(self, filename):
+        """下载成功消息"""
+        pass
+
+    def show_download_error_message(self):
+        """下载失败消息"""
+        pass
 
 # ==================== Settings Manager ====================
 class Sora2SettingsManager:
@@ -1570,7 +1708,7 @@ class Sora2TaskStatusCard(CardWidget):
         self.status_label.setText(self.status)
 
 # ==================== Main Widget ====================
-class Sora2VideoGenerationWidget(QWidget):
+class Sora2VideoGenerationWidget(QWidget, PlayVideoMixin):
     """Sora2 视频生成主组件"""
 
     def __init__(self, parent=None):
@@ -2401,132 +2539,74 @@ class Sora2VideoGenerationWidget(QWidget):
         )
 
     def query_webhook_result(self, request_id, url_input, result_card):
-        """查询 WebHook 任务结果"""
-        try:
-            # 获取 API 密钥
-            api_key = self.api_manager.get_next_key()
-            if not api_key:
-                InfoBar.error(
-                    title="错误",
-                    content="未配置 API 密钥",
-                    orient=Qt.Horizontal,
-                    isClosable=True,
-                    position=InfoBarPosition.TOP,
-                    duration=3000,
-                    parent=self
-                )
-                return
+        """查询 WebHook 任务结果（使用统一的查询调度器）"""
+        # 获取 API 密钥
+        api_key = self.api_manager.get_next_key()
+        if not api_key:
+            InfoBar.error(
+                title="错误",
+                content="未配置 API 密钥",
+                orient=Qt.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=3000,
+                parent=self
+            )
+            return
 
-            # 获取查询 URL
-            webhook_settings = self.settings_manager.get_webhook_settings()
-            query_url = webhook_settings.get("query_url",
-                "https://api.bizyair.cn/w/v1/webapp/task/openapi/outputs")
+        self.add_log(f"[回调查询] 查询任务 {request_id[:48]}")
 
-            self.add_log(f"[回调查询] 查询任务 {request_id[:48]}")
+        # 使用 WebHook 调度器的查询方法
+        success, video_url, message = self.webhook_scheduler.query_now(request_id, api_key)
 
-            headers = {
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {api_key}"
-            }
+        if success and video_url:
+            # 查询成功，更新 UI
+            url_input.setText(video_url)
+            url_input.setStyleSheet("""
+                LineEdit {
+                    background-color: #1e2a1e;
+                    color: #6bcb77;
+                    font-size: 11px;
+                    border: 1px solid #28a745;
+                    border-radius: 4px;
+                    padding: 6px;
+                }
+            """)
 
-            proxies = {"http": None, "https": None}
-            response = requests.get(
-                f"{query_url}?requestId={request_id}",
-                headers=headers,
-                timeout=30,
-                proxies=proxies
+            # 停止对应任务卡片的计时器
+            task_id = result_card.task_id
+            if task_id in self.task_status_cards:
+                self.task_status_cards[task_id].stop_timing()
+
+            # 播放任务完成提示音
+            self.play_completion_sound()
+
+            InfoBar.success(
+                title="查询成功",
+                content=f"视频已生成，URL 已更新到输入框",
+                orient=Qt.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=3000,
+                parent=self
             )
 
-            response.raise_for_status()
-            data = response.json()
-
-            self.add_log(f"[回调查询] 响应: {json.dumps(data, ensure_ascii=False, indent=2)}")
-
-            # 解析响应
-            if data.get('code') == 20000 and data.get('status'):
-                result_data = data.get('data', {})
-                status = result_data.get('status', '')
-
-                if status == 'Success':
-                    # 任务成功完成
-                    outputs = result_data.get('outputs', [])
-                    if outputs and len(outputs) > 0:
-                        video_url = outputs[0].get('object_url', '')
-                        if video_url:
-                            # 更新 URL 输入框
-                            url_input.setText(video_url)
-                            url_input.setStyleSheet("""
-                                LineEdit {
-                                    background-color: #1e2a1e;
-                                    color: #6bcb77;
-                                    font-size: 11px;
-                                    border: 1px solid #28a745;
-                                    border-radius: 4px;
-                                    padding: 6px;
-                                }
-                            """)
-
-                            # 停止对应任务卡片的计时器
-                            task_id = result_card.task_id
-                            if task_id in self.task_status_cards:
-                                self.task_status_cards[task_id].stop_timing()
-
-                            # 播放任务完成提示音
-                            self.play_completion_sound()
-
-                            InfoBar.success(
-                                title="查询成功",
-                                content=f"视频已生成，URL 已更新到输入框",
-                                orient=Qt.Horizontal,
-                                isClosable=True,
-                                position=InfoBarPosition.TOP,
-                                duration=3000,
-                                parent=self
-                            )
-
-                            # 自动下载视频到 output 目录
-                            self.download_video_to_output(video_url)
-
-                            return
-
-                elif status == 'Running':
-                    InfoBar.info(
-                        title="任务执行中",
-                        content="视频正在生成中，请稍后再试",
-                        orient=Qt.Horizontal,
-                        isClosable=True,
-                        position=InfoBarPosition.TOP,
-                        duration=3000,
-                        parent=self
-                    )
-                    return
-
+            # 自动下载视频到 output 目录
+            self.download_video_to_output(video_url)
+        elif "Running" in message or "running" in message.lower():
+            InfoBar.info(
+                title="任务执行中",
+                content="视频正在生成中，请稍后再试",
+                orient=Qt.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=3000,
+                parent=self
+            )
+        else:
             InfoBar.warning(
                 title="查询失败",
-                content=f"任务状态: {data.get('message', 'Unknown error')}",
-                orient=Qt.Horizontal,
-                isClosable=True,
-                position=InfoBarPosition.TOP,
-                duration=3000,
-                parent=self
-            )
-
-        except requests.exceptions.RequestException as e:
-            self.add_log(f"[回调查询] 网络错误: {str(e)}")
-            InfoBar.error(
-                title="网络错误",
-                content=f"查询失败: {str(e)}",
-                orient=Qt.Horizontal,
-                isClosable=True,
-                position=InfoBarPosition.TOP,
-                duration=3000,
-                parent=self
-            )
-        except Exception as e:
-            self.add_log(f"[回调查询] 异常: {str(e)}")
-            InfoBar.error(
-                title="查询异常",
-                content=f"查询失败: {str(e)}",
+                content=f"任务状态: {message}",
                 orient=Qt.Horizontal,
                 isClosable=True,
                 position=InfoBarPosition.TOP,
@@ -2537,19 +2617,9 @@ class Sora2VideoGenerationWidget(QWidget):
     def download_video_to_output(self, url):
         """下载视频到 output 目录"""
         try:
-            output_dir = "output"
-            if not os.path.exists(output_dir):
-                os.makedirs(output_dir)
-
-            # 从 URL 提取文件名
-            filename_match = re.search(r'/([^/]+\.mp4)', url)
-            if filename_match:
-                filename = filename_match.group(1)
-            else:
-                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                filename = f"sora2_video_{timestamp}.mp4"
-
-            local_path = os.path.join(output_dir, filename)
+            # 使用 VideoUtils 获取本地路径
+            local_path = VideoUtils.get_local_video_path(url)
+            filename = VideoUtils.extract_filename_from_url(url)
 
             # 创建下载线程
             download_thread = VideoDownloadThread(url, local_path, self)
@@ -2585,110 +2655,66 @@ class Sora2VideoGenerationWidget(QWidget):
                 parent=self
             )
 
-    def play_video(self, url):
-        """播放视频（优先使用本地已下载的文件）"""
-        # 创建 output 目录
-        output_dir = "output"
-        if not os.path.exists(output_dir):
-            os.makedirs(output_dir)
+    # ==================== Play Video Mixin 接口实现 ====================
+    def show_play_success_message(self, filename):
+        """播放成功消息"""
+        InfoBar.success(
+            title="播放中",
+            content=f"已打开本地视频：{filename}",
+            orient=Qt.Horizontal,
+            isClosable=True,
+            position=InfoBarPosition.TOP,
+            duration=2000,
+            parent=self
+        )
 
-        # 从 URL 提取文件名
-        filename_match = re.search(r'/([^/]+\.mp4)', url)
-        if filename_match:
-            filename = filename_match.group(1)
-        else:
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            filename = f"sora2_video_{timestamp}.mp4"
+    def show_play_error_message(self, error):
+        """播放错误消息"""
+        InfoBar.error(
+            title="错误",
+            content=f"无法打开视频：{error}",
+            orient=Qt.Horizontal,
+            isClosable=True,
+            position=InfoBarPosition.TOP,
+            duration=3000,
+            parent=self
+        )
 
-        local_path = os.path.join(output_dir, filename)
+    def show_download_start_message(self, local_path):
+        """下载开始消息"""
+        InfoBar.info(
+            title="下载中",
+            content=f"正在下载视频到：{local_path}",
+            orient=Qt.Horizontal,
+            isClosable=True,
+            position=InfoBarPosition.TOP,
+            duration=3000,
+            parent=self
+        )
 
-        # 检查本地是否已有该文件
-        if os.path.exists(local_path) and os.path.getsize(local_path) > 0:
-            # 直接播放本地文件
-            try:
-                if platform.system() == 'Darwin':  # macOS
-                    subprocess.run(['open', local_path])
-                elif platform.system() == 'Windows':
-                    os.startfile(local_path)
-                else:  # Linux
-                    subprocess.run(['xdg-open', local_path])
+    def show_download_success_message(self, filename):
+        """下载成功消息"""
+        InfoBar.success(
+            title="播放中",
+            content=f"已打开视频：{filename}",
+            orient=Qt.Horizontal,
+            isClosable=True,
+            position=InfoBarPosition.TOP,
+            duration=3000,
+            parent=self
+        )
 
-                InfoBar.success(
-                    title="播放中",
-                    content=f"已打开本地视频：{filename}",
-                    orient=Qt.Horizontal,
-                    isClosable=True,
-                    position=InfoBarPosition.TOP,
-                    duration=2000,
-                    parent=self
-                )
-            except Exception as e:
-                InfoBar.error(
-                    title="错误",
-                    content=f"无法打开视频：{str(e)}",
-                    orient=Qt.Horizontal,
-                    isClosable=True,
-                    position=InfoBarPosition.TOP,
-                    duration=3000,
-                    parent=self
-                )
-        else:
-            # 创建下载线程
-            download_thread = VideoDownloadThread(url, local_path, self)
-            download_thread.finished.connect(lambda success, path: self.on_download_finished(success, path, filename))
-            download_thread.start()
-
-            InfoBar.info(
-                title="下载中",
-                content=f"正在下载视频到：{local_path}",
-                orient=Qt.Horizontal,
-                isClosable=True,
-                position=InfoBarPosition.TOP,
-                duration=3000,
-                parent=self
-            )
-
-    def on_download_finished(self, success, local_path, filename):
-        """下载完成回调"""
-        if success:
-            # 在不同平台上打开视频文件
-            try:
-                if platform.system() == 'Darwin':  # macOS
-                    subprocess.run(['open', local_path])
-                elif platform.system() == 'Windows':
-                    os.startfile(local_path)
-                else:  # Linux
-                    subprocess.run(['xdg-open', local_path])
-
-                InfoBar.success(
-                    title="播放中",
-                    content=f"已打开视频：{filename}",
-                    orient=Qt.Horizontal,
-                    isClosable=True,
-                    position=InfoBarPosition.TOP,
-                    duration=3000,
-                    parent=self
-                )
-            except Exception as e:
-                InfoBar.error(
-                    title="错误",
-                    content=f"无法打开视频：{str(e)}",
-                    orient=Qt.Horizontal,
-                    isClosable=True,
-                    position=InfoBarPosition.TOP,
-                    duration=5000,
-                    parent=self
-                )
-        else:
-            InfoBar.error(
-                title="下载失败",
-                content=f"视频下载失败，请重试",
-                orient=Qt.Horizontal,
-                isClosable=True,
-                position=InfoBarPosition.TOP,
-                duration=5000,
-                parent=self
-            )
+    def show_download_error_message(self):
+        """下载失败消息"""
+        InfoBar.error(
+            title="下载失败",
+            content="视频下载失败，请重试",
+            orient=Qt.Horizontal,
+            isClosable=True,
+            position=InfoBarPosition.TOP,
+            duration=5000,
+            parent=self
+        )
 
     def update_batch_progress(self, completed, total):
         """Update batch progress"""
@@ -3462,7 +3488,7 @@ class Sora2WebHookQueryScheduler(QObject):
             return False, "", f"查询失败: {str(e)}"
 
 # ==================== Task History Dialog ====================
-class Sora2TaskHistoryDialog(QDialog):
+class Sora2TaskHistoryDialog(QDialog, PlayVideoMixin):
     """Sora2 任务历史查看对话框"""
 
     def __init__(self, parent=None):
@@ -3695,63 +3721,29 @@ class Sora2TaskHistoryDialog(QDialog):
             QMessageBox.warning(self, "提示", "请先选择一个有视频 URL 的任务")
             return
 
-        self._play_video(self.current_video_url)
+        # 使用 PlayVideoMixin 的 play_video 方法
+        self.play_video(self.current_video_url)
 
-    def _play_video(self, url):
-        """播放视频（优先使用本地已下载的文件）"""
-        # 创建 output 目录
-        output_dir = "output"
-        if not os.path.exists(output_dir):
-            os.makedirs(output_dir)
+    # ==================== Play Video Mixin 接口实现 ====================
+    def show_play_success_message(self, filename):
+        """播放成功消息"""
+        QMessageBox.information(self, "播放", f"正在播放本地视频:\n{filename}")
 
-        # 从 URL 提取文件名
-        filename_match = re.search(r'/([^/]+\.mp4)', url)
-        if filename_match:
-            filename = filename_match.group(1)
-        else:
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            filename = f"sora2_video_{timestamp}.mp4"
+    def show_play_error_message(self, error):
+        """播放错误消息"""
+        QMessageBox.warning(self, "播放失败", f"无法播放视频: {error}")
 
-        local_path = os.path.join(output_dir, filename)
+    def show_download_start_message(self, local_path):
+        """下载开始消息"""
+        QMessageBox.information(self, "下载", f"视频不存在，开始下载:\n{os.path.basename(local_path)}")
 
-        # 检查本地是否已有该文件
-        if os.path.exists(local_path) and os.path.getsize(local_path) > 0:
-            # 直接播放本地文件
-            try:
-                if platform.system() == 'Darwin':  # macOS
-                    subprocess.run(['open', local_path])
-                elif platform.system() == 'Windows':
-                    os.startfile(local_path)
-                else:  # Linux
-                    subprocess.run(['xdg-open', local_path])
-                QMessageBox.information(self, "播放", f"正在播放本地视频:\n{filename}")
-            except Exception as e:
-                QMessageBox.warning(self, "播放失败", f"无法播放视频: {str(e)}")
-        else:
-            # 创建下载线程
-            download_thread = VideoDownloadThread(url, local_path, self)
-            # 使用闭包正确捕获 filename 变量
-            download_thread.finished.connect(
-                lambda success, path, fn=filename: self._on_download_finished(success, path, fn)
-            )
-            download_thread.start()
-            QMessageBox.information(self, "下载", f"视频不存在，开始下载:\n{filename}")
+    def show_download_success_message(self, filename):
+        """下载成功消息（下载完成后自动播放，不显示消息）"""
+        pass
 
-    def _on_download_finished(self, success, local_path, filename):
-        """视频下载完成回调"""
-        if success:
-            # 下载完成后自动播放
-            try:
-                if platform.system() == 'Darwin':  # macOS
-                    subprocess.run(['open', local_path])
-                elif platform.system() == 'Windows':
-                    os.startfile(local_path)
-                else:  # Linux
-                    subprocess.run(['xdg-open', local_path])
-            except Exception as e:
-                QMessageBox.warning(self, "播放失败", f"下载成功但无法播放: {str(e)}")
-        else:
-            QMessageBox.warning(self, "下载失败", "视频下载失败，请稍后重试")
+    def show_download_error_message(self):
+        """下载失败消息"""
+        QMessageBox.warning(self, "下载失败", "视频下载失败，请稍后重试")
 
     def open_in_browser(self):
         """在浏览器中打开选中任务的视频 URL"""
@@ -3855,7 +3847,7 @@ if __name__ == "__main__":
     qf.setTheme(Theme.DARK)
 
     window = Sora2VideoGenerationWidget()
-    window.setWindowTitle("Sora2 AI Video Generator")
+    window.setWindowTitle("Sora2 AI 视频生成器")
     window.resize(1200, 800)
     window.show()
 
