@@ -3553,6 +3553,44 @@ class Sora2TaskHistoryDialog(QDialog):
         export_btn.clicked.connect(self.export_history)
         button_layout.addWidget(export_btn)
 
+        # 添加播放按钮（使用不同颜色）
+        self.play_btn = PushButton("▶ 播放视频")
+        self.play_btn.clicked.connect(self.play_selected_task)
+        self.play_btn.setStyleSheet("""
+            PushButton {
+                background-color: #28a745;
+                color: #ffffff;
+                border: none;
+                border-radius: 4px;
+                padding: 6px 16px;
+                font-weight: 600;
+            }
+            PushButton:hover {
+                background-color: #218838;
+            }
+        """)
+        self.play_btn.setEnabled(False)  # 初始禁用，选中任务后启用
+        button_layout.addWidget(self.play_btn)
+
+        # 添加浏览器打开按钮（使用不同颜色）
+        self.browser_btn = PushButton("浏览器打开")
+        self.browser_btn.clicked.connect(self.open_in_browser)
+        self.browser_btn.setStyleSheet("""
+            PushButton {
+                background-color: #007bff;
+                color: #ffffff;
+                border: none;
+                border-radius: 4px;
+                padding: 6px 16px;
+                font-weight: 600;
+            }
+            PushButton:hover {
+                background-color: #0056b3;
+            }
+        """)
+        self.browser_btn.setEnabled(False)  # 初始禁用，选中任务后启用
+        button_layout.addWidget(self.browser_btn)
+
         button_layout.addStretch()
         close_btn = PushButton("关闭")
         close_btn.clicked.connect(self.accept)
@@ -3599,6 +3637,17 @@ class Sora2TaskHistoryDialog(QDialog):
             details = json.dumps(task, ensure_ascii=False, indent=2)
             self.details_text.setPlainText(details)
 
+            # 保存当前选择任务的 video_url，用于播放和浏览器打开
+            self.current_video_url = task.get("result", {}).get("video_url", "")
+
+            # 如果有视频 URL，启用播放和浏览器打开按钮
+            if self.current_video_url:
+                self.play_btn.setEnabled(True)
+                self.browser_btn.setEnabled(True)
+            else:
+                self.play_btn.setEnabled(False)
+                self.browser_btn.setEnabled(False)
+
     def clear_old_tasks(self):
         """清理旧任务"""
         success, count = self.history_manager.clear_completed_tasks(days=7)
@@ -3639,6 +3688,81 @@ class Sora2TaskHistoryDialog(QDialog):
                 QMessageBox.information(self, "成功", f"任务历史已导出到: {file_path}")
             except Exception as e:
                 QMessageBox.warning(self, "失败", f"导出失败: {str(e)}")
+
+    def play_selected_task(self):
+        """播放选中任务的视频"""
+        if not hasattr(self, 'current_video_url') or not self.current_video_url:
+            QMessageBox.warning(self, "提示", "请先选择一个有视频 URL 的任务")
+            return
+
+        self._play_video(self.current_video_url)
+
+    def _play_video(self, url):
+        """播放视频（优先使用本地已下载的文件）"""
+        # 创建 output 目录
+        output_dir = "output"
+        if not os.path.exists(output_dir):
+            os.makedirs(output_dir)
+
+        # 从 URL 提取文件名
+        filename_match = re.search(r'/([^/]+\.mp4)', url)
+        if filename_match:
+            filename = filename_match.group(1)
+        else:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = f"sora2_video_{timestamp}.mp4"
+
+        local_path = os.path.join(output_dir, filename)
+
+        # 检查本地是否已有该文件
+        if os.path.exists(local_path) and os.path.getsize(local_path) > 0:
+            # 直接播放本地文件
+            try:
+                if platform.system() == 'Darwin':  # macOS
+                    subprocess.run(['open', local_path])
+                elif platform.system() == 'Windows':
+                    os.startfile(local_path)
+                else:  # Linux
+                    subprocess.run(['xdg-open', local_path])
+                QMessageBox.information(self, "播放", f"正在播放本地视频:\n{filename}")
+            except Exception as e:
+                QMessageBox.warning(self, "播放失败", f"无法播放视频: {str(e)}")
+        else:
+            # 创建下载线程
+            download_thread = VideoDownloadThread(url, local_path, self)
+            # 使用闭包正确捕获 filename 变量
+            download_thread.finished.connect(
+                lambda success, path, fn=filename: self._on_download_finished(success, path, fn)
+            )
+            download_thread.start()
+            QMessageBox.information(self, "下载", f"视频不存在，开始下载:\n{filename}")
+
+    def _on_download_finished(self, success, local_path, filename):
+        """视频下载完成回调"""
+        if success:
+            # 下载完成后自动播放
+            try:
+                if platform.system() == 'Darwin':  # macOS
+                    subprocess.run(['open', local_path])
+                elif platform.system() == 'Windows':
+                    os.startfile(local_path)
+                else:  # Linux
+                    subprocess.run(['xdg-open', local_path])
+            except Exception as e:
+                QMessageBox.warning(self, "播放失败", f"下载成功但无法播放: {str(e)}")
+        else:
+            QMessageBox.warning(self, "下载失败", "视频下载失败，请稍后重试")
+
+    def open_in_browser(self):
+        """在浏览器中打开选中任务的视频 URL"""
+        if not hasattr(self, 'current_video_url') or not self.current_video_url:
+            QMessageBox.warning(self, "提示", "请先选择一个有视频 URL 的任务")
+            return
+
+        try:
+            QDesktopServices.openUrl(QUrl(self.current_video_url))
+        except Exception as e:
+            QMessageBox.warning(self, "打开失败", f"无法在浏览器中打开 URL:\n{str(e)}")
 
     def query_all_pending(self):
         """查询所有待处理任务"""
