@@ -17,6 +17,7 @@ vae.json
 storyboard_config.json
 video_settings.json
 sora2_settings.json
+storyboard_config.json
 
 # C extensions
 *.so
