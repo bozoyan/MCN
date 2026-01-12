@@ -29,11 +29,44 @@ from qfluentwidgets import (FluentIcon, NavigationInterface, NavigationItemPosit
                           FluentWindow, SubtitleLabel, BodyLabel, PrimaryPushButton,
                           PushButton, LineEdit, ComboBox, RadioButton,
                           ProgressBar, InfoBar, InfoBarPosition, SmoothScrollArea,
-                          CardWidget, setTheme, Theme)
+                          CardWidget, setTheme, Theme, InfoBarIcon)
 
 # 配置日志
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
+
+# ==================== 自动消失消息辅助函数 ====================
+def show_auto_hide_message(parent, title, content, severity='info', duration=3000):
+    """显示自动消失的 InfoBar 消息
+
+    Args:
+        parent: 父窗口或 Widget
+        title: 消息标题
+        content: 消息内容
+        severity: 消息类型 ('info', 'success', 'warning', 'error')
+        duration: 显示时长（毫秒），默认 3 秒
+    """
+    # 根据 severity 选择图标和类型
+    icon_config = {
+        'info': (InfoBarIcon.INFORMATION, InfoBarPosition.TOP),
+        'success': (InfoBarIcon.SUCCESS, InfoBarPosition.TOP),
+        'warning': (InfoBarIcon.WARNING, InfoBarPosition.TOP),
+        'error': (InfoBarIcon.ERROR, InfoBarPosition.TOP)
+    }
+
+    icon, position = icon_config.get(severity, icon_config['info'])
+
+    # 创建 InfoBar
+    info_bar = InfoBar(
+        icon,
+        title,
+        content,
+        parent=parent,
+        position=position,
+        duration=duration
+    )
+    info_bar.show()
+
 
 # API 配置
 MODEL_API_KEY = os.getenv('SiliconCloud_API_KEY')
@@ -277,7 +310,7 @@ class DragDropImageLabel(QLabel):
                     if any(local_path.lower().endswith(ext) for ext in image_extensions):
                         self.image_dropped.emit(local_path)
                     else:
-                        QMessageBox.warning(self, "警告", "请拖拽图片文件")
+                        show_auto_hide_message(self.window(), "警告", "请拖拽图片文件", "warning")
                 else:
                     # 网络URL
                     network_url = url.toString()
@@ -297,7 +330,7 @@ class DragDropImageLabel(QLabel):
                     self.image_dropped.emit(text)
                     event.acceptProposedAction()
                 else:
-                    QMessageBox.warning(self, "警告", "请输入图片文件路径")
+                    show_auto_hide_message(self.window(), "警告", "请输入图片文件路径", "warning")
             else:
                 event.ignore()
         else:
@@ -741,7 +774,7 @@ class VLMSettingsDialog(QDialog):
         content = self.template_content_edit.toPlainText().strip()
 
         if not name or not content:
-            QMessageBox.warning(self, "警告", "模板名称和内容不能为空")
+            show_auto_hide_message(self, "警告", "模板名称和内容不能为空", "warning")
             return
 
         # 生成模板 key
@@ -758,7 +791,7 @@ class VLMSettingsDialog(QDialog):
         }
 
         if self.vlm_config.save_templates():
-            QMessageBox.information(self, "成功", "模板保存成功")
+            show_auto_hide_message(self, "成功", "模板保存成功", "success")
             self.update_template_combo()
             # 选中新保存的模板
             for i in range(self.template_combo.count()):
@@ -766,7 +799,7 @@ class VLMSettingsDialog(QDialog):
                     self.template_combo.setCurrentIndex(i)
                     break
         else:
-            QMessageBox.critical(self, "错误", "模板保存失败")
+            show_auto_hide_message(self, "错误", "模板保存失败", "error")
 
     def delete_template(self):
         """删除模板"""
@@ -775,7 +808,7 @@ class VLMSettingsDialog(QDialog):
             return
 
         if template_key == "default":
-            QMessageBox.warning(self, "警告", "默认模板不能删除")
+            show_auto_hide_message(self, "警告", "默认模板不能删除", "warning")
             return
 
         reply = QMessageBox.question(
@@ -787,16 +820,16 @@ class VLMSettingsDialog(QDialog):
         if reply == QMessageBox.Yes:
             del self.vlm_config.templates[template_key]
             if self.vlm_config.save_templates():
-                QMessageBox.information(self, "成功", "模板删除成功")
+                show_auto_hide_message(self, "成功", "模板删除成功", "success")
                 self.update_template_combo()
             else:
-                QMessageBox.critical(self, "错误", "模板删除失败")
+                show_auto_hide_message(self, "错误", "模板删除失败", "error")
 
     def add_custom_model(self):
         """将自定义模型添加到列表"""
         custom_model = self.custom_model_edit.text().strip()
         if not custom_model:
-            QMessageBox.warning(self, "警告", "请先输入自定义模型名称")
+            show_auto_hide_message(self, "警告", "请先输入自定义模型名称", "warning")
             return
 
         # 添加到配置
@@ -815,16 +848,16 @@ class VLMSettingsDialog(QDialog):
             # 清空输入框
             self.custom_model_edit.clear()
 
-            QMessageBox.information(self, "成功", f"模型 '{custom_model}' 已添加到列表")
+            show_auto_hide_message(self, "成功", f"模型 '{custom_model}' 已添加到列表", "success")
         else:
-            QMessageBox.warning(self, "警告", "添加模型失败")
+            show_auto_hide_message(self, "警告", "添加模型失败", "warning")
 
     def save_settings(self):
         """保存设置"""
         try:
             self.vlm_config.set("web_app_id", int(self.web_app_id_edit.text()))
         except ValueError:
-            QMessageBox.warning(self, "警告", "Web App ID 必须是数字")
+            show_auto_hide_message(self, "警告", "Web App ID 必须是数字", "warning")
             return
 
         # 保存当前选择的模型（支持下拉框选择或手动输入）
@@ -843,10 +876,10 @@ class VLMSettingsDialog(QDialog):
             self.vlm_config.set("default_template", current_template_key)
 
         if self.vlm_config.save_config():
-            QMessageBox.information(self, "成功", "设置保存成功")
+            show_auto_hide_message(self, "成功", "设置保存成功", "success")
             self.accept()
         else:
-            QMessageBox.critical(self, "错误", "设置保存失败")
+            show_auto_hide_message(self, "错误", "设置保存失败", "error")
 
 
 # ==================== VLM 历史记录对话框 ====================
@@ -970,7 +1003,7 @@ class VLMHistoryDialog(QDialog):
         if reply == QMessageBox.Yes:
             self.vlm_history.clear_all()
             self.load_history()
-            QMessageBox.information(self, "成功", "历史记录已清空")
+            show_auto_hide_message(self, "成功", "历史记录已清空", "success")
 
 
 # ==================== 历史记录详情弹出窗口（简约无边框风格） ====================
@@ -1083,7 +1116,7 @@ class HistoryDetailDialog(QDialog):
         result_url = self.record.get('result_file_url', '')
         if result_url:
             info_layout.addWidget(QLabel("结果URL:"), row, 0)
-            url_label = QLabel(result_url[:60] + '...' if len(result_url) > 60 else result_url)
+            url_label = QLabel(result_url[:80] + '...' if len(result_url) > 80 else result_url)
             url_label.setStyleSheet("color: #2196f3; font-size: 14px;")
             url_label.setWordWrap(True)
             info_layout.addWidget(url_label, row, 1)
@@ -1269,26 +1302,26 @@ class HistoryDetailDialog(QDialog):
                 clipboard = QApplication.clipboard()
                 clipboard.setText(text)
                 # 使用 InfoBar 显示提示（更轻量）
-                QMessageBox.information(self, "成功", f"{tab_name}已复制到剪贴板")
+                show_auto_hide_message(self, "成功", f"{tab_name}已复制到剪贴板", "success")
             else:
-                QMessageBox.warning(self, "提示", "没有可复制的内容")
+                show_auto_hide_message(self, "提示", "没有可复制的内容", "warning")
 
     def export_tab(self, result_key, tab_name):
         """导出指定选项卡内容到txt文件（与图片同目录）"""
         text_edit = getattr(self, f'{result_key}_text_edit', None)
         if not text_edit:
-            QMessageBox.warning(self, "提示", "无法获取内容")
+            show_auto_hide_message(self, "提示", "无法获取内容", "warning")
             return
 
         text = text_edit.toPlainText()
         if not text:
-            QMessageBox.warning(self, "提示", "没有可导出的内容")
+            show_auto_hide_message(self, "提示", "没有可导出的内容", "warning")
             return
 
         # 获取图片路径
         webp_path = self.record.get('webp_image_path', '')
         if not webp_path or not os.path.exists(webp_path):
-            QMessageBox.warning(self, "提示", "无法找到图片路径")
+            show_auto_hide_message(self, "提示", "无法找到图片路径", "warning")
             return
 
         # 获取图片所在目录和文件名
@@ -1304,15 +1337,15 @@ class HistoryDetailDialog(QDialog):
         try:
             with open(txt_path, 'w', encoding='utf-8') as f:
                 f.write(text)
-            QMessageBox.information(self, "成功", f"{tab_name}已导出到:\n{txt_path}")
+            show_auto_hide_message(self, "成功", f"{tab_name}已导出到:\n{txt_path}", "success")
         except Exception as e:
-            QMessageBox.critical(self, "错误", f"导出失败: {str(e)}")
+            show_auto_hide_message(self, "错误", f"导出失败: {str(e)}", "error")
 
     def copy_to_clipboard(self, text):
         """复制到剪贴板（保留兼容性）"""
         clipboard = QApplication.clipboard()
         clipboard.setText(text)
-        QMessageBox.information(self, "成功", "已复制到剪贴板")
+        show_auto_hide_message(self, "成功", "已复制到剪贴板", "success")
 
     def export_all(self):
         """导出全部结果"""
@@ -1339,9 +1372,9 @@ class HistoryDetailDialog(QDialog):
                 }
                 with open(file_path, 'w', encoding='utf-8') as f:
                     json.dump(export_data, f, indent=4, ensure_ascii=False)
-                QMessageBox.information(self, "成功", f"文件已保存到: {file_path}")
+                show_auto_hide_message(self, "成功", f"文件已保存到: {file_path}", "success")
             except Exception as e:
-                QMessageBox.critical(self, "错误", f"导出失败: {str(e)}")
+                show_auto_hide_message(self, "错误", f"导出失败: {str(e)}", "error")
 
     def delete_current_record(self):
         """删除当前记录并跳转到下一条"""
@@ -1369,7 +1402,7 @@ class HistoryDetailDialog(QDialog):
             # 检查是否还有记录
             remaining_records = self.parent_dialog.vlm_history.get_history()
             if not remaining_records:
-                QMessageBox.information(self, "提示", "无记录")
+                show_auto_hide_message(self, "提示", "无记录", "info")
                 self.accept()
                 return
 
@@ -1384,7 +1417,7 @@ class HistoryDetailDialog(QDialog):
             if self.current_index >= 0:
                 self.load_record(self.current_index)
             else:
-                QMessageBox.information(self, "提示", "无记录")
+                show_auto_hide_message(self, "提示", "无记录", "info")
                 self.accept()
 
     def update_navigation_buttons(self):
@@ -1530,7 +1563,7 @@ class HistoryDetailDialog(QDialog):
         result_url = self.record.get('result_file_url', '')
         if result_url:
             info_layout.addWidget(QLabel("结果URL:"), row, 0)
-            url_label = QLabel(result_url[:60] + '...' if len(result_url) > 60 else result_url)
+            url_label = QLabel(result_url[:80] + '...' if len(result_url) > 80 else result_url)
             url_label.setStyleSheet("color: #2196f3; font-size: 14px;")
             url_label.setWordWrap(True)
             info_layout.addWidget(url_label, row, 1)
@@ -1783,7 +1816,7 @@ class ImagePromptPage(SmoothScrollArea):
         upload_layout.setSpacing(10)
 
         # 标题（移除模式选择按钮，已移到顶部）
-        upload_title = SubtitleLabel("📤 图片上传")
+        upload_title = SubtitleLabel("") #📤 图片上传
         upload_title.setFont(QFont("", 13, QFont.Bold))
         upload_layout.addWidget(upload_title)
 
@@ -2014,7 +2047,10 @@ class ImagePromptPage(SmoothScrollArea):
         # 添加到分割器
         main_splitter.addWidget(left_widget)
         main_splitter.addWidget(right_widget)
-        main_splitter.setSizes([500, 500])
+        main_splitter.setSizes([480, 520])
+        # 设置分割器拉伸因子：左侧不拉伸，右侧可拉伸
+        main_splitter.setStretchFactor(0, 0)
+        main_splitter.setStretchFactor(1, 1)
 
         layout.addWidget(main_splitter)
 
@@ -2073,13 +2109,13 @@ class ImagePromptPage(SmoothScrollArea):
                 self.batch_list_edit.setText(file_list_text)
                 self.batch_files = image_files
             else:
-                QMessageBox.warning(self, "警告", "所选文件夹中没有找到图片文件")
+                show_auto_hide_message(self, "警告", "所选文件夹中没有找到图片文件", "warning")
 
     def show_settings(self):
         """显示设置对话框"""
         dialog = VLMSettingsDialog(self.vlm_config, self)
         if dialog.exec_() == QDialog.Accepted:
-            QMessageBox.information(self, "成功", "设置已保存")
+            show_auto_hide_message(self, "成功", "设置已保存", "success")
 
     def show_history(self):
         """显示历史记录"""
@@ -2092,20 +2128,31 @@ class ImagePromptPage(SmoothScrollArea):
             # 单个图片识别
             image_url = self.image_url_edit.text().strip()
             if not image_url:
-                QMessageBox.warning(self, "警告", "请输入图片 URL 或拖拽图片")
+                show_auto_hide_message(self, "警告", "请输入图片 URL 或拖拽图片", "warning")
                 return
 
-            # 支持的格式：data URL (base64)、http://、https://
-            if not (image_url.startswith('data:image/') or
+            # 处理网络 URL：先下载转换为 WebP，然后自动触发识别
+            if image_url.startswith(('http://', 'https://')):
+                self._process_network_image_and_recognize(image_url)
+                return
+
+            # 检查是否是本地文件格式（file:xxx.webp）
+            if image_url.startswith('file:'):
+                # 使用内部存储的实际 data URL
+                if hasattr(self, '_actual_data_url') and self._actual_data_url:
+                    image_url = self._actual_data_url
+                else:
+                    show_auto_hide_message(self, "警告", "无法找到图片数据，请重新上传图片", "warning")
+                    return
+            # 支持的格式：data URL (base64)、http://、https://、file:
+            elif not (image_url.startswith('data:image/') or
                     image_url.startswith('http://') or
                     image_url.startswith('https://')):
-                QMessageBox.warning(
+                show_auto_hide_message(
                     self,
                     "警告",
-                    "不支持的图片格式\n\n"
-                    "支持的格式：\n"
-                    "• 网络 URL (http:// 或 https://)\n"
-                    "• 拖拽本地图片（自动转换为 base64）"
+                    "不支持的图片格式。支持的格式：网络 URL (http:// 或 https://)、拖拽本地图片（自动转换为 base64）",
+                    "warning"
                 )
                 return
 
@@ -2113,7 +2160,7 @@ class ImagePromptPage(SmoothScrollArea):
         else:
             # 批量识别
             if not hasattr(self, 'batch_files') or not self.batch_files:
-                QMessageBox.warning(self, "警告", "请先选择包含图片的文件夹")
+                show_auto_hide_message(self, "警告", "请先选择包含图片的文件夹", "warning")
                 return
 
             self.process_batch_images()
@@ -2158,7 +2205,7 @@ class ImagePromptPage(SmoothScrollArea):
     def process_batch_images(self):
         """处理批量图片"""
         if not hasattr(self, 'batch_files') or not self.batch_files:
-            QMessageBox.warning(self, "警告", "请先选择包含图片的文件夹")
+            show_auto_hide_message(self, "警告", "请先选择包含图片的文件夹", "warning")
             return
 
         # 初始化批量处理
@@ -2211,9 +2258,26 @@ class ImagePromptPage(SmoothScrollArea):
 
     def start_batch_recognition(self):
         """启动批量图片识别"""
-        # 检查是否有 data URL
+        # 获取图片 URL
         image_url = self.image_url_edit.text().strip()
-        if not image_url or not image_url.startswith('data:image/'):
+        if not image_url:
+            self.add_log(f"⚠️ 图片未正确处理，跳过")
+            self.batch_current_index += 1
+            QTimer.singleShot(100, self.process_next_batch_image)
+            return
+
+        # 检查是否是本地文件格式（file:xxx.webp）
+        if image_url.startswith('file:'):
+            # 使用内部存储的实际 data URL
+            if hasattr(self, '_actual_data_url') and self._actual_data_url:
+                image_url = self._actual_data_url
+            else:
+                self.add_log(f"⚠️ 无法找到图片数据，跳过")
+                self.batch_current_index += 1
+                QTimer.singleShot(100, self.process_next_batch_image)
+                return
+        # 如果不是 data URL，则跳过
+        elif not image_url.startswith('data:image/'):
             self.add_log(f"⚠️ 图片未正确处理，跳过")
             self.batch_current_index += 1
             QTimer.singleShot(100, self.process_next_batch_image)
@@ -2320,9 +2384,10 @@ class ImagePromptPage(SmoothScrollArea):
         self.add_log(f"  失败: {total - success_count}")
         self.add_log(f"=" * 60)
 
-        QMessageBox.information(
+        show_auto_hide_message(
             self, "批量处理完成",
-            f"批量处理完成！\n\n总数: {total}\n成功: {success_count}\n失败: {total - success_count}"
+            f"总数: {total}\n成功: {success_count}\n失败: {total - success_count}",
+            "success"
         )
 
     def on_progress_updated(self, msg):
@@ -2373,10 +2438,10 @@ class ImagePromptPage(SmoothScrollArea):
             # 注意：不清空 current_webp_path，保留用于导出功能
             # 下一张图片上传时会自然覆盖
 
-            QMessageBox.information(self, "成功", "识别完成！")
+            show_auto_hide_message(self, "成功", "识别完成！", "success")
         else:
             self.add_log(f"❌ 识别失败")
-            QMessageBox.critical(self, "错误", "识别失败")
+            show_auto_hide_message(self, "错误", "识别失败", "error")
 
     def on_recognition_error(self, error_msg):
         """识别错误"""
@@ -2389,21 +2454,21 @@ class ImagePromptPage(SmoothScrollArea):
         if text:
             clipboard = QApplication.clipboard()
             clipboard.setText(text)
-            QMessageBox.information(self, "成功", f"已复制到剪贴板")
+            show_auto_hide_message(self, "成功", f"已复制到剪贴板", "success")
         else:
-            QMessageBox.warning(self, "警告", "没有可复制的内容")
+            show_auto_hide_message(self, "警告", "没有可复制的内容", "warning")
 
     def export_result(self, field):
         """导出结果为 TXT 文件（保存到图片所在目录）"""
         text = self.current_result.get(field, "")
         if not text:
-            QMessageBox.warning(self, "警告", "没有可导出的内容")
+            show_auto_hide_message(self, "警告", "没有可导出的内容", "warning")
             return
 
         # 获取当前 WebP 图片路径
         webp_path = getattr(self, 'current_webp_path', '')
         if not webp_path or not os.path.exists(webp_path):
-            QMessageBox.warning(self, "警告", "无法找到图片路径，请先上传图片")
+            show_auto_hide_message(self, "警告", "无法找到图片路径，请先上传图片", "warning")
             return
 
         # 获取图片所在目录和文件名
@@ -2419,9 +2484,9 @@ class ImagePromptPage(SmoothScrollArea):
         try:
             with open(txt_path, 'w', encoding='utf-8') as f:
                 f.write(text)
-            QMessageBox.information(self, "成功", f"已导出到:\n{txt_path}")
+            show_auto_hide_message(self, "成功", f"已导出到:\n{txt_path}", "success")
         except Exception as e:
-            QMessageBox.critical(self, "错误", f"导出失败: {str(e)}")
+            show_auto_hide_message(self, "错误", f"导出失败: {str(e)}", "error")
 
     def on_image_dropped(self, path_or_url):
         """处理图片拖拽事件"""
@@ -2457,7 +2522,41 @@ class ImagePromptPage(SmoothScrollArea):
         except Exception as e:
             self.image_preview_label.setText(f"❌ 下载失败:\n{str(e)}")
             self.add_log(f"❌ 下载网络图片失败: {str(e)}")
-            QMessageBox.critical(self, "错误", f"无法下载网络图片:\n{str(e)}")
+            show_auto_hide_message(self, "错误", f"无法下载网络图片:\n{str(e)}", "error")
+
+    def _process_network_image_and_recognize(self, url):
+        """处理网络图片：下载并转换为 webp，然后自动触发识别"""
+        self.add_log(f"处理网络 URL: {url}")
+
+        try:
+            # 下载图片
+            self.add_log(f"正在下载网络图片...")
+            response = requests.get(url, timeout=30)
+            response.raise_for_status()
+
+            # 从响应中获取图片数据
+            image_data = response.content
+            self.add_log(f"  下载大小: {len(image_data)} 字节 ({len(image_data) / 1024:.2f} KB)")
+
+            # 使用 Pillow 打开图片
+            img = Image.open(BytesIO(image_data))
+            self.add_log(f"  图片尺寸: {img.size[0]}x{img.size[1]}")
+
+            # 转换为 webp 并保存
+            self._save_as_webp(img, url, is_network=True)
+
+            # 保存完成后自动触发识别（使用内部存储的 data URL）
+            if hasattr(self, '_actual_data_url') and self._actual_data_url:
+                self.add_log(f"✅ 网络图片已处理，开始识别...")
+                # 直接调用 process_single_image 使用内部存储的 data URL
+                self.process_single_image(self._actual_data_url)
+            else:
+                show_auto_hide_message(self, "警告", "图片处理失败，无法获取数据", "warning")
+
+        except Exception as e:
+            self.image_preview_label.setText(f"❌ 下载失败:\n{str(e)}")
+            self.add_log(f"❌ 下载网络图片失败: {str(e)}")
+            show_auto_hide_message(self, "错误", f"无法下载网络图片:\n{str(e)}", "error")
 
     def _process_local_image(self, path_or_url):
         """处理本地图片：转换为 webp 并保存"""
@@ -2503,7 +2602,7 @@ class ImagePromptPage(SmoothScrollArea):
             self.image_preview_label.setText(f"❌ 转换失败:\n{str(e)}")
             self.add_log(f"❌ 转换失败: {str(e)}")
             self.add_log(f"  错误类型: {type(e).__name__}")
-            QMessageBox.critical(self, "错误", f"无法处理图片文件:\n{str(e)}")
+            show_auto_hide_message(self, "错误", f"无法处理图片文件:\n{str(e)}", "error")
 
     def _save_as_webp(self, img, source_path, is_network=False):
         """将图片转换为 webp 并保存到 output/up/ 文件夹
@@ -2542,8 +2641,8 @@ class ImagePromptPage(SmoothScrollArea):
         elif img.mode != 'RGB':
             img = img.convert('RGB')
 
-        # 保存为 WebP 格式（95% 画质）
-        img.save(webp_abs_path, format='WebP', quality=95, method=6)
+        # 保存为 WebP 格式（99% 画质）
+        img.save(webp_abs_path, format='WebP', quality=99, method=6)
 
         # 获取保存后的大小
         webp_size = os.path.getsize(webp_abs_path)
@@ -2554,7 +2653,7 @@ class ImagePromptPage(SmoothScrollArea):
         else:
             compression_ratio = 0
 
-        self.add_log(f"  保存格式: WebP (quality=95, method=6)")
+        self.add_log(f"  保存格式: WebP (quality=99, method=6)")
         self.add_log(f"  保存路径: {webp_abs_path}")
         self.add_log(f"  保存大小: {webp_size} 字节 ({webp_size / 1024:.2f} KB)")
         if compression_ratio != 0:
@@ -2587,8 +2686,11 @@ class ImagePromptPage(SmoothScrollArea):
             self.image_preview_label.setPixmap(scaled_pixmap)
             self.image_preview_label.setText("")
 
-        # 将 data URL 设置到输入框
-        self.image_url_edit.setText(data_url)
+        # 保存实际的 data URL 到内部变量（用于 API 调用）
+        self._actual_data_url = data_url
+
+        # 在输入框中只显示文件名（更简洁）
+        self.image_url_edit.setText(f"file:{webp_filename}")
 
         # 保存 webp 路径到实例变量（用于历史记录）
         self.current_webp_path = webp_abs_path
