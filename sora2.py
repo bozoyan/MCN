@@ -1863,7 +1863,7 @@ class Sora2VideoGenerationWidget(QWidget, PlayVideoMixin):
         # self.add_log(f"图生视频 Web App ID: {self.api_manager.web_app_id_i2v}")
         # self.add_log(f"API URL: {self.api_manager.api_url}")
         # self.add_log("系统就绪，请输入提示词开始生成视频")
-        # self.add_log("")
+        self.add_log("")
 
     def init_batch_manager(self):
         """Initialize batch manager"""
