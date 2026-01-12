@@ -61,7 +61,7 @@ from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
                             QLineEdit, QTextEdit, QPushButton, QComboBox,
                             QSpinBox, QProgressBar, QMessageBox, QFileDialog,
                             QGroupBox, QTabWidget, QSplitter, QFrame,
-                            QGridLayout, QScrollArea, QSlider, QCheckBox, QDialog, QSizePolicy)
+                            QGridLayout, QScrollArea, QSlider, QCheckBox, QDialog, QSizePolicy, QApplication)
 from PyQt5.QtGui import QPixmap, QDragEnterEvent, QDropEvent, QPalette, QDesktopServices, QColor
 
 import qfluentwidgets as qf
@@ -1727,12 +1727,13 @@ class VideoResultCard(CardWidget):
         """复制视频URL"""
         video_url = self.video_data.get('url', '')
         if video_url:
-            clipboard = QCoreApplication.clipboard()
+            # 使用 QApplication.clipboard() 而不是 QCoreApplication.clipboard()
+            clipboard = QApplication.clipboard()
             clipboard.setText(video_url)
 
             InfoBar.success(
                 title="成功",
-                content="视频URL已复制到剪贴板",
+                content=f"视频URL已复制到剪贴板: {video_url[:60]}..." if len(video_url) > 60 else "视频URL已复制到剪贴板",
                 orient=Qt.Horizontal,
                 isClosable=True,
                 position=InfoBarPosition.TOP,
@@ -1750,7 +1751,11 @@ class VideoResultCard(CardWidget):
             # 恢复显示所有内容
             self.hide_btn.setText("👁")
             self.hide_btn.setToolTip("隐藏任务卡片")
-            self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)  # 恢复原始大小策略
+            # 清除固定尺寸限制，恢复弹性大小
+            self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+            # 使用最小/最大尺寸来清除固定尺寸
+            self.setMinimumSize(0, 0)
+            self.setMaximumSize(16777215, 16777215)  # QWIDGETSIZE_MAX
             # 显示所有子控件
             for i in range(self.layout().count()):
                 item = self.layout().itemAt(i)
@@ -1844,44 +1849,89 @@ class VideoDownloadWorker(QThread):
             self.progress_updated.emit(10, "开始下载视频...")
             self.log_updated.emit(f"🎬 开始下载视频: {self.filename}")
 
-            # 使用requests下载文件 (禁用代理)
-            response = requests.get(self.video_url, stream=True, timeout=300, proxies={"http": None, "https": None})
-            response.raise_for_status()
+            # 临时清除系统代理环境变量，确保不使用任何代理
+            old_env = {}
+            proxy_vars = ['http_proxy', 'https_proxy', 'HTTP_PROXY', 'HTTPS_PROXY',
+                          'all_proxy', 'ALL_PROXY', 'socks_proxy', 'SOCKS_PROXY',
+                          'no_proxy', 'NO_PROXY']
+            for var in proxy_vars:
+                if var in os.environ:
+                    old_env[var] = os.environ[var]
+                    del os.environ[var]
 
-            total_size = int(response.headers.get('content-length', 0))
-            downloaded_size = 0
+            try:
+                # 优先使用 urllib（不受 PySocks 库影响）
+                # 因为此项目依赖中包含 pysocks，requests 库会被自动配置使用 SOCKS 代理
+                # 即使设置 trust_env=False 和 proxies=None 也无法完全禁用
+                # urllib 不受 PySocks 影响，更适合国内 API 直连
+                self.log_updated.emit("[下载] 使用 urllib 下载（不受 PySocks 影响）")
 
-            with open(local_path, 'wb') as f:
-                for chunk in response.iter_content(chunk_size=8192):
-                    if self.is_cancelled:
-                        if os.path.exists(local_path):
-                            os.remove(local_path)
-                        self.download_finished.emit(False, "下载已取消", "")
-                        return
+                import urllib.request
+                import ssl
 
-                    f.write(chunk)
-                    downloaded_size += len(chunk)
+                # 创建不验证 SSL 的上下文
+                ssl_context = ssl.create_default_context()
+                ssl_context.check_hostname = False
+                ssl_context.verify_mode = ssl.CERT_NONE
 
-                    if total_size > 0:
-                        progress = min(90, int((downloaded_size / total_size) * 70) + 20)
-                        self.progress_updated.emit(progress, f"下载中... {downloaded_size}/{total_size} 字节")
+                # 创建请求
+                req = urllib.request.Request(
+                    self.video_url,
+                    headers={
+                        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+                    }
+                )
+
+                # 获取文件大小（如果可用）
+                total_size = 0
+                try:
+                    with urllib.request.urlopen(urllib.request.Request(self.video_url, method='HEAD'), timeout=30, context=ssl_context) as response:
+                        total_size = int(response.headers.get('Content-Length', 0))
+                except:
+                    pass
+
+                downloaded_size = 0
+
+                # 下载文件
+                with urllib.request.urlopen(req, timeout=300, context=ssl_context) as response:
+                    with open(local_path, 'wb') as f:
+                        while True:
+                            chunk = response.read(8192)
+                            if not chunk:
+                                break
+
+                            if self.is_cancelled:
+                                if os.path.exists(local_path):
+                                    os.remove(local_path)
+                                self.download_finished.emit(False, "下载已取消", "")
+                                return
+
+                            f.write(chunk)
+                            downloaded_size += len(chunk)
+
+                            if total_size > 0:
+                                progress = min(90, int((downloaded_size / total_size) * 70) + 20)
+                                self.progress_updated.emit(progress, f"下载中... {downloaded_size}/{total_size} 字节")
+
+            finally:
+                # 恢复环境变量
+                for var, val in old_env.items():
+                    os.environ[var] = val
 
             # 验证文件是否下载成功
             if os.path.exists(local_path) and os.path.getsize(local_path) > 0:
                 file_size = os.path.getsize(local_path)
-                self.progress_updated.emit(100, "下载完成！")
                 self.progress_updated.emit(100, "下载完成！")
                 self.log_updated.emit(f"视频下载完成: {local_path} ({file_size} 字节)")
                 self.download_finished.emit(True, "下载完成", local_path)
             else:
                 self.download_finished.emit(False, "下载失败：文件不完整", "")
 
-        except requests.exceptions.RequestException as e:
+        except Exception as e:
+            import traceback
             self.download_finished.emit(False, f"网络错误: {str(e)}", "")
             self.log_updated.emit(f"❌ 下载失败: {str(e)}")
-        except Exception as e:
-            self.download_finished.emit(False, f"下载异常: {str(e)}", "")
-            self.log_updated.emit(f"💥 下载异常: {str(e)}")
+            self.log_updated.emit(f"下载异常详情: {traceback.format_exc()}")
 
     def cancel(self):
         """取消下载"""
@@ -3084,8 +3134,27 @@ class VideoGenerationWidget(QWidget):
         # self.video_scroll.setFixedHeight(450) # 取消固定高度，使其自适应填充
         video_list_layout.addWidget(self.video_scroll)
 
-        self.result_tabs.addTab(self.video_list_widget, "视频列表-任务")
+        self.result_tabs.addTab(self.video_list_widget, "任务状态")
 
+        # Tab 2: Response Results (响应结果 - 成功完成的任务)
+        self.results_widget = QWidget()
+        results_layout = QVBoxLayout(self.results_widget)
+        results_layout.setContentsMargins(10, 10, 10, 10)
+        results_layout.setSpacing(10)
+
+        results_title = QLabel("🎬 响应结果:")
+        results_title.setStyleSheet("font-size: 16px; font-weight: bold; color: #ffffff; margin-bottom: 5px;")
+        results_layout.addWidget(results_title)
+
+        self.results_scroll = SmoothScrollArea()
+        self.results_scroll_widget = QWidget()
+        self.results_scroll_layout = QVBoxLayout(self.results_scroll_widget)
+        self.results_scroll_layout.setSpacing(10)
+        self.results_scroll.setWidget(self.results_scroll_widget)
+        self.results_scroll.setWidgetResizable(True)
+        results_layout.addWidget(self.results_scroll)
+
+        self.result_tabs.addTab(self.results_widget, "响应结果")
 
         # 日志Tab
         self.log_widget = QWidget()
@@ -3167,6 +3236,8 @@ class VideoGenerationWidget(QWidget):
         if task_id in self.task_status_cards:
             self.task_status_cards[task_id].stop_timing() # 停止计时
             self.task_status_cards[task_id].set_completed(success, message)
+            # 任务卡片保留在"任务状态"选项卡中，不再自动移除
+            # 任务结果也会显示在"响应结果"选项卡中
             
     def get_current_image_input(self):
         """获取当前图片输入"""
@@ -3379,11 +3450,12 @@ class VideoGenerationWidget(QWidget):
         self.refresh_task_videos() # 刷新缩略图
 
     def create_video_result_card(self, result_data, task_id):
-        """创建视频结果卡片"""
+        """创建视频结果卡片（添加到响应结果选项卡）"""
         try:
-            # 在 VideoResultCard 自动下载后，VideoGenerationWidget 负责刷新缩略图
+            # 将结果卡片添加到"响应结果"选项卡，而不是"任务状态"选项卡
             card = VideoResultCard(result_data, task_id, self)
-            self.video_scroll_layout.addWidget(card)
+            # 使用 results_scroll_layout 而不是 video_scroll_layout
+            self.results_scroll_layout.insertWidget(self.results_scroll_layout.count() - 1, card)
         except Exception as e:
             self.add_log(f"❌ 创建视频结果卡片失败: {e}")
 

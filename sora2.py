@@ -32,7 +32,7 @@ from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
                             QProgressBar, QMessageBox, QFileDialog,
                             QGroupBox, QSplitter, QFrame, QRadioButton,
                             QScrollArea, QDialog, QSizePolicy, QTabWidget,
-                            QTableWidgetItem)
+                            QTableWidgetItem, QApplication)
 from PyQt5.QtGui import QPixmap, QDragEnterEvent, QDropEvent, QDesktopServices
 
 import qfluentwidgets as qf
@@ -647,53 +647,109 @@ class VideoDownloadThread(QThread):
 
     def run(self):
         """下载视频"""
+        print(f"[Download] 开始下载: {self.url}")
+
         # 临时清除系统代理环境变量，确保不使用任何代理
         old_env = {}
         proxy_vars = ['http_proxy', 'https_proxy', 'HTTP_PROXY', 'HTTPS_PROXY',
-                      'all_proxy', 'ALL_PROXY', 'socks_proxy', 'SOCKS_PROXY']
+                      'all_proxy', 'ALL_PROXY', 'socks_proxy', 'SOCKS_PROXY',
+                      'no_proxy', 'NO_PROXY']
         for var in proxy_vars:
             if var in os.environ:
                 old_env[var] = os.environ[var]
                 del os.environ[var]
 
         try:
-            # 使用 trust_env=False 完全禁用系统代理
-            session = requests.Session()
-            session.trust_env = False
-            session.proxies = {"http": None, "https": None}
-
-            response = session.get(
-                self.url,
-                stream=True,
-                timeout=60,
-                headers={'User-Agent': 'Mozilla/5.0'}
-            )
-            response.raise_for_status()
-
-            total_size = int(response.headers.get('content-length', 0))
-
-            with open(self.local_path, 'wb') as f:
-                if total_size > 0:
-                    downloaded = 0
-                    chunk_size = 8192
-                    for chunk in response.iter_content(chunk_size=chunk_size):
-                        if chunk:
-                            f.write(chunk)
-                            downloaded += len(chunk)
-                else:
-                    for chunk in response.iter_content(chunk_size=8192):
-                        if chunk:
-                            f.write(chunk)
-
-            self.finished.emit(True, self.local_path)
+            # 优先使用 urllib（不受 PySocks 库影响，更可靠）
+            # 因为此项目依赖中包含 pysocks，requests 库会被自动配置使用 SOCKS 代理
+            # 即使设置 trust_env=False 和 proxies=None 也无法完全禁用
+            # urllib 不受 PySocks 影响，更适合国内 API 直连
+            print(f"[Download] 使用 urllib 下载（不受 PySocks 影响）")
+            self._download_with_urllib()
 
         except Exception as e:
-            print(f"Download error: {e}")
+            print(f"[Download] urllib 下载失败: {e}")
+            import traceback
+            print(f"[Download] traceback: {traceback.format_exc()}")
             self.finished.emit(False, "")
         finally:
             # 恢复环境变量
             for var, val in old_env.items():
                 os.environ[var] = val
+            print(f"[Download] 下载任务结束")
+
+    def _download_with_requests(self):
+        """使用 requests 下载（已增强代理禁用）"""
+        import urllib3
+        urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+        session = requests.Session()
+        session.trust_env = False
+        session.proxies.clear()
+        session.proxies.update({
+            "http": None,
+            "https": None,
+            "ftp": None,
+            "socks4": None,
+            "socks5": None
+        })
+        session.verify = False
+
+        response = session.get(
+            self.url,
+            stream=True,
+            timeout=120,
+            headers={
+                'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+            }
+        )
+        response.raise_for_status()
+
+        total_size = int(response.headers.get('content-length', 0))
+
+        with open(self.local_path, 'wb') as f:
+            if total_size > 0:
+                downloaded = 0
+                chunk_size = 8192
+                for chunk in response.iter_content(chunk_size=chunk_size):
+                    if chunk:
+                        f.write(chunk)
+                        downloaded += len(chunk)
+            else:
+                for chunk in response.iter_content(chunk_size=8192):
+                    if chunk:
+                        f.write(chunk)
+
+        self.finished.emit(True, self.local_path)
+
+    def _download_with_urllib(self):
+        """使用 urllib 下载（不受 PySocks 影响）"""
+        import urllib.request
+        import ssl
+
+        # 创建不验证 SSL 的上下文
+        ssl_context = ssl.create_default_context()
+        ssl_context.check_hostname = False
+        ssl_context.verify_mode = ssl.CERT_NONE
+
+        # 创建请求
+        req = urllib.request.Request(
+            self.url,
+            headers={
+                'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+            }
+        )
+
+        # 下载文件
+        with urllib.request.urlopen(req, timeout=120, context=ssl_context) as response:
+            with open(self.local_path, 'wb') as f:
+                while True:
+                    chunk = response.read(8192)
+                    if not chunk:
+                        break
+                    f.write(chunk)
+
+        self.finished.emit(True, self.local_path)
 
 # ==================== Video Generation Worker ====================
 class Sora2VideoGenerationWorker(QThread):
@@ -1483,6 +1539,7 @@ class Sora2TaskStatusCard(CardWidget):
         self.key_source = "文件密钥"
         self.webhook_mode = False  # WebHook 模式标识
         self.request_id = ""  # request_id
+        self.is_expanded = True  # 卡片展开/收缩状态
 
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.update_timer)
@@ -1533,7 +1590,7 @@ class Sora2TaskStatusCard(CardWidget):
         top_layout.addWidget(left_container)
         top_layout.addStretch()
 
-        # 右上角容器：状态、模式和密钥类型在同一行
+        # 右上角容器：状态、模式、密钥类型和缩小/展开按钮在同一行
         right_container = QWidget()
         right_layout = QHBoxLayout(right_container)
         right_layout.setContentsMargins(0, 0, 0, 0)
@@ -1551,6 +1608,26 @@ class Sora2TaskStatusCard(CardWidget):
         self.key_type_label = CaptionLabel(self.key_source)
         self.key_type_label.setStyleSheet("color: #4a90e2; font-size: 11px; font-weight: 600; padding: 4px 8px; background: #2a3a4a; border-radius: 4px;")
         right_layout.addWidget(self.key_type_label)
+
+        # 缩小/展开按钮
+        self.toggle_btn = PushButton("👁")
+        self.toggle_btn.setFixedSize(28, 24)
+        self.toggle_btn.setToolTip("缩小任务卡片")
+        self.toggle_btn.setStyleSheet("""
+            PushButton {
+                background-color: #3a3a3a;
+                color: #888888;
+                border: 1px solid #505050;
+                border-radius: 4px;
+                font-size: 12px;
+            }
+            PushButton:hover {
+                background-color: #4a4a4a;
+                color: #ffffff;
+            }
+        """)
+        self.toggle_btn.clicked.connect(self.toggle_visibility)
+        right_layout.addWidget(self.toggle_btn)
 
         top_layout.addWidget(right_container)
         layout.addLayout(top_layout)
@@ -1706,6 +1783,49 @@ class Sora2TaskStatusCard(CardWidget):
                 }
             """)
         self.status_label.setText(self.status)
+
+    def toggle_visibility(self):
+        """切换卡片展开/收缩状态"""
+        self.is_expanded = not self.is_expanded
+
+        if self.is_expanded:
+            # 展开卡片：恢复完整显示
+            self.toggle_btn.setText("👁")
+            self.toggle_btn.setToolTip("缩小任务卡片")
+            self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
+            self.setMinimumHeight(145)
+            self.setMaximumHeight(16777215)  # 清除最大高度限制
+
+            # 显示所有内容
+            for i in range(self.layout().count()):
+                item = self.layout().itemAt(i)
+                if item and item.widget():
+                    item.widget().show()
+                elif item.layout():
+                    # 显示布局中的所有子项
+                    for j in range(item.layout().count()):
+                        sub_item = item.layout().itemAt(j)
+                        if sub_item and sub_item.widget():
+                            sub_item.widget().show()
+
+        else:
+            # 收缩卡片：只显示标题行和按钮
+            self.toggle_btn.setText("👁‍🗨")
+            self.toggle_btn.setToolTip("展开任务卡片")
+            # 设置固定高度
+            self.setFixedHeight(45)
+
+            # 隐藏除了第一行（top_layout）外的所有内容
+            for i in range(1, self.layout().count()):
+                item = self.layout().itemAt(i)
+                if item and item.widget():
+                    item.widget().hide()
+                elif item.layout():
+                    # 隐藏布局中的所有子项
+                    for j in range(item.layout().count()):
+                        sub_item = item.layout().itemAt(j)
+                        if sub_item and sub_item.widget():
+                            sub_item.widget().hide()
 
 # ==================== Main Widget ====================
 class Sora2VideoGenerationWidget(QWidget, PlayVideoMixin):
@@ -2023,7 +2143,7 @@ class Sora2VideoGenerationWidget(QWidget, PlayVideoMixin):
             }
         """)
 
-        # Tab 1: Task Status
+        # Tab 1: Task Status (进行中的任务)
         tasks_tab = QWidget()
         tasks_tab_layout = QVBoxLayout(tasks_tab)
         tasks_tab_layout.setContentsMargins(10, 10, 10, 10)
@@ -2047,7 +2167,7 @@ class Sora2VideoGenerationWidget(QWidget, PlayVideoMixin):
         tasks_tab_layout.addWidget(self.tasks_scroll)
         self.tab_widget.addTab(tasks_tab, "任务状态")
 
-        # Tab 2: Video Results
+        # Tab 2: Response Results (响应结果 - 成功完成的任务)
         results_tab = QWidget()
         results_tab_layout = QVBoxLayout(results_tab)
         results_tab_layout.setContentsMargins(10, 10, 10, 10)
@@ -2069,9 +2189,9 @@ class Sora2VideoGenerationWidget(QWidget, PlayVideoMixin):
         self.results_scroll.setWidget(self.results_widget)
 
         results_tab_layout.addWidget(self.results_scroll)
-        self.tab_widget.addTab(results_tab, "生成结果")
+        self.tab_widget.addTab(results_tab, "响应结果")
 
-        # Tab 3: Logs
+        # Tab 3: Operation Logs (操作日志)
         logs_tab = QWidget()
         logs_tab_layout = QVBoxLayout(logs_tab)
         logs_tab_layout.setContentsMargins(10, 10, 10, 10)
@@ -2134,7 +2254,7 @@ class Sora2VideoGenerationWidget(QWidget, PlayVideoMixin):
         legend_label.setStyleSheet("font-size: 11px; padding: 5px 0;")
         logs_tab_layout.addWidget(legend_label)
 
-        self.tab_widget.addTab(logs_tab, "日志")
+        self.tab_widget.addTab(logs_tab, "操作日志")
 
         layout.addWidget(self.tab_widget, 1)
 
@@ -2358,6 +2478,8 @@ class Sora2VideoGenerationWidget(QWidget, PlayVideoMixin):
             if not is_webhook:
                 self.task_status_cards[task_id].stop_timing()  # 停止计时器
             self.task_status_cards[task_id].set_completed(success, message)
+            # 任务卡片保留在"任务状态"选项卡中，不再自动移除
+            # 用户可以手动点击缩小/展开按钮来管理卡片显示
 
         if success and result_data:
             self.add_simple_result_card(result_data, task_id)
@@ -2384,6 +2506,8 @@ class Sora2VideoGenerationWidget(QWidget, PlayVideoMixin):
             if task_id in self.task_status_cards:
                 self.task_status_cards[task_id].stop_timing()
                 self.task_status_cards[task_id].set_completed(True, "查询成功")
+                # 任务卡片保留在"任务状态"选项卡中，不再自动移除
+                # 用户可以手动点击缩小/展开按钮来管理卡片显示
 
             # 创建结果数据并添加结果卡片
             result_data = {
@@ -2526,11 +2650,16 @@ class Sora2VideoGenerationWidget(QWidget, PlayVideoMixin):
 
     def copy_url(self, url):
         """Copy URL to clipboard"""
-        clipboard = QCoreApplication.clipboard()
+        # 添加调试日志，帮助排查URL显示问题
+        print(f"[DEBUG] copy_url 被调用，URL内容: {url}")
+        self.add_log(f"[复制URL] 复制内容: {url[:100] if url else '(空)'}")
+
+        # 使用 QApplication.clipboard() 而不是 QCoreApplication.clipboard()
+        clipboard = QApplication.clipboard()
         clipboard.setText(url)
         InfoBar.success(
             title="成功",
-            content="URL已复制到剪贴板",
+            content=f"URL已复制到剪贴板: {url[:60]}..." if len(url) > 60 else "URL已复制到剪贴板",
             orient=Qt.Horizontal,
             isClosable=True,
             position=InfoBarPosition.TOP,

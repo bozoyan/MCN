@@ -1,9 +1,9 @@
 {
   "version": "2.0.0",
-  "last_updated": "2026-01-12T12:00:06.106626",
+  "last_updated": "2026-01-12T13:22:38.667345",
   "statistics": {
-    "total_tasks": 7,
-    "completed_tasks": 6,
+    "total_tasks": 8,
+    "completed_tasks": 7,
     "pending_tasks": 1,
     "failed_tasks": 0
   },
@@ -144,7 +144,7 @@
       "task_id": "task_1768190405",
       "name": "Sora2_文生视频_120005",
       "request_id": "5c7e1c79-cda3-4185-a031-13a6b28cea73",
-      "status": "pending",
+      "status": "success",
       "video_mode": "t2v",
       "prompt": "一位名为 @yanbo1984  的自信男性，身着设计流线型、具有金属光泽质感的高端豪华滑雪服，佩戴着宽边反光墨镜，站在阳光明媚的阿尔卑斯山脉顶级滑雪场。他首先保持直立姿态，直视相机镜头进行专业的滑雪讲解，配合自信的手势，持续时间约3秒。随后，他迅速调整重心，身体前倾，流畅地启动滑行，在洁白的粉雪道上展示一系列优美的S型大回转动作，并伴随一次轻盈的腾空跳跃，落地时激起细腻的雪雾。镜头初始为正面中景特写，精准捕捉 @yanbo1984  讲解时的面部表情；随后随着他开始滑行，镜头无缝切换为低角度侧面跟拍，强调速度感；最后拉升至无人机高空全景俯拍。画面采用高端运动广告的电影写实风格，8K超高清分辨率，色彩明快通透，强调光影层次感与材质纹理。",
       "aspect_ratio": "9:16",
@@ -154,6 +154,28 @@
       "timestamps": {
         "created_at": "2026-01-12T12:00:06.106607",
         "submitted_at": "2026-01-12T12:00:06.106612",
+        "completed_at": "2026-01-12T12:11:06.289253"
+      },
+      "result": {
+        "video_url": "https://storage.bizyair.cn/outputs/e5976d87-b728-41ba-b7fc-673173d8d950_8affadafd06c195a4893f59ef93dad12_video_ComfyUI_4bf76c13_00001_.mp4",
+        "error_message": null
+      },
+      "webhook_mode": true
+    },
+    "task_1768195358": {
+      "task_id": "task_1768195358",
+      "name": "Sora2_图生视频_132238",
+      "request_id": "16cec419-67c9-4015-8338-b246fdc76444",
+      "status": "pending",
+      "video_mode": "i2v",
+      "prompt": "一位年轻女性身穿黑色皮衣，长发随风轻扬，神情从容地以正常步速向前行走，持续约10秒；摄像机从她背后中景位置开始跟拍，并以0.5倍速平滑环绕至正面特写，完成一次完整的视角转换。场景设定在秋日午后阳光斜照的城市街道，地面上有落叶与细微尘埃漂浮，背景中有行人与低矮建筑，整体氛围日常却富有电影感。拍摄风格为写实电影质感，强调光影层次与细节清晰度，分辨率4K，带有轻微柔焦效果。",
+      "aspect_ratio": "9:16",
+      "duration": 10,
+      "api_key_used": "sk-f****skdx",
+      "web_app_id": 42936,
+      "timestamps": {
+        "created_at": "2026-01-12T13:22:38.667332",
+        "submitted_at": "2026-01-12T13:22:38.667337",
         "completed_at": null
       },
       "result": {
