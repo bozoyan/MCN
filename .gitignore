@@ -13,6 +13,7 @@ speech
 SRT
 API
 media
+cache
 
 vae.json
 storyboard_config.json
