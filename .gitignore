@@ -12,6 +12,7 @@ output
 speech
 SRT
 API
+media
 
 vae.json
 storyboard_config.json
