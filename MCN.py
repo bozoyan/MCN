@@ -333,6 +333,106 @@ class SRTTranslateThread(WorkerThread):
         except Exception as e:
             self.finished.emit(False, f"翻译异常: {str(e)}")
 
+class AudioCoverExtractThread(WorkerThread):
+    """音频封面提取线程"""
+
+    def __init__(self, audio_path, output_path):
+        super().__init__()
+        self.audio_path = audio_path
+        self.output_path = output_path
+
+    def run(self):
+        try:
+            self.progress_updated.emit(10)
+            self.log_updated.emit(f"开始提取: {os.path.basename(self.audio_path)}")
+
+            # 使用ffmpeg提取音频封面
+            cmd = [
+                "ffmpeg", "-y", "-i", self.audio_path,
+                "-an",  # 禁用音频输出
+                self.output_path
+            ]
+
+            result = subprocess.run(cmd, capture_output=True, text=True)
+
+            self.progress_updated.emit(80)
+
+            # 检查输出文件是否真的生成了
+            if result.returncode == 0 and os.path.exists(self.output_path):
+                self.progress_updated.emit(100)
+                self.log_updated.emit(f"封面提取完成: {os.path.basename(self.output_path)}")
+                self.finished.emit(True, self.output_path)
+            else:
+                # 如果没有找到封面流，删除可能生成的空文件
+                if os.path.exists(self.output_path):
+                    os.remove(self.output_path)
+                self.finished.emit(False, f"未发现封面: {os.path.basename(self.audio_path)}")
+
+        except Exception as e:
+            self.finished.emit(False, f"封面提取异常: {str(e)}")
+
+class VideoFrameExtractThread(WorkerThread):
+    """视频帧提取线程"""
+
+    def __init__(self, video_path, output_path, frame_type="first", custom_time="00:00:00"):
+        super().__init__()
+        self.video_path = video_path
+        self.output_path = output_path
+        self.frame_type = frame_type  # first, last, custom
+        self.custom_time = custom_time
+
+    def run(self):
+        try:
+            self.progress_updated.emit(10)
+            self.log_updated.emit(f"开始提取: {os.path.basename(self.video_path)}")
+
+            # 如果是尾帧，需要先获取视频时长
+            timestamp = self.custom_time
+            if self.frame_type == "last":
+                # 获取视频时长
+                cmd_probe = [
+                    "ffprobe", "-v", "error", "-show_entries", "format=duration",
+                    "-of", "default=noprint_wrappers=1:nokey=1", self.video_path
+                ]
+                result = subprocess.run(cmd_probe, capture_output=True, text=True)
+                try:
+                    duration = float(result.stdout.strip())
+                    # 尾帧时间点为总时长-1秒
+                    timestamp = str(int(duration - 1))
+                    # 格式化为 HH:MM:SS
+                    hours = int(timestamp) // 3600
+                    minutes = (int(timestamp) % 3600) // 60
+                    seconds = int(timestamp) % 60
+                    timestamp = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+                except ValueError:
+                    timestamp = "00:00:05"
+            elif self.frame_type == "first":
+                timestamp = "00:00:00"
+
+            # 使用ffmpeg提取指定帧
+            cmd = [
+                "ffmpeg", "-y", "-i", self.video_path,
+                "-ss", timestamp,
+                "-vframes", "1",
+                "-q:v", "2",  # 图片质量（1-31，1质量最高）
+                self.output_path
+            ]
+
+            result = subprocess.run(cmd, capture_output=True, text=True)
+
+            self.progress_updated.emit(80)
+
+            if result.returncode == 0 and os.path.exists(self.output_path):
+                self.progress_updated.emit(100)
+                frame_label = "_首帧" if self.frame_type == "first" else ("_尾帧" if self.frame_type == "last" else f"_{self.custom_time}")
+                self.log_updated.emit(f"帧提取完成: {os.path.basename(self.output_path)}")
+                self.finished.emit(True, self.output_path)
+            else:
+                self.finished.emit(False, f"帧提取失败: {result.stderr}")
+
+        except Exception as e:
+            self.finished.emit(False, f"帧提取异常: {str(e)}")
+
 # 功能页面类
 class BasePage(QWidget):
     """页面基类"""
@@ -2624,6 +2724,377 @@ class MergeSubtitlePage(BasePage):
         except Exception as e:
             self.show_error("错误", f"整合异常: {str(e)}")
 
+class ImageExtractPage(BasePage):
+    """图像提取页面 - 从音频/视频中提取封面或帧"""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.audio_files = []  # 存储待处理的音频文件
+        self.video_files = []  # 存储待处理的视频文件
+        self.init_ui()
+
+    def init_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setSpacing(20)
+
+        # 标题
+        title = SubtitleLabel("🖼️ 图像提取")
+        title.setFont(TITLE_FONT)
+        layout.addWidget(title)
+
+        # 创建选项卡
+        self.pivot = Pivot(self)
+        self.pivot.addItem(routeKey="audio_extract", text="音频封面提取")
+        self.pivot.addItem(routeKey="video_extract", text="视频帧提取")
+        layout.addWidget(self.pivot)
+
+        # 堆叠窗口
+        self.stackedWidget = QStackedWidget(self)
+        layout.addWidget(self.stackedWidget)
+
+        # 添加子页面
+        self.stackedWidget.addWidget(self.create_audio_extract_tab())
+        self.stackedWidget.addWidget(self.create_video_extract_tab())
+
+        # 连接信号
+        self.pivot.currentItemChanged.connect(
+            lambda k: self.stackedWidget.setCurrentIndex(
+                ["audio_extract", "video_extract"].index(k)
+            )
+        )
+
+        # 进度条
+        self.progress_bar = ProgressBar()
+        self.progress_bar.setFixedHeight(20)
+        layout.addWidget(self.progress_bar)
+
+        layout.addStretch()
+
+    def create_audio_extract_tab(self):
+        """创建音频封面提取标签页"""
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+        layout.setContentsMargins(0, 20, 0, 0)
+        layout.setSpacing(15)
+
+        # 音频文件选择组
+        audio_group = QGroupBox("音频文件选择")
+        audio_layout = QGridLayout()
+
+        audio_layout.addWidget(QLabel("添加音频文件:"), 0, 0)
+        self.audio_file_edit = DraggableLineEdit(self, "audio")
+        self.audio_file_edit.setPlaceholderText("选择或拖拽音频文件到此处...")
+        self.audio_file_edit.setFixedHeight(35)
+        audio_layout.addWidget(self.audio_file_edit, 0, 1)
+
+        audio_browse_btn = PushButton(FluentIcon.FOLDER, "浏览")
+        audio_browse_btn.setFixedWidth(80)
+        audio_browse_btn.clicked.connect(self.browse_audio_files)
+        audio_layout.addWidget(audio_browse_btn, 0, 2)
+
+        # 批量音频文件夹
+        audio_layout.addWidget(QLabel("批量文件夹:"), 1, 0)
+        self.audio_folder_edit = DraggableLineEdit(self, "audio_folder")
+        self.audio_folder_edit.setPlaceholderText("选择包含音频的文件夹...")
+        self.audio_folder_edit.setFixedHeight(35)
+        audio_layout.addWidget(self.audio_folder_edit, 1, 1)
+
+        audio_folder_btn = PushButton(FluentIcon.FOLDER, "选择")
+        audio_folder_btn.setFixedWidth(80)
+        audio_folder_btn.clicked.connect(self.browse_audio_folder)
+        audio_layout.addWidget(audio_folder_btn, 1, 2)
+
+        audio_group.setLayout(audio_layout)
+        layout.addWidget(audio_group)
+
+        # 输出设置组
+        output_group = QGroupBox("输出设置")
+        output_layout = QGridLayout()
+
+        output_layout.addWidget(QLabel("保存文件夹:"), 0, 0)
+        self.audio_output_edit = LineEdit()
+        self.audio_output_edit.setText("media/audio_covers")
+        self.audio_output_edit.setPlaceholderText("选择保存文件夹...")
+        self.audio_output_edit.setFixedHeight(35)
+        output_layout.addWidget(self.audio_output_edit, 0, 1)
+
+        output_folder_btn = PushButton(FluentIcon.FOLDER, "选择")
+        output_folder_btn.setFixedWidth(80)
+        output_folder_btn.clicked.connect(lambda: self.browse_output_folder("audio"))
+        output_layout.addWidget(output_folder_btn, 0, 2)
+
+        output_group.setLayout(output_layout)
+        layout.addWidget(output_group)
+
+        # 操作按钮
+        extract_btn = PrimaryPushButton(FluentIcon.DOWNLOAD, "批量提取封面")
+        extract_btn.setFixedHeight(45)
+        extract_btn.clicked.connect(self.extract_audio_covers)
+        layout.addWidget(extract_btn)
+
+        layout.addStretch()
+        return widget
+
+    def create_video_extract_tab(self):
+        """创建视频帧提取标签页"""
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+        layout.setContentsMargins(0, 20, 0, 0)
+        layout.setSpacing(15)
+
+        # 视频文件选择组
+        video_group = QGroupBox("视频文件选择")
+        video_layout = QGridLayout()
+
+        video_layout.addWidget(QLabel("添加视频文件:"), 0, 0)
+        self.video_file_edit = DraggableLineEdit(self, "video")
+        self.video_file_edit.setPlaceholderText("选择或拖拽视频文件到此处...")
+        self.video_file_edit.setFixedHeight(35)
+        video_layout.addWidget(self.video_file_edit, 0, 1)
+
+        video_browse_btn = PushButton(FluentIcon.FOLDER, "浏览")
+        video_browse_btn.setFixedWidth(80)
+        video_browse_btn.clicked.connect(self.browse_video_files)
+        video_layout.addWidget(video_browse_btn, 0, 2)
+
+        # 批量视频文件夹
+        video_layout.addWidget(QLabel("批量文件夹:"), 1, 0)
+        self.video_folder_edit = DraggableLineEdit(self, "video_folder")
+        self.video_folder_edit.setPlaceholderText("选择包含视频的文件夹...")
+        self.video_folder_edit.setFixedHeight(35)
+        video_layout.addWidget(self.video_folder_edit, 1, 1)
+
+        video_folder_btn = PushButton(FluentIcon.FOLDER, "选择")
+        video_folder_btn.setFixedWidth(80)
+        video_folder_btn.clicked.connect(self.browse_video_folder)
+        video_layout.addWidget(video_folder_btn, 1, 2)
+
+        video_group.setLayout(video_layout)
+        layout.addWidget(video_group)
+
+        # 提取设置组
+        extract_group = QGroupBox("提取设置")
+        extract_layout = QGridLayout()
+
+        extract_layout.addWidget(QLabel("提取模式:"), 0, 0)
+        self.frame_type_combo = ComboBox()
+        self.frame_type_combo.addItems(["首帧", "尾帧", "自定义时间"])
+        self.frame_type_combo.setFixedHeight(35)
+        self.frame_type_combo.currentTextChanged.connect(self.on_frame_type_changed)
+        extract_layout.addWidget(self.frame_type_combo, 0, 1)
+
+        extract_layout.addWidget(QLabel("自定义时间:"), 1, 0)
+        self.custom_time_edit = LineEdit()
+        self.custom_time_edit.setText("00:00:10")
+        self.custom_time_edit.setPlaceholderText("HH:MM:SS")
+        self.custom_time_edit.setFixedHeight(35)
+        self.custom_time_edit.setEnabled(False)
+        extract_layout.addWidget(self.custom_time_edit, 1, 1)
+
+        extract_group.setLayout(extract_layout)
+        layout.addWidget(extract_group)
+
+        # 输出设置组
+        output_group = QGroupBox("输出设置")
+        output_layout = QGridLayout()
+
+        output_layout.addWidget(QLabel("保存文件夹:"), 0, 0)
+        self.video_output_edit = LineEdit()
+        self.video_output_edit.setText("media/video_frames")
+        self.video_output_edit.setPlaceholderText("选择保存文件夹...")
+        self.video_output_edit.setFixedHeight(35)
+        output_layout.addWidget(self.video_output_edit, 0, 1)
+
+        output_folder_btn = PushButton(FluentIcon.FOLDER, "选择")
+        output_folder_btn.setFixedWidth(80)
+        output_folder_btn.clicked.connect(lambda: self.browse_output_folder("video"))
+        output_layout.addWidget(output_folder_btn, 0, 2)
+
+        output_group.setLayout(output_layout)
+        layout.addWidget(output_group)
+
+        # 操作按钮
+        extract_btn = PrimaryPushButton(FluentIcon.DOWNLOAD, "批量提取帧")
+        extract_btn.setFixedHeight(45)
+        extract_btn.clicked.connect(self.extract_video_frames)
+        layout.addWidget(extract_btn)
+
+        layout.addStretch()
+        return widget
+
+    def on_frame_type_changed(self, text):
+        """帧类型变化时的处理"""
+        self.custom_time_edit.setEnabled(text == "自定义时间")
+
+    # 文件浏览方法
+    def browse_audio_files(self):
+        file_path = self.get_file_path("选择音频文件",
+            "音频文件 (*.mp3 *.m4a *.aac *.flac *.wav *.ogg);;所有文件 (*)")
+        if file_path:
+            self.audio_file_edit.setText(file_path)
+
+    def browse_audio_folder(self):
+        folder_path = self.get_folder_path("选择音频文件夹")
+        if folder_path:
+            self.audio_folder_edit.setText(folder_path)
+
+    def browse_video_files(self):
+        file_path = self.get_file_path("选择视频文件",
+            "视频文件 (*.mp4 *.mov *.avi *.mkv *.flv *.wmv);;所有文件 (*)")
+        if file_path:
+            self.video_file_edit.setText(file_path)
+
+    def browse_video_folder(self):
+        folder_path = self.get_folder_path("选择视频文件夹")
+        if folder_path:
+            self.video_folder_edit.setText(folder_path)
+
+    def browse_output_folder(self, file_type):
+        folder_path = self.get_folder_path("选择保存文件夹")
+        if folder_path:
+            if file_type == "audio":
+                self.audio_output_edit.setText(folder_path)
+            else:
+                self.video_output_edit.setText(folder_path)
+
+    # 提取方法
+    def extract_audio_covers(self):
+        """提取音频封面"""
+        files_to_process = []
+
+        # 添加单个文件
+        single_file = self.audio_file_edit.text().strip()
+        if single_file and os.path.exists(single_file):
+            files_to_process.append(single_file)
+
+        # 添加文件夹中的文件
+        folder_path = self.audio_folder_edit.text().strip()
+        if folder_path and os.path.exists(folder_path):
+            for filename in os.listdir(folder_path):
+                if filename.lower().endswith(('.mp3', '.m4a', '.aac', '.flac', '.wav', '.ogg')):
+                    files_to_process.append(os.path.join(folder_path, filename))
+
+        if not files_to_process:
+            self.show_error("错误", "请选择音频文件或文件夹")
+            return
+
+        output_folder = self.audio_output_edit.text().strip() or "media/audio_covers"
+        os.makedirs(output_folder, exist_ok=True)
+
+        self.show_info("开始处理", f"正在处理 {len(files_to_process)} 个音频文件...")
+
+        completed = 0
+        for audio_path in files_to_process:
+            base_name = os.path.splitext(os.path.basename(audio_path))[0]
+            output_path = os.path.join(output_folder, f"{base_name}.jpg")
+
+            worker = AudioCoverExtractThread(audio_path, output_path)
+            worker.progress_updated.connect(lambda v: self.progress_bar.setValue(int((completed + v/100) / len(files_to_process) * 100)))
+            worker.log_updated.connect(lambda msg: self.show_info("处理中", msg))
+            worker.finished.connect(lambda success, msg, path=audio_path: self.on_audio_extract_finished(success, msg, path))
+            worker.start()
+
+            self.worker_threads.append(worker)
+            completed += 1
+
+    def extract_video_frames(self):
+        """提取视频帧"""
+        files_to_process = []
+
+        # 添加单个文件
+        single_file = self.video_file_edit.text().strip()
+        if single_file and os.path.exists(single_file):
+            files_to_process.append(single_file)
+
+        # 添加文件夹中的文件
+        folder_path = self.video_folder_edit.text().strip()
+        if folder_path and os.path.exists(folder_path):
+            for filename in os.listdir(folder_path):
+                if filename.lower().endswith(('.mp4', '.mov', '.avi', '.mkv', '.flv', '.wmv')):
+                    files_to_process.append(os.path.join(folder_path, filename))
+
+        if not files_to_process:
+            self.show_error("错误", "请选择视频文件或文件夹")
+            return
+
+        output_folder = self.video_output_edit.text().strip() or "media/video_frames"
+        os.makedirs(output_folder, exist_ok=True)
+
+        frame_type_map = {"首帧": "first", "尾帧": "last", "自定义时间": "custom"}
+        frame_type = frame_type_map.get(self.frame_type_combo.currentText(), "first")
+        custom_time = self.custom_time_edit.text().strip()
+
+        self.show_info("开始处理", f"正在处理 {len(files_to_process)} 个视频文件...")
+
+        completed = 0
+        for video_path in files_to_process:
+            base_name = os.path.splitext(os.path.basename(video_path))[0]
+            frame_label = "_首帧" if frame_type == "first" else ("_尾帧" if frame_type == "last" else f"_{custom_time}")
+            output_path = os.path.join(output_folder, f"{base_name}{frame_label}.jpg")
+
+            worker = VideoFrameExtractThread(video_path, output_path, frame_type, custom_time)
+            worker.progress_updated.connect(lambda v: self.progress_bar.setValue(int((completed + v/100) / len(files_to_process) * 100)))
+            worker.log_updated.connect(lambda msg: self.show_info("处理中", msg))
+            worker.finished.connect(lambda success, msg, path=video_path: self.on_video_extract_finished(success, msg, path))
+            worker.start()
+
+            self.worker_threads.append(worker)
+            completed += 1
+
+    def on_audio_extract_finished(self, success, message, path):
+        """音频提取完成回调"""
+        if success:
+            self.show_success("完成", f"封面提取成功: {os.path.basename(path)}")
+        else:
+            self.show_warning("跳过", f"{os.path.basename(path)}: {message}")
+
+    def on_video_extract_finished(self, success, message, path):
+        """视频提取完成回调"""
+        if success:
+            self.show_success("完成", f"帧提取成功: {os.path.basename(path)}")
+        else:
+            self.show_error("错误", f"{os.path.basename(path)}: {message}")
+
+
+class DraggableLineEdit(LineEdit):
+    """支持拖拽的LineEdit"""
+
+    def __init__(self, parent, drag_type):
+        super().__init__(parent)
+        self.drag_type = drag_type
+        self.setAcceptDrops(True)
+
+    def dragEnterEvent(self, event):
+        if event.mimeData().hasUrls():
+            event.accept()
+        else:
+            event.ignore()
+
+    def dragMoveEvent(self, event):
+        if event.mimeData().hasUrls():
+            event.accept()
+        else:
+            event.ignore()
+
+    def dropEvent(self, event):
+        files = [u.toLocalFile() for u in event.mimeData().urls()]
+        for file_path in files:
+            # 文件类型拖拽
+            if self.drag_type in ["audio", "video"]:
+                if self.drag_type == "audio":
+                    extensions = ('.mp3', '.m4a', '.aac', '.flac', '.wav', '.ogg')
+                else:
+                    extensions = ('.mp4', '.mov', '.avi', '.mkv', '.flv', '.wmv')
+
+                if file_path.lower().endswith(extensions) and os.path.exists(file_path):
+                    self.setText(file_path)
+                    break
+            # 文件夹类型拖拽
+            elif self.drag_type in ["audio_folder", "video_folder"]:
+                if os.path.isdir(file_path):
+                    self.setText(file_path)
+                    break
+
 # 主窗口类
 class MainWindow(FluentWindow):
     def __init__(self):
@@ -2650,6 +3121,14 @@ class MainWindow(FluentWindow):
             self.create_home_page(),
             FluentIcon.HOME,
             "首页",
+            NavigationItemPosition.TOP
+        )
+
+        # 添加图像提取
+        self.addSubInterface(
+            self.create_image_extract_page(),
+            FluentIcon.PHOTO,
+            "图像提取",
             NavigationItemPosition.TOP
         )
 
@@ -2771,6 +3250,12 @@ class MainWindow(FluentWindow):
         """创建整合字幕页面"""
         page = MergeSubtitlePage(self)
         page.setObjectName("merge_subtitle_page")
+        return page
+
+    def create_image_extract_page(self):
+        """创建图像提取页面"""
+        page = ImageExtractPage(self)
+        page.setObjectName("image_extract_page")
         return page
 
     def create_settings_page(self):
