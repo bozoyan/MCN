@@ -1064,7 +1064,8 @@ class VoiceManagerPage(BasePage):
 
         file_layout = QHBoxLayout()
         file_layout.addWidget(BodyLabel("音频文件:"))
-        self.fu_path = LineEdit()
+        self.fu_path = DraggableLineEdit(self, "audio")
+        self.fu_path.setPlaceholderText("选择或拖拽音频文件到此处...")
         file_layout.addWidget(self.fu_path)
         browse_btn = PushButton("浏览")
         browse_btn.clicked.connect(lambda: self.fu_path.setText(self.get_file_path("选择音频", "Audio (*.mp3 *.wav *.opus)")))
@@ -1232,8 +1233,8 @@ class VideoConvertPage(BasePage):
         video_layout = QGridLayout()
 
         video_layout.addWidget(QLabel("选择视频文件:"), 0, 0)
-        self.video_path_edit = LineEdit()
-        self.video_path_edit.setPlaceholderText("请选择视频文件...")
+        self.video_path_edit = DraggableLineEdit(self, "video")
+        self.video_path_edit.setPlaceholderText("选择或拖拽视频文件到此处...")
         self.video_path_edit.setFixedHeight(35)
         video_layout.addWidget(self.video_path_edit, 0, 1)
 
@@ -1254,8 +1255,8 @@ class VideoConvertPage(BasePage):
         batch_layout.addWidget(self.batch_checkbox, 0, 0)
 
         batch_layout.addWidget(QLabel("批量文件夹:"), 1, 0)
-        self.batch_path_edit = LineEdit()
-        self.batch_path_edit.setPlaceholderText("选择包含视频的文件夹...")
+        self.batch_path_edit = DraggableLineEdit(self, "video_folder")
+        self.batch_path_edit.setPlaceholderText("选择或拖拽包含视频的文件夹...")
         self.batch_path_edit.setFixedHeight(35)
         self.batch_path_edit.setEnabled(False)
         batch_layout.addWidget(self.batch_path_edit, 1, 1)
@@ -1608,8 +1609,8 @@ class ImageToVideoPage(BasePage):
         image_layout = QGridLayout()
 
         image_layout.addWidget(QLabel("图片文件:"), 0, 0)
-        self.image_path_edit = LineEdit()
-        self.image_path_edit.setPlaceholderText("选择单个图片文件...")
+        self.image_path_edit = DraggableLineEdit(self, "image")
+        self.image_path_edit.setPlaceholderText("选择或拖拽单个图片文件到此处...")
         self.image_path_edit.setFixedHeight(35)
         image_layout.addWidget(self.image_path_edit, 0, 1)
 
@@ -1624,8 +1625,8 @@ class ImageToVideoPage(BasePage):
         image_layout.addWidget(self.batch_checkbox, 1, 0)
 
         image_layout.addWidget(QLabel("批量文件夹:"), 2, 0)
-        self.batch_folder_edit = LineEdit()
-        self.batch_folder_edit.setPlaceholderText("选择包含图片的文件夹...")
+        self.batch_folder_edit = DraggableLineEdit(self, "image_folder")
+        self.batch_folder_edit.setPlaceholderText("选择或拖拽包含图片的文件夹...")
         self.batch_folder_edit.setFixedHeight(35)
         self.batch_folder_edit.setEnabled(False)
         image_layout.addWidget(self.batch_folder_edit, 2, 1)
@@ -1795,8 +1796,8 @@ class MergeVideoAudioPage(BasePage):
         file_layout = QGridLayout()
 
         file_layout.addWidget(QLabel("封面文件:"), 0, 0)
-        self.cover_path_edit = LineEdit()
-        self.cover_path_edit.setPlaceholderText("选择封面图片文件 (可选)...")
+        self.cover_path_edit = DraggableLineEdit(self, "image")
+        self.cover_path_edit.setPlaceholderText("选择或拖拽封面图片文件 (可选)...")
         self.cover_path_edit.setFixedHeight(35)
         file_layout.addWidget(self.cover_path_edit, 0, 1)
 
@@ -1806,8 +1807,8 @@ class MergeVideoAudioPage(BasePage):
         file_layout.addWidget(cover_btn, 0, 2)
 
         file_layout.addWidget(QLabel("视频片段文件夹:"), 1, 0)
-        self.video_folder_edit = LineEdit()
-        self.video_folder_edit.setPlaceholderText("选择包含视频片段的文件夹...")
+        self.video_folder_edit = DraggableLineEdit(self, "video_folder")
+        self.video_folder_edit.setPlaceholderText("选择或拖拽包含视频片段的文件夹...")
         self.video_folder_edit.setFixedHeight(35)
         file_layout.addWidget(self.video_folder_edit, 1, 1)
 
@@ -1817,8 +1818,8 @@ class MergeVideoAudioPage(BasePage):
         file_layout.addWidget(video_folder_btn, 1, 2)
 
         file_layout.addWidget(QLabel("音频文件:"), 2, 0)
-        self.audio_path_edit = LineEdit()
-        self.audio_path_edit.setPlaceholderText("选择音频文件...")
+        self.audio_path_edit = DraggableLineEdit(self, "audio")
+        self.audio_path_edit.setPlaceholderText("选择或拖拽音频文件到此处...")
         self.audio_path_edit.setFixedHeight(35)
         file_layout.addWidget(self.audio_path_edit, 2, 1)
 
@@ -2158,8 +2159,8 @@ class SubtitleGenerationPage(BasePage):
         audio_layout = QGridLayout()
 
         audio_layout.addWidget(QLabel("音频文件:"), 0, 0)
-        self.audio_path_edit = LineEdit()
-        self.audio_path_edit.setPlaceholderText("选择音频文件...")
+        self.audio_path_edit = DraggableLineEdit(self, "audio")
+        self.audio_path_edit.setPlaceholderText("选择或拖拽音频文件到此处...")
         self.audio_path_edit.setFixedHeight(35)
         audio_layout.addWidget(self.audio_path_edit, 0, 1)
 
@@ -2262,8 +2263,8 @@ class SubtitleTextPage(BasePage):
         srt_layout = QGridLayout()
 
         srt_layout.addWidget(QLabel("SRT文件路径:"), 0, 0)
-        self.srt_path_edit = LineEdit()
-        self.srt_path_edit.setPlaceholderText("选择SRT字幕文件...")
+        self.srt_path_edit = DraggableLineEdit(self, "srt")
+        self.srt_path_edit.setPlaceholderText("选择或拖拽SRT字幕文件到此处...")
         self.srt_path_edit.setFixedHeight(35)
         srt_layout.addWidget(self.srt_path_edit, 0, 1)
 
@@ -2434,8 +2435,8 @@ class AdjustSubtitlePage(BasePage):
         srt_layout = QGridLayout()
 
         srt_layout.addWidget(QLabel("SRT文件路径:"), 0, 0)
-        self.srt_path_edit = LineEdit()
-        self.srt_path_edit.setPlaceholderText("选择SRT字幕文件...")
+        self.srt_path_edit = DraggableLineEdit(self, "srt")
+        self.srt_path_edit.setPlaceholderText("选择或拖拽SRT字幕文件到此处...")
         self.srt_path_edit.setFixedHeight(35)
         srt_layout.addWidget(self.srt_path_edit, 0, 1)
 
@@ -2553,8 +2554,8 @@ class MergeSubtitlePage(BasePage):
         file_layout = QGridLayout()
 
         file_layout.addWidget(QLabel("视频文件:"), 0, 0)
-        self.video_path_edit = LineEdit()
-        self.video_path_edit.setPlaceholderText("选择视频文件...")
+        self.video_path_edit = DraggableLineEdit(self, "video")
+        self.video_path_edit.setPlaceholderText("选择或拖拽视频文件到此处...")
         self.video_path_edit.setFixedHeight(35)
         file_layout.addWidget(self.video_path_edit, 0, 1)
 
@@ -2564,8 +2565,8 @@ class MergeSubtitlePage(BasePage):
         file_layout.addWidget(video_btn, 0, 2)
 
         file_layout.addWidget(QLabel("SRT字幕文件:"), 1, 0)
-        self.srt_path_edit = LineEdit()
-        self.srt_path_edit.setPlaceholderText("选择SRT字幕文件...")
+        self.srt_path_edit = DraggableLineEdit(self, "srt")
+        self.srt_path_edit.setPlaceholderText("选择或拖拽SRT字幕文件到此处...")
         self.srt_path_edit.setFixedHeight(35)
         file_layout.addWidget(self.srt_path_edit, 1, 1)
 
@@ -2582,9 +2583,9 @@ class MergeSubtitlePage(BasePage):
         style_layout = QGridLayout()
 
         style_layout.addWidget(QLabel("字体文件:"), 0, 0)
-        self.font_path_edit = LineEdit()
+        self.font_path_edit = DraggableLineEdit(self, "font")
         self.font_path_edit.setText("font/Light.otf")
-        self.font_path_edit.setPlaceholderText("选择字体文件...")
+        self.font_path_edit.setPlaceholderText("选择或拖拽字体文件到此处...")
         self.font_path_edit.setFixedHeight(35)
         style_layout.addWidget(self.font_path_edit, 0, 1)
 
@@ -3057,12 +3058,25 @@ class ImageExtractPage(BasePage):
 
 
 class DraggableLineEdit(LineEdit):
-    """支持拖拽的LineEdit"""
+    """支持拖拽的LineEdit - 支持音频、视频、图片、SRT字幕、字体文件和文件夹"""
 
     def __init__(self, parent, drag_type):
         super().__init__(parent)
         self.drag_type = drag_type
         self.setAcceptDrops(True)
+
+        # 定义各种文件类型的扩展名
+        self.FILE_EXTENSIONS = {
+            "audio": ('.mp3', '.m4a', '.aac', '.flac', '.wav', '.ogg', '.opus'),
+            "video": ('.mp4', '.mov', '.avi', '.mkv', '.flv', '.wmv'),
+            "image": ('.png', '.jpg', '.jpeg', '.bmp', '.gif', '.webp'),
+            "srt": ('.srt',),
+            "font": ('.ttf', '.otf', '.woff', '.woff2'),
+            "audio_folder": None,  # 文件夹类型
+            "video_folder": None,
+            "image_folder": None,
+            "folder": None
+        }
 
     def dragEnterEvent(self, event):
         if event.mimeData().hasUrls():
@@ -3079,19 +3093,19 @@ class DraggableLineEdit(LineEdit):
     def dropEvent(self, event):
         files = [u.toLocalFile() for u in event.mimeData().urls()]
         for file_path in files:
-            # 文件类型拖拽
-            if self.drag_type in ["audio", "video"]:
-                if self.drag_type == "audio":
-                    extensions = ('.mp3', '.m4a', '.aac', '.flac', '.wav', '.ogg')
-                else:
-                    extensions = ('.mp4', '.mov', '.avi', '.mkv', '.flv', '.wmv')
-
-                if file_path.lower().endswith(extensions) and os.path.exists(file_path):
+            # 文件夹类型拖拽
+            if "folder" in self.drag_type:
+                if os.path.isdir(file_path):
                     self.setText(file_path)
                     break
-            # 文件夹类型拖拽
-            elif self.drag_type in ["audio_folder", "video_folder"]:
-                if os.path.isdir(file_path):
+            # 文件类型拖拽
+            else:
+                extensions = self.FILE_EXTENSIONS.get(self.drag_type, ())
+                if extensions and file_path.lower().endswith(extensions) and os.path.exists(file_path):
+                    self.setText(file_path)
+                    break
+                # 特殊处理：如果没有匹配扩展名，但文件存在且是文件，也接受
+                elif extensions and os.path.isfile(file_path):
                     self.setText(file_path)
                     break
 
