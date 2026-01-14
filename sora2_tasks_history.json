@@ -1,11 +1,11 @@
 {
   "version": "2.0.0",
-  "last_updated": "2026-01-14T13:47:11.069978",
+  "last_updated": "2026-01-14T14:05:21.465491",
   "statistics": {
     "total_tasks": 9,
     "completed_tasks": 7,
-    "pending_tasks": 2,
-    "failed_tasks": 0
+    "pending_tasks": 1,
+    "failed_tasks": 1
   },
   "tasks": {
     "task_1768136233": {
@@ -162,33 +162,11 @@
       },
       "webhook_mode": true
     },
-    "task_1768195358": {
-      "task_id": "task_1768195358",
-      "name": "Sora2_图生视频_132238",
-      "request_id": "16cec419-67c9-4015-8338-b246fdc76444",
-      "status": "pending",
-      "video_mode": "i2v",
-      "prompt": "一位年轻女性身穿黑色皮衣，长发随风轻扬，神情从容地以正常步速向前行走，持续约10秒；摄像机从她背后中景位置开始跟拍，并以0.5倍速平滑环绕至正面特写，完成一次完整的视角转换。场景设定在秋日午后阳光斜照的城市街道，地面上有落叶与细微尘埃漂浮，背景中有行人与低矮建筑，整体氛围日常却富有电影感。拍摄风格为写实电影质感，强调光影层次与细节清晰度，分辨率4K，带有轻微柔焦效果。",
-      "aspect_ratio": "9:16",
-      "duration": 10,
-      "api_key_used": "sk-f****skdx",
-      "web_app_id": 42936,
-      "timestamps": {
-        "created_at": "2026-01-12T13:22:38.667332",
-        "submitted_at": "2026-01-12T13:22:38.667337",
-        "completed_at": null
-      },
-      "result": {
-        "video_url": null,
-        "error_message": null
-      },
-      "webhook_mode": true
-    },
     "task_1768369630": {
       "task_id": "task_1768369630",
       "name": "Sora2_文生视频_134710",
       "request_id": "72c07eff-9fee-4199-ba72-fefbe21bb6af",
-      "status": "pending",
+      "status": "failed",
       "video_mode": "t2v",
       "prompt": "@yanbo1984 这个男人穿越到《泰坦尼克号》电影场景里的泰坦尼克号轮船内的餐厅里，和《泰坦尼克号》的女主角是罗丝·迪威特布克特（Rose DeWitt Bukater）共进晚餐。",
       "aspect_ratio": "9:16",
@@ -198,6 +176,28 @@
       "timestamps": {
         "created_at": "2026-01-14T13:47:11.069965",
         "submitted_at": "2026-01-14T13:47:11.069973",
+        "completed_at": "2026-01-14T14:04:43.003172"
+      },
+      "result": {
+        "video_url": null,
+        "error_message": "任务执行失败"
+      },
+      "webhook_mode": true
+    },
+    "task_1768370721": {
+      "task_id": "task_1768370721",
+      "name": "Sora2_文生视频_140521",
+      "request_id": "926689f9-f16f-4e3b-aae9-b64787d56207",
+      "status": "pending",
+      "video_mode": "t2v",
+      "prompt": "@yanbo1984 这个男人穿越到《泰坦尼克号》电影场景里的泰坦尼克号轮船内的餐厅里，和《泰坦尼克号》的电影人物共进晚餐。",
+      "aspect_ratio": "9:16",
+      "duration": 10,
+      "api_key_used": "sk-f****skdx",
+      "web_app_id": 42921,
+      "timestamps": {
+        "created_at": "2026-01-14T14:05:21.465480",
+        "submitted_at": "2026-01-14T14:05:21.465486",
         "completed_at": null
       },
       "result": {
