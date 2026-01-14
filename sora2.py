@@ -3446,7 +3446,7 @@ class Sora2WebHookQueryScheduler(QObject):
         delay_ms = delay_minutes * 60 * 1000
         self.query_timer.start(delay_ms)
 
-        self.log_updated.emit(f"[调度器] 任务 {request_id[:32]}... 将在 {delay_minutes} 分钟后开始查询")
+        self.log_updated.emit(f"[调度器] 任务 {request_id[:40]}... 将在 {delay_minutes} 分钟后开始查询")
 
     def stop_monitoring(self, request_id):
         """停止监控任务"""
