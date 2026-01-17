@@ -3781,7 +3781,7 @@ class Sora2TaskHistoryDialog(QDialog, PlayVideoMixin):
         self.details_text = QTextEdit()
         self.details_text.setReadOnly(True)
         self.details_text.setMaximumHeight(150)
-        self.details_text.setStyleSheet("background-color: #1e1e1e; color: #aaaaaa; font-size: 11px;")
+        self.details_text.setStyleSheet("background-color: #1e1e1e; color: #aaaaaa; font-size: 18px;")
         details_layout.addWidget(self.details_text)
         details_group.setLayout(details_layout)
         layout.addWidget(details_group)

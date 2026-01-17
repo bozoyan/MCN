@@ -1,10 +1,10 @@
 {
   "version": "2.0.0",
-  "last_updated": "2026-01-17T09:29:05.468451",
+  "last_updated": "2026-01-17T09:39:32.525082",
   "statistics": {
-    "total_tasks": 13,
+    "total_tasks": 14,
     "completed_tasks": 11,
-    "pending_tasks": 1,
+    "pending_tasks": 2,
     "failed_tasks": 1
   },
   "tasks": {
@@ -290,6 +290,28 @@
       },
       "result": {
         "video_url": "https://storage.bizyair.cn/outputs/4a691c6b-9d15-48ad-a36e-af9418b599cf_ff59c9e3f5159015386283cb68d7175f_video_ComfyUI_835f366c_00001_.mp4",
+        "error_message": null
+      },
+      "webhook_mode": true
+    },
+    "task_1768613972": {
+      "task_id": "task_1768613972",
+      "name": "Sora2_文生视频_093932",
+      "request_id": "2f8e6478-f4bc-41fc-a4b5-9dcdf1b2ae94",
+      "status": "pending",
+      "video_mode": "t2v",
+      "prompt": "@yanbo1984 男人躺在池塘中间木板小道上，两边是荷叶，无人机航拍视角，镜头快速上升高度并上摇镜头，展现更多的荷花和环境",
+      "aspect_ratio": "9:16",
+      "duration": 10,
+      "api_key_used": "sk-f****skdx",
+      "web_app_id": 42921,
+      "timestamps": {
+        "created_at": "2026-01-17T09:39:32.525058",
+        "submitted_at": "2026-01-17T09:39:32.525071",
+        "completed_at": null
+      },
+      "result": {
+        "video_url": null,
         "error_message": null
       },
       "webhook_mode": true
