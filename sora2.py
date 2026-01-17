@@ -356,12 +356,12 @@ class Sora2SettingsManager:
             "token": settings.get("api_settings", {}).get("webhook_token", ""),
             "query_url": settings.get("api_settings", {}).get("query_url",
                 "https://api.bizyair.cn/w/v1/webapp/task/openapi/outputs"),
-            "delay_minutes": settings.get("api_settings", {}).get("query_delay_minutes", 8),
+            "delay_minutes": settings.get("api_settings", {}).get("query_delay_minutes", 10),
             "fallback_to_polling": settings.get("api_settings", {}).get("fallback_to_polling", False)
         }
 
     def set_webhook_settings(self, enabled=False, url="", token="",
-                             query_url=None, delay_minutes=8, fallback_to_polling=False):
+                             query_url=None, delay_minutes=10, fallback_to_polling=False):
         """设置 WebHook 配置"""
         settings = self.load_settings()
         if "api_settings" not in settings:
@@ -2437,7 +2437,7 @@ class Sora2VideoGenerationWidget(QWidget, PlayVideoMixin):
         }
 
         card = Sora2TaskStatusCard(task_id, task.get('name', f'Task_{task_id}'), task_params, self)
-        self.tasks_layout.insertWidget(self.tasks_layout.count() - 1, card)
+        self.tasks_layout.insertWidget(0, card)  # 插入到最上方，最新的任务在最前面
         self.task_status_cards[task_id] = card
 
         # 立即启动计时器
@@ -2473,10 +2473,10 @@ class Sora2VideoGenerationWidget(QWidget, PlayVideoMixin):
             self.task_status_cards[task_id].set_webhook_mode(webhook_enabled)
             if request_id:
                 self.task_status_cards[task_id].set_request_id(request_id)
-                # WebHook 模式：启动自动查询调度器（8分钟后开始查询）
+                # WebHook 模式：启动自动查询调度器（10分钟后开始查询）
                 if webhook_enabled:
                     webhook_settings = self.settings_manager.get_webhook_settings()
-                    delay_minutes = webhook_settings.get("delay_minutes", 8)
+                    delay_minutes = webhook_settings.get("delay_minutes", 10)
                     self.webhook_scheduler.start_monitoring(task_id, request_id, delay_minutes)
             # 刷新进度统计以显示 WebHook 状态
             self.update_batch_progress(0, 0)
@@ -2682,7 +2682,7 @@ class Sora2VideoGenerationWidget(QWidget, PlayVideoMixin):
         btn_layout.addStretch()
         layout.addLayout(btn_layout)
 
-        self.results_layout.insertWidget(self.results_layout.count() - 1, result_card)
+        self.results_layout.insertWidget(0, result_card)  # 插入到最上方，最新的结果在最前面
         self.video_result_cards.append(result_card)
 
     def copy_url(self, url):
@@ -2891,31 +2891,51 @@ class Sora2VideoGenerationWidget(QWidget, PlayVideoMixin):
             self.batch_progress_bar.setValue(0)
             return
 
-        # 统计各种状态的任务数量
-        pending_count = 0
-        webhook_polling_count = 0
-        completed_count = 0
-        failed_count = 0
+        # 详细统计各种状态的任务数量
+        not_started_count = 0  # 未开始（还在队列中）
+        submitted_count = 0      # 已提交（已获取到 request_id）
+        polling_count = 0       # 轮询中（已提交但在等待回调）
+        completed_count = 0     # 已完成（已获取到视频 URL）
+        failed_count = 0        # 失败
 
         for task_id, card in self.task_status_cards.items():
             status_text = card.status_label.text()
-            if "等待开始" in status_text or "生成中" in status_text:
-                if card.webhook_mode and status_text == "生成中":
-                    webhook_polling_count += 1
+
+            # 判断任务状态
+            if "等待开始" in status_text:
+                not_started_count += 1
+            elif "生成中" in status_text:
+                # 检查是否是 WebHook 模式且已获取 request_id
+                if card.webhook_mode and card.request_id:
+                    polling_count += 1
                 else:
-                    pending_count += 1
+                    submitted_count += 1
             elif "已完成" in status_text:
-                completed_count += 1
+                # 检查是否有视频 URL（通过检查结果卡片）
+                has_video_url = False
+                for result_card in self.video_result_cards:
+                    if hasattr(result_card, 'task_id') and result_card.task_id == task_id:
+                        if hasattr(result_card, 'url_input') and result_card.url_input.text() and result_card.url_input.text() != '':
+                            has_video_url = True
+                            break
+
+                if has_video_url:
+                    completed_count += 1
+                else:
+                    polling_count += 1  # 已提交但还在等待结果
             elif "生成失败" in status_text:
                 failed_count += 1
 
         # 构建详细的统计信息文本
         stats_parts = []
         stats_parts.append(f"总计: {total_tasks}")
-        if webhook_polling_count > 0:
-            stats_parts.append(f"WebHook轮询中: {webhook_polling_count}")
-        if pending_count > 0:
-            stats_parts.append(f"执行中: {pending_count}")
+
+        if not_started_count > 0:
+            stats_parts.append(f"未开始: {not_started_count}")
+        if submitted_count > 0:
+            stats_parts.append(f"已提交(轮询): {submitted_count}")
+        if polling_count > 0:
+            stats_parts.append(f"轮询中: {polling_count}")
         if completed_count > 0:
             stats_parts.append(f"已完成: {completed_count}")
         if failed_count > 0:
@@ -2923,7 +2943,7 @@ class Sora2VideoGenerationWidget(QWidget, PlayVideoMixin):
 
         self.batch_progress_label.setText(" | ".join(stats_parts))
 
-        # 计算总体进度
+        # 计算总体进度（基于已完成的任务）
         if total_tasks > 0:
             progress = int((completed_count / total_tasks) * 100)
             self.batch_progress_bar.setValue(progress)
@@ -3403,7 +3423,7 @@ class Sora2TaskQueryScheduler(QObject):
         """查询待处理任务"""
         try:
             webhook_settings = self.settings_manager.get_webhook_settings()
-            delay_minutes = webhook_settings.get("delay_minutes", 8)
+            delay_minutes = webhook_settings.get("delay_minutes", 10)
 
             # 获取需要查询的任务
             pending_tasks = self.history_manager.get_pending_tasks(delay_minutes)
@@ -3509,7 +3529,7 @@ class Sora2WebHookQueryScheduler(QObject):
 
         self.querying_tasks = {}  # {request_id: {task_id, start_time, query_count}}
 
-    def start_monitoring(self, task_id, request_id, delay_minutes=8):
+    def start_monitoring(self, task_id, request_id, delay_minutes=10):
         """开始监控任务"""
         start_time = time.time()
         self.querying_tasks[request_id] = {
@@ -3533,7 +3553,7 @@ class Sora2WebHookQueryScheduler(QObject):
             self.query_timer.stop()
 
     def _query_tasks(self):
-        """查询所有待查询的任务 - 逐个查询并立即显示结果"""
+        """查询任务 - 每次只查询一个任务，确保UI能立即更新"""
         if not self.querying_tasks:
             self.query_timer.stop()
             return
@@ -3548,23 +3568,24 @@ class Sora2WebHookQueryScheduler(QObject):
             self.log_updated.emit(f"[调度器] 未配置 API 密钥")
             return
 
-        # 复制任务列表以避免在迭代时修改
-        tasks_to_query = list(self.querying_tasks.items())
+        # 每次只查询一个任务，确保每个结果都能立即显示
+        request_id, task_info = next(iter(self.querying_tasks.items()))
 
-        # 逐个查询，每个任务完成后立即显示结果
-        for request_id, task_info in tasks_to_query:
-            try:
-                result = self._query_single_task_immediate(request_id, task_info, query_url, api_key)
-                # 如果任务完成（成功或失败），立即显示结果
-                if result == 'completed' or result == 'failed':
-                    self.log_updated.emit(f"[调度器] 任务 {request_id[:48]} 结果已显示")
-                    # 短暂延迟，确保 UI 更新完成
-                    time.sleep(0.5)
-            except Exception as e:
-                self.log_updated.emit(f"[调度器] 查询异常: {str(e)}")
+        try:
+            result = self._query_single_task_immediate(request_id, task_info, query_url, api_key)
+            # 任务已完成（成功或失败），结果已在 _query_single_task_immediate 中发送信号
+            if result == 'completed' or result == 'failed':
+                self.log_updated.emit(f"[调度器] 任务 {request_id[:48]} 结果已显示")
+            # 如果任务仍在运行，也记录日志
+            elif result == 'running':
+                self.log_updated.emit(f"[调度器] 任务 {request_id[:48]} 仍在运行中")
+        except Exception as e:
+            self.log_updated.emit(f"[调度器] 查询异常: {str(e)}")
 
-        # 设置每分钟查询一次
-        self.query_timer.start(60000)  # 60秒
+        # 设置下一次查询间隔（1秒后查询下一个任务）
+        # 这样可以确保 UI 有足够时间更新每个结果
+        if self.querying_tasks:
+            self.query_timer.start(1000)  # 1秒后查询下一个任务
 
     def _query_single_task_immediate(self, request_id, task_info, query_url, api_key):
         """立即查询单个任务并返回状态"""
@@ -3606,6 +3627,9 @@ class Sora2WebHookQueryScheduler(QObject):
 
                         # 立即发送成功信号，触发 UI 显示
                         self.query_result.emit(True, video_url, request_id)
+
+                        # 强制处理 UI 事件，确保结果立即显示
+                        QCoreApplication.processEvents()
 
                         # 更新任务历史
                         task = self.history_manager.get_task_by_request_id(request_id)

@@ -1,10 +1,10 @@
 {
   "version": "2.0.0",
-  "last_updated": "2026-01-17T09:39:32.525082",
+  "last_updated": "2026-01-17T10:04:38.824987",
   "statistics": {
-    "total_tasks": 14,
-    "completed_tasks": 11,
-    "pending_tasks": 2,
+    "total_tasks": 17,
+    "completed_tasks": 13,
+    "pending_tasks": 3,
     "failed_tasks": 1
   },
   "tasks": {
@@ -298,7 +298,7 @@
       "task_id": "task_1768613972",
       "name": "Sora2_文生视频_093932",
       "request_id": "2f8e6478-f4bc-41fc-a4b5-9dcdf1b2ae94",
-      "status": "pending",
+      "status": "success",
       "video_mode": "t2v",
       "prompt": "@yanbo1984 男人躺在池塘中间木板小道上，两边是荷叶，无人机航拍视角，镜头快速上升高度并上摇镜头，展现更多的荷花和环境",
       "aspect_ratio": "9:16",
@@ -308,6 +308,72 @@
       "timestamps": {
         "created_at": "2026-01-17T09:39:32.525058",
         "submitted_at": "2026-01-17T09:39:32.525071",
+        "completed_at": "2026-01-17T09:54:13.667595"
+      },
+      "result": {
+        "video_url": "https://storage.bizyair.cn/outputs/fc77893f-478f-4512-b006-b43f31936d10_3229f430d1c2130e2e7ba0c794d7b96a_video_ComfyUI_4ce0a6d9_00001_.mp4",
+        "error_message": null
+      },
+      "webhook_mode": true
+    },
+    "task_1768614253": {
+      "task_id": "task_1768614253",
+      "name": "Sora2_文生视频_094413",
+      "request_id": "933961ab-19ea-4134-a4d2-a08d10eb597a",
+      "status": "success",
+      "video_mode": "t2v",
+      "prompt": "@yanbo1984 男人躺在池塘中间木板小道上，两边是荷叶，人物位置不变，镜头从全景或别的景别，由远及近地推近，放大人物，突出人物的情绪",
+      "aspect_ratio": "9:16",
+      "duration": 10,
+      "api_key_used": "sk-f****skdx",
+      "web_app_id": 42921,
+      "timestamps": {
+        "created_at": "2026-01-17T09:44:13.660876",
+        "submitted_at": "2026-01-17T09:44:13.660887",
+        "completed_at": "2026-01-17T09:54:14.536487"
+      },
+      "result": {
+        "video_url": "https://storage.bizyair.cn/outputs/3df10f75-9de2-4dcc-9256-8a8fd1845884_de91194ec058e86ce062a95b4fc6da07_video_ComfyUI_dca55f3a_00001_.mp4",
+        "error_message": null
+      },
+      "webhook_mode": true
+    },
+    "task_1768615410": {
+      "task_id": "task_1768615410",
+      "name": "Sora2_文生视频_100330",
+      "request_id": "86b86691-dba0-4d62-b796-11ba208673f5",
+      "status": "pending",
+      "video_mode": "t2v",
+      "prompt": "@yanbo1984 \n这段视频展示了公元208年华容道的一个混乱场景。在白天的自然光线下，一位脸庞沾满泥污、身穿现代黑色外套的年轻男记者 @yanbo1984 位于前景中央，他正朝着镜头惊慌失措地奔跑，神情紧张，气喘吁吁。他的表情和动作显示出极度的恐慌与不安。在 @yanbo1984 身后，大批身着深色盔甲、神色狼狈的魏军士兵也一同在泥泞的峡谷小道中仓皇逃窜，他们的动作显得凌乱而急促。随着他的奔跑，他用急促、恐慌的普通话说道：“我现在只能跟随溃败的魏军一起逃跑。” 背景中的峡谷小道两旁是高耸的山壁，山壁上覆盖着稀疏的植被，被雨水冲刷得斑驳陆离。天空呈现出湛蓝色，但云层厚重，光线柔和，为整个场景增添了一丝压抑感。镜头采用低角度手持拍摄，剧烈的晃动感让观众仿佛身临其境，直面溃败的军队。画面中的每一个细节都清晰可见，从 @yanbo1984 沾满泥污的脸庞到魏军士兵狼狈不堪的表情，再到泥泞的小道和飞溅的泥水。整体视觉风格写实、粗粝且色调阴暗，营造出战争纪录片般的现场感；而音频则通过急促的脚步声、泥水飞溅声以及主角紧张的旁白，成功渲染出一种紧迫、绝望的氛围。在这段视频中， @yanbo1984 的奔跑动作连贯而有力，每一步都显得格外艰难。他的身体微微前倾，双臂快速摆动，脚步沉重而急促。与此同时，魏军士兵们也在泥泞的小道中奋力前行，他们的盔甲在阳光下反射出微弱的光芒，但更多的是被泥土和汗水所掩盖",
+      "aspect_ratio": "9:16",
+      "duration": 10,
+      "api_key_used": "sk-f****skdx",
+      "web_app_id": 42921,
+      "timestamps": {
+        "created_at": "2026-01-17T10:03:31.122412",
+        "submitted_at": "2026-01-17T10:03:31.122419",
+        "completed_at": null
+      },
+      "result": {
+        "video_url": null,
+        "error_message": null
+      },
+      "webhook_mode": true
+    },
+    "task_1768615478": {
+      "task_id": "task_1768615478",
+      "name": "Sora2_文生视频_100438",
+      "request_id": "ab71af92-b58f-42ec-bdeb-619a4b095064",
+      "status": "pending",
+      "video_mode": "t2v",
+      "prompt": "@yanbo1984 \n视频展示了一位身穿黑色中式衬衫的男人在现代录音棚中。他戴着带有蓝色灯光的耳机，眼神专注地闭着眼睛，深情地对着一个专业电容麦克风演唱着中文歌曲。演唱结束后，他摘下耳机，脸上露出轻松愉悦的笑容。背景透过玻璃窗可见录音控制室。整个视频捕捉了他从专注的演唱状态到放松微笑的瞬间，充满艺术气息。",
+      "aspect_ratio": "9:16",
+      "duration": 10,
+      "api_key_used": "sk-f****skdx",
+      "web_app_id": 42921,
+      "timestamps": {
+        "created_at": "2026-01-17T10:04:38.824967",
+        "submitted_at": "2026-01-17T10:04:38.824976",
         "completed_at": null
       },
       "result": {
