@@ -1,9 +1,9 @@
 {
   "version": "2.0.0",
-  "last_updated": "2026-01-14T14:05:21.465491",
+  "last_updated": "2026-01-17T09:09:18.777028",
   "statistics": {
-    "total_tasks": 9,
-    "completed_tasks": 7,
+    "total_tasks": 11,
+    "completed_tasks": 9,
     "pending_tasks": 1,
     "failed_tasks": 1
   },
@@ -202,6 +202,50 @@
       },
       "result": {
         "video_url": null,
+        "error_message": null
+      },
+      "webhook_mode": true
+    },
+    "task_1768611488": {
+      "task_id": "task_1768611488",
+      "name": "Sora2_文生视频_085808",
+      "request_id": "5e2ae1bb-3700-4811-8fe5-a045ed1efb60",
+      "status": "success",
+      "video_mode": "t2v",
+      "prompt": "这位戴眼镜的男人身着棕色毛衣，安静地坐在公园长椅上。四周是金黄的树木，片片秋叶飘落。@yanbo1984 处于画面中心，背景虚化突出主体。采用暖色调写实摄影风格，画面清晰，色彩浓郁，质感细腻，光影效果自然",
+      "aspect_ratio": "9:16",
+      "duration": 10,
+      "api_key_used": "sk-f****skdx",
+      "web_app_id": 42921,
+      "timestamps": {
+        "created_at": "2026-01-17T08:58:08.933295",
+        "submitted_at": "2026-01-17T08:58:08.933307",
+        "completed_at": "2026-01-17T09:09:18.659540"
+      },
+      "result": {
+        "video_url": "https://storage.bizyair.cn/outputs/f0e31fc6-8039-42ea-a52f-c3ab4d9cf5f3_9e71516e094440960ec45bbf481868e7_video_ComfyUI_fa33f865_00001_.mp4",
+        "error_message": null
+      },
+      "webhook_mode": true
+    },
+    "task_1768611558": {
+      "task_id": "task_1768611558",
+      "name": "Sora2_文生视频_085918",
+      "request_id": "3736ab5a-745c-468d-8d68-e803b5418254",
+      "status": "success",
+      "video_mode": "t2v",
+      "prompt": "@yanbo1984 横移镜头，这个男人在雨中骑马驰骋。然后镜头从人物背后拉远，人物渐行渐远。最后大场景展示，镜头环绕并跟随人物，拉远距离，大气浑厚的感觉",
+      "aspect_ratio": "9:16",
+      "duration": 10,
+      "api_key_used": "sk-f****skdx",
+      "web_app_id": 42921,
+      "timestamps": {
+        "created_at": "2026-01-17T08:59:18.455905",
+        "submitted_at": "2026-01-17T08:59:18.455917",
+        "completed_at": "2026-01-17T09:09:18.777019"
+      },
+      "result": {
+        "video_url": "https://storage.bizyair.cn/outputs/fad1f9ff-b38d-45f5-ade6-f32d32ce68a9_e021b8a5cfe11e521d8dcbbc349e301c_video_ComfyUI_d348695d_00001_.mp4",
         "error_message": null
       },
       "webhook_mode": true
