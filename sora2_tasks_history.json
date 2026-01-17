@@ -1,9 +1,9 @@
 {
   "version": "2.0.0",
-  "last_updated": "2026-01-17T09:09:18.777028",
+  "last_updated": "2026-01-17T09:29:05.468451",
   "statistics": {
-    "total_tasks": 11,
-    "completed_tasks": 9,
+    "total_tasks": 13,
+    "completed_tasks": 11,
     "pending_tasks": 1,
     "failed_tasks": 1
   },
@@ -246,6 +246,50 @@
       },
       "result": {
         "video_url": "https://storage.bizyair.cn/outputs/fad1f9ff-b38d-45f5-ade6-f32d32ce68a9_e021b8a5cfe11e521d8dcbbc349e301c_video_ComfyUI_d348695d_00001_.mp4",
+        "error_message": null
+      },
+      "webhook_mode": true
+    },
+    "task_1768612658": {
+      "task_id": "task_1768612658",
+      "name": "Sora2_文生视频_091738",
+      "request_id": "0c1e0a98-4ba4-4e75-b112-a63775875317",
+      "status": "success",
+      "video_mode": "t2v",
+      "prompt": "@yanbo1984 起始画面是身着棕色毛衣的这个男人坐在长椅上，旁边是落叶。镜头逐渐上升，越过头顶的金黄树叶，展现更高处的秋景，接着镜头向后拉远，将n男人与整个秋意浓浓的公园纳入画面。采用温暖治愈风格，光线明亮均匀，视频画质超精细，运镜自然，凸显秋日温暖氛围",
+      "aspect_ratio": "9:16",
+      "duration": 10,
+      "api_key_used": "sk-f****skdx",
+      "web_app_id": 42921,
+      "timestamps": {
+        "created_at": "2026-01-17T09:17:39.251891",
+        "submitted_at": "2026-01-17T09:17:39.251904",
+        "completed_at": "2026-01-17T09:29:04.666383"
+      },
+      "result": {
+        "video_url": "https://storage.bizyair.cn/outputs/a0d807d3-650e-4bb8-81f9-77e8da67f201_4a7f2e1acf2c1f29b807f05b7ce64fcd_video_ComfyUI_7127c6f8_00001_.mp4",
+        "error_message": null
+      },
+      "webhook_mode": true
+    },
+    "task_1768612743": {
+      "task_id": "task_1768612743",
+      "name": "Sora2_文生视频_091903",
+      "request_id": "d64f6fdf-fb42-46f6-93e1-20254623acbe",
+      "status": "success",
+      "video_mode": "t2v",
+      "prompt": "@yanbo1984 男人在类似于电影盗梦空间的画面走廊里奔跑，纵深感、电影感。镜头逐渐拉远并倾斜旋转，跟随男生移动，速度感、刺激",
+      "aspect_ratio": "9:16",
+      "duration": 10,
+      "api_key_used": "sk-f****skdx",
+      "web_app_id": 42921,
+      "timestamps": {
+        "created_at": "2026-01-17T09:19:04.152423",
+        "submitted_at": "2026-01-17T09:19:04.152438",
+        "completed_at": "2026-01-17T09:29:05.468422"
+      },
+      "result": {
+        "video_url": "https://storage.bizyair.cn/outputs/4a691c6b-9d15-48ad-a36e-af9418b599cf_ff59c9e3f5159015386283cb68d7175f_video_ComfyUI_835f366c_00001_.mp4",
         "error_message": null
       },
       "webhook_mode": true

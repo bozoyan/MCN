@@ -356,12 +356,12 @@ class Sora2SettingsManager:
             "token": settings.get("api_settings", {}).get("webhook_token", ""),
             "query_url": settings.get("api_settings", {}).get("query_url",
                 "https://api.bizyair.cn/w/v1/webapp/task/openapi/outputs"),
-            "delay_minutes": settings.get("api_settings", {}).get("query_delay_minutes", 10),
+            "delay_minutes": settings.get("api_settings", {}).get("query_delay_minutes", 8),
             "fallback_to_polling": settings.get("api_settings", {}).get("fallback_to_polling", False)
         }
 
     def set_webhook_settings(self, enabled=False, url="", token="",
-                             query_url=None, delay_minutes=10, fallback_to_polling=False):
+                             query_url=None, delay_minutes=8, fallback_to_polling=False):
         """设置 WebHook 配置"""
         settings = self.load_settings()
         if "api_settings" not in settings:
@@ -1293,9 +1293,19 @@ class Sora2BatchManager(QObject):
         mode = "WebHook" if webhook_enabled else "轮询"
         self.log_message(f"Started task {task_id} ({mode}模式)")
 
-        # 如果还有待启动的任务，继续定时器
+        # 设置下一个任务的启动间隔
+        # WebHook 模式下建议间隔 60 秒，轮询模式建议间隔 120 秒
+        # 这是为了避免触发 API 的 429 错误（Too Many Requests）
         if self.pending_tasks:
-            self.task_timer.start(300000)  # 300秒后启动下一个
+            if webhook_enabled:
+                # WebHook 模式：60秒后启动下一个任务
+                interval_ms = 60000
+                self.log_message(f"下一个任务将在 {interval_ms//1000} 秒后启动 (避免 API 限流)")
+            else:
+                # 轮询模式：120秒后启动下一个任务（因为轮询会占用更长时间）
+                interval_ms = 120000
+                self.log_message(f"下一个任务将在 {interval_ms//1000} 秒后启动 (避免 API 限流)")
+            self.task_timer.start(interval_ms)
 
     def add_tasks(self, task_map, key_file=None):
         """添加任务"""
@@ -1326,9 +1336,14 @@ class Sora2BatchManager(QObject):
             api_key = available_keys[key_index]
             self.pending_tasks.append((task_id, task, api_key))
 
-        # 启动第一个任务
-        if self.pending_tasks:
+        # 只在没有正在运行的任务时，才立即启动第一个任务
+        # 这样可以避免快速多次提交导致 API 限流
+        if self.pending_tasks and not self.workers:
+            self.log_message("启动第一个任务...")
             self.start_next_task()
+        elif self.pending_tasks and self.workers:
+            self.log_message(f"任务已加入队列，等待当前任务完成后启动 (队列中还有 {len(self.pending_tasks)} 个任务)")
+            # 不要启动定时器，等待当前任务完成后再启动下一个
 
     def on_single_task_finished(self, success, message, result_data, task_id):
         """单个任务完成回调"""
@@ -1345,7 +1360,12 @@ class Sora2BatchManager(QObject):
                     worker.wait(3000)
                 worker.deleteLater()
 
-        if self.completed_tasks >= self.total_tasks:
+        # 检查是否有待启动的任务，如果有，启动下一个
+        if self.pending_tasks:
+            self.log_message(f"当前任务完成，准备启动下一个任务 (队列中还有 {len(self.pending_tasks)} 个任务)")
+            # 立即启动下一个任务（不需要等待间隔，因为已经有一个任务完成了）
+            self.start_next_task()
+        elif self.completed_tasks >= self.total_tasks:
             self.log_message(f"当前批次任务完成! 成功: {self.completed_tasks}/{self.total_tasks}")
             self.all_tasks_finished.emit()
             # 不再重置计数器，改为累积统计，用于全局任务跟踪
@@ -3383,7 +3403,7 @@ class Sora2TaskQueryScheduler(QObject):
         """查询待处理任务"""
         try:
             webhook_settings = self.settings_manager.get_webhook_settings()
-            delay_minutes = webhook_settings.get("delay_minutes", 10)
+            delay_minutes = webhook_settings.get("delay_minutes", 8)
 
             # 获取需要查询的任务
             pending_tasks = self.history_manager.get_pending_tasks(delay_minutes)
@@ -3489,7 +3509,7 @@ class Sora2WebHookQueryScheduler(QObject):
 
         self.querying_tasks = {}  # {request_id: {task_id, start_time, query_count}}
 
-    def start_monitoring(self, task_id, request_id, delay_minutes=10):
+    def start_monitoring(self, task_id, request_id, delay_minutes=8):
         """开始监控任务"""
         start_time = time.time()
         self.querying_tasks[request_id] = {
@@ -3502,7 +3522,7 @@ class Sora2WebHookQueryScheduler(QObject):
         delay_ms = delay_minutes * 60 * 1000
         self.query_timer.start(delay_ms)
 
-        self.log_updated.emit(f"[调度器] 任务 {request_id[:40]} 将在 {delay_minutes} 分钟后开始查询")
+        self.log_updated.emit(f"[调度器] 任务 {request_id[:48]} 将在 {delay_minutes} 分钟后开始查询")
 
     def stop_monitoring(self, request_id):
         """停止监控任务"""
