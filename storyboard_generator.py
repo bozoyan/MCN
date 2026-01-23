@@ -221,6 +221,59 @@ class AdvancedConfigManager:
         logger.info(f"[ConfigManager] save_config 返回: {result}")
         return result
 
+# BizyAIR 模型配置加载器
+class BizyAirModelsConfig:
+    """BizyAIR 模型配置加载器，从 JSON 文件加载预定义模型列表"""
+
+    def __init__(self, config_file="bizyair_app_id_models.json"):
+        self.config_file = config_file
+        self.models = []
+        self.default_index = 0
+        self.load_config()
+
+    def load_config(self):
+        """从 JSON 文件加载模型配置"""
+        if os.path.exists(self.config_file):
+            try:
+                with open(self.config_file, 'r', encoding='utf-8') as f:
+                    config = json.load(f)
+                    self.models = config.get('models', [])
+                    self.default_index = config.get('default_model_index', 0)
+                    logger.info(f"已加载 {len(self.models)} 个 BizyAIR 模型配置")
+            except Exception as e:
+                logger.error(f"加载 BizyAIR 模型配置失败: {e}，使用默认配置")
+                self._load_default_config()
+        else:
+            logger.warning(f"BizyAIR 模型配置文件不存在: {self.config_file}，使用默认配置")
+            self._load_default_config()
+
+    def _load_default_config(self):
+        """加载默认配置（当文件不存在或加载失败时使用）"""
+        self.models = [
+            {"name": "38654_Z-image模型滑雪场", "app_id": 39808, "description": "滑雪场场景模型"},
+            {"name": "33820_FLUX krea 文生5图", "app_id": 34893, "description": "FLUX krea批量模型"},
+            {"name": "40350_flux-dev-HighRes", "app_id": 41528, "description": "高分辨率FLUX模型"},
+        ]
+        self.default_index = 0
+
+    def get_display_text(self, model):
+        """获取模型的显示文本"""
+        return f"{model['name']}ID_{model['app_id']}"
+
+    def get_models(self):
+        """获取模型列表"""
+        return self.models
+
+    def get_default_app_id(self):
+        """获取默认的 App ID"""
+        if 0 <= self.default_index < len(self.models):
+            return self.models[self.default_index]['app_id']
+        return 39808
+
+
+# 全局 BizyAIR 模型配置
+bizyair_models_config = BizyAirModelsConfig()
+
 # 全局配置管理器
 config_manager = AdvancedConfigManager()
 
@@ -1246,8 +1299,8 @@ class TemplateManagerDialog(QDialog):
             logger.info("[模板管理] 用户取消删除操作\n")
 
 
-# 图片预览小部件 (保留不变，但精简了不用的导入)
-class ImagePreviewWidget(CardWidget):
+# 图片预览小部件 (修改为继承 QFrame，避免层级问题)
+class ImagePreviewWidget(QFrame):
     """图片预览小部件"""
 
     def __init__(self, index, parent=None):
@@ -1255,35 +1308,52 @@ class ImagePreviewWidget(CardWidget):
         self.index = index
         self.image = None
         self.image_url = ""
+        # 设置框架样式和边距
+        self.setFrameStyle(QFrame.StyledPanel | QFrame.Raised)
+        self.setLineWidth(1)
         self.init_ui()
 
     def init_ui(self):
         layout = QVBoxLayout(self)
+        layout.setSpacing(5)
+        layout.setContentsMargins(10, 10, 10, 10)
+
+        # 设置固定大小
+        self.setFixedSize(280, 260)
+
+        # 设置背景样式
+        self.setStyleSheet("""
+            QFrame {
+                background-color: #2d2d2d;
+                border: 1px solid #3d3d3d;
+                border-radius: 8px;
+            }
+        """)
 
         # 标题
         self.title_label = QLabel(f"分镜 {self.index + 1}")
         self.title_label.setAlignment(Qt.AlignCenter)
-        self.title_label.setStyleSheet("font-weight: bold; color: #666;")
+        self.title_label.setStyleSheet("font-weight: bold; color: #e0e0e0; font-size: 14px;")
         layout.addWidget(self.title_label)
 
         # 图片显示
         self.image_label = QLabel()
         # 调整最小/最大尺寸，让卡片大小适中且统一
-        self.image_label.setFixedSize(250, 140) 
+        self.image_label.setFixedSize(250, 140)
         self.image_label.setAlignment(Qt.AlignCenter)
-        self.image_label.setStyleSheet("border: 2px dashed #ccc; border-radius: 8px; background: #f9f9f9;")
+        self.image_label.setStyleSheet("border: 2px dashed #555; border-radius: 8px; background: #1e1e1e; color: #888;")
         self.image_label.setText("等待生成...")
-        layout.addWidget(self.image_label, alignment=Qt.AlignCenter) # 居中
+        layout.addWidget(self.image_label, alignment=Qt.AlignCenter)
 
         # 状态标签
         self.status_label = QLabel("未生成")
         self.status_label.setAlignment(Qt.AlignCenter)
-        self.status_label.setStyleSheet("color: #999; font-size: 12px;")
+        self.status_label.setStyleSheet("color: #888; font-size: 12px;")
         layout.addWidget(self.status_label)
 
         # 操作按钮
         button_layout = QHBoxLayout()
-        
+
         self.save_btn = PushButton(FluentIcon.DOWNLOAD, "保存")
         self.save_btn.setEnabled(False)
         self.save_btn.clicked.connect(self.save_image)
@@ -1295,10 +1365,6 @@ class ImagePreviewWidget(CardWidget):
         button_layout.addWidget(self.view_btn)
 
         layout.addLayout(button_layout)
-        
-        # 确保卡片内容紧凑
-        layout.setSpacing(5)
-        layout.setContentsMargins(10, 10, 10, 10)
 
     def set_image(self, image, url):
         """设置图片"""
@@ -1647,19 +1713,22 @@ class ImageControlDialog(QDialog):
         self.accept()
 
 
-# 模型设置对话框 (新增)
-class ModelSettingsDialog(QDialog):
-    """用于设置AI模型和BizyAIR App ID的对话框"""
+# 通用 API 设置组件
+class APISettingsWidget(QWidget):
+    """通用的 API 设置组件，可在多个对话框中复用"""
+
+    # 定义信号
+    settings_changed = pyqtSignal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("模型设置")
-        self.setMinimumSize(500, 400)
         self.init_ui()
         self.load_current_config()
 
     def init_ui(self):
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(15)
 
         # --- API设置 ---
         api_group = QGroupBox("🔑 API设置")
@@ -1690,26 +1759,8 @@ class ModelSettingsDialog(QDialog):
         self.bizyair_app_id_combo = ComboBox()
         self.bizyair_app_id_combo.setFixedHeight(32)
 
-        # 预定义的模型选项
-        self.bizyair_app_id_models = [
-            ("38654_Z-image模型ID_39808", 39808),
-            ("33820_FLUX krea 文生5图模型ID_34893", 34893),
-            ("40543_F.1 Krea 生5图模型ID_41725", 41725),
-            ("40516_Real-F.1 文生5图模型ID_41697", 41697),
-            ("40372_Qwen Image 5图模型ID_41552", 41552),
-            ("40350_flux-dev-HighRes模型ID_41528", 41528),
-            ("38774_Real-NSFW 文生5图模型ID_39928", 39928),
-        ]
-
-        # 添加预定义选项到下拉框
-        for i, (display_text, app_id) in enumerate(self.bizyair_app_id_models):
-            self.bizyair_app_id_combo.addItem(display_text)
-            self.bizyair_app_id_combo.setItemData(i, app_id)
-
-        # 添加自定义选项
-        custom_index = self.bizyair_app_id_combo.count()
-        self.bizyair_app_id_combo.addItem("➕ 自定义模型ID")
-        self.bizyair_app_id_combo.setItemData(custom_index, "custom")
+        # 从全局配置加载预定义模型
+        self._load_bizyair_models()
 
         # 连接信号，处理自定义选项
         self.bizyair_app_id_combo.currentIndexChanged.connect(self.on_bizyair_app_id_changed)
@@ -1719,17 +1770,18 @@ class ModelSettingsDialog(QDialog):
         api_group.setLayout(api_layout)
         layout.addWidget(api_group)
 
-        # 底部按钮
-        button_layout = QHBoxLayout()
-        save_btn = PrimaryPushButton("保存设置")
-        save_btn.clicked.connect(self.save_settings)
-        cancel_btn = PushButton("取消")
-        cancel_btn.clicked.connect(self.reject)
+    def _load_bizyair_models(self):
+        """从全局配置加载 BizyAIR 模型列表"""
+        # 添加预定义选项到下拉框
+        for i, model in enumerate(bizyair_models_config.get_models()):
+            display_text = bizyair_models_config.get_display_text(model)
+            self.bizyair_app_id_combo.addItem(display_text)
+            self.bizyair_app_id_combo.setItemData(i, model['app_id'])
 
-        button_layout.addStretch()
-        button_layout.addWidget(save_btn)
-        button_layout.addWidget(cancel_btn)
-        layout.addLayout(button_layout)
+        # 添加自定义选项
+        custom_index = self.bizyair_app_id_combo.count()
+        self.bizyair_app_id_combo.addItem("➕ 自定义模型ID")
+        self.bizyair_app_id_combo.setItemData(custom_index, "custom")
 
     def load_current_config(self):
         """从配置管理器加载当前的设置值"""
@@ -1738,7 +1790,7 @@ class ModelSettingsDialog(QDialog):
         self.text_model_edit.setText(config_manager.get('api.text_model', 'Qwen/Qwen3-Coder-480B-A35B-Instruct'))
 
         # 设置当前选中的值
-        current_app_id = config_manager.get('bizyair_params.web_app_id', 39808)
+        current_app_id = config_manager.get('bizyair_params.web_app_id', bizyair_models_config.get_default_app_id())
         for i in range(self.bizyair_app_id_combo.count()):
             if self.bizyair_app_id_combo.itemData(i) == current_app_id:
                 self.bizyair_app_id_combo.setCurrentIndex(i)
@@ -1805,7 +1857,7 @@ class ModelSettingsDialog(QDialog):
                 self.bizyair_app_id_combo.blockSignals(False)
 
     def save_settings(self):
-        """保存设置"""
+        """保存设置到配置管理器"""
         config_manager.set('api.api_key', self.api_key_edit.text().strip())
         config_manager.set('api.base_url', self.api_url_edit.text().strip())
         config_manager.set('api.text_model', self.text_model_edit.text().strip())
@@ -1813,8 +1865,41 @@ class ModelSettingsDialog(QDialog):
         current_data = self.bizyair_app_id_combo.currentData()
         if current_data != "custom":
             config_manager.set('bizyair_params.web_app_id', current_data)
+        return config_manager.save_config()
 
-        if config_manager.save_config():
+
+# 模型设置对话框 (精简版，复用 APISettingsWidget)
+class ModelSettingsDialog(QDialog):
+    """用于设置AI模型和BizyAIR App ID的对话框"""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("模型设置")
+        self.setMinimumSize(500, 400)
+        self.init_ui()
+
+    def init_ui(self):
+        layout = QVBoxLayout(self)
+
+        # 使用通用的 API 设置组件
+        self.api_settings_widget = APISettingsWidget(self)
+        layout.addWidget(self.api_settings_widget)
+
+        # 底部按钮
+        button_layout = QHBoxLayout()
+        save_btn = PrimaryPushButton("保存设置")
+        save_btn.clicked.connect(self.save_settings)
+        cancel_btn = PushButton("取消")
+        cancel_btn.clicked.connect(self.reject)
+
+        button_layout.addStretch()
+        button_layout.addWidget(save_btn)
+        button_layout.addWidget(cancel_btn)
+        layout.addLayout(button_layout)
+
+    def save_settings(self):
+        """保存设置"""
+        if self.api_settings_widget.save_settings():
             QMessageBox.information(self, "保存成功", "模型设置已保存")
             self.accept()
         else:
@@ -2192,7 +2277,9 @@ class StoryboardPage(SmoothScrollArea):
         self.image_scroll_area.setWidget(self.image_scroll_widget)
         self.image_scroll_area.setWidgetResizable(True)
 
-        self.image_scroll_area.setFixedHeight(550) #图片区域高度
+        # 根据图片数量动态计算滚动区域高度
+        # 默认按10张计算，后续会在 init_image_widgets 中调整
+        self.image_scroll_area.setFixedHeight(550)
 
         preview_layout.addWidget(self.image_scroll_area)
 
@@ -2235,8 +2322,8 @@ class StoryboardPage(SmoothScrollArea):
         self.init_image_widgets()
 
     def init_image_widgets(self):
-        """初始化图片预览小部件"""
-        
+        """初始化图片预览小部件，根据配置中的图片数量动态显示"""
+
         # 1. 安全地清空并销毁现有小部件
         # 必须使用 deleteLater() 来避免 Double Free 错误
         for i in reversed(range(self.image_grid_layout.count())):
@@ -2244,20 +2331,34 @@ class StoryboardPage(SmoothScrollArea):
             widget = item.widget()
             if widget is not None:
                 # 关键修正：使用 deleteLater() 销毁小部件
-                widget.deleteLater() 
-            
+                widget.deleteLater()
+
             # 移除 Item 本身 (对于 QGridLayout 可能不需要手动移除 item，但保留更安全)
             self.image_grid_layout.removeItem(item)
 
         # 确保清空 Python 列表
         self.image_widgets.clear()
-        self.image_urls.clear() 
-        
+        self.image_urls.clear()
+
         # 2. 从配置中获取最新的图片数量
-        image_count = config_manager.get('ui.default_image_count', 10) 
-        
-        # 3. 创建新的小部件网格
+        image_count = config_manager.get('ui.default_image_count', 10)
+
+        # 3. 动态调整滚动区域高度
+        # 每个卡片约 280px 高，间距 15px，3 列布局
+        # 计算需要的行数
         cols = 3
+        rows = (image_count + cols - 1) // cols
+        # 每行高度约 295px (280px 卡片 + 15px 间距)
+        # 限制最小高度为 300px，最大高度为 800px
+        row_height = 295
+        min_height = 300
+        max_height = 800
+        calculated_height = rows * row_height + 50  # +50 为标题栏预留空间
+        scroll_height = max(min_height, min(calculated_height, max_height))
+
+        self.image_scroll_area.setFixedHeight(scroll_height)
+
+        # 4. 创建新的小部件网格
         for i in range(image_count):
             widget = ImagePreviewWidget(i)
             self.image_widgets.append(widget)
@@ -2265,14 +2366,13 @@ class StoryboardPage(SmoothScrollArea):
             row = i // cols
             col = i % cols
             self.image_grid_layout.addWidget(widget, row, col)
-            
-        # 4. 添加一个空白占位符
+
+        # 5. 添加一个空白占位符
         if self.image_grid_layout.count() > 0:
             spacer = QWidget()
             spacer.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
             # 确保添加到下一行，占据所有列
-            # 检查是否有原先的 Spacer Widget，如果有则不添加新的，但此处逻辑是完全清空后重建。
-            self.image_grid_layout.addWidget(spacer, (image_count + cols - 1) // cols, 0, 1, cols)
+            self.image_grid_layout.addWidget(spacer, rows, 0, 1, cols)
 
 
     def clear_content(self):
@@ -2887,7 +2987,7 @@ class MainWindow(FluentWindow):
 
     def init_window(self):
         """初始化主窗口"""
-        self.setWindowTitle("🎬 BOZO-MCN 分镜脚本与图片生成器 v1.0.1")
+        self.setWindowTitle("🎬 BOZO-MCN 分镜脚本与图片生成器 v1.0.2")
         self.setMinimumSize(1600, 1000)
 
         width = config_manager.get('ui.window_width', 1600)
@@ -2976,7 +3076,7 @@ class MainWindow(FluentWindow):
             QMessageBox.warning(self, "警告", f"目录不存在: {os.path.abspath(dir_path)}")
 
     def create_settings_page(self):
-        """创建设置页面 (精简图片设置)"""
+        """创建设置页面 (精简版，使用通用 API 设置组件)"""
         page = SmoothScrollArea()
         page.setObjectName("settings_page")
         widget = QWidget()
@@ -2987,78 +3087,17 @@ class MainWindow(FluentWindow):
         title.setFont(QFont("font/Light.otf", 18, QFont.Bold))
         layout.addWidget(title)
 
-        # API设置
-        api_group = QGroupBox("🔑 API设置")
-        api_layout = QGridLayout()
+        # 使用通用的 API 设置组件
+        self.api_settings_widget = APISettingsWidget(self)
+        layout.addWidget(self.api_settings_widget)
 
-        api_layout.addWidget(QLabel("API密钥:"), 0, 0)
-        self.api_key_edit = LineEdit()
-        self.api_key_edit.setPlaceholderText("请输入 API密钥...")
-        self.api_key_edit.setEchoMode(QLineEdit.Password)
-        self.api_key_edit.setFixedHeight(32)
-        self.api_key_edit.setText(config_manager.get('api.api_key', ''))
-        api_layout.addWidget(self.api_key_edit, 0, 1)
-
-        api_layout.addWidget(QLabel("文本 API URL:"), 1, 0)
-        self.api_url_edit = LineEdit()
-        self.api_url_edit.setFixedHeight(32)
-        self.api_url_edit.setText(config_manager.get('api.base_url', 'https://api.siliconflow.cn/v1/'))
-        api_layout.addWidget(self.api_url_edit, 1, 1)
-
-        api_layout.addWidget(QLabel("文本模型:"), 2, 0)
-        self.text_model_edit = LineEdit()
-        self.text_model_edit.setFixedHeight(32)
-        self.text_model_edit.setText(config_manager.get('api.text_model', 'Qwen/Qwen3-Coder-480B-A35B-Instruct'))
-        api_layout.addWidget(self.text_model_edit, 2, 1)
-        
-        # BizyAIR App ID 设置项
-        api_layout.addWidget(QLabel("BizyAIR App ID:"), 3, 0)
-        self.bizyair_app_id_combo = ComboBox()
-        self.bizyair_app_id_combo.setFixedHeight(32)
-
-        # 预定义的模型选项
-        self.bizyair_app_id_models = [
-            ("38654_Z-image模型ID_39808", 39808),
-            ("33820_FLUX krea 文生5图模型ID_34893", 34893),
-            ("40543_F.1 Krea 生5图模型ID_41725", 41725),
-            ("40516_Real-F.1 文生5图模型ID_41697", 41697),
-            ("40372_Qwen Image 5图模型ID_41552", 41552),
-            ("40350_flux-dev-HighRes模型ID_41528", 41528),
-            ("38774_Real-NSFW 文生5图模型ID_39928", 39928),
-        ]
-
-        # 添加预定义选项到下拉框
-        for i, (display_text, app_id) in enumerate(self.bizyair_app_id_models):
-            self.bizyair_app_id_combo.addItem(display_text)
-            self.bizyair_app_id_combo.setItemData(i, app_id)
-
-        # 添加自定义选项
-        custom_index = self.bizyair_app_id_combo.count()
-        self.bizyair_app_id_combo.addItem("➕ 自定义模型ID")
-        self.bizyair_app_id_combo.setItemData(custom_index, "custom")
-
-        # 连接信号，处理自定义选项（在选择当前值之前连接，避免触发信号）
-        self.bizyair_app_id_combo.currentIndexChanged.connect(self.on_bizyair_app_id_changed)
-
-        # 设置当前选中的值
-        current_app_id = config_manager.get('bizyair_params.web_app_id', 39808)
-        for i in range(self.bizyair_app_id_combo.count()):
-            if self.bizyair_app_id_combo.itemData(i) == current_app_id:
-                self.bizyair_app_id_combo.setCurrentIndex(i)
-                break
-
-        api_layout.addWidget(self.bizyair_app_id_combo, 3, 1)
-
-
-        api_group.setLayout(api_layout)
-        layout.addWidget(api_group)
-        
         # 目录设置
         dir_group = QGroupBox("📁 目录设置")
+        dir_group.setStyleSheet("QGroupBox { border: 1px solid #ccc; margin-top: 1ex; padding: 10px; }")
         dir_layout = QGridLayout()
-        
+
         dirs = config_manager.get('directories', {})
-        
+
         # 输出目录
         dir_layout.addWidget(QLabel("输出目录 (output):"), 0, 0)
         output_btn = PushButton(FluentIcon.FOLDER, "打开")
@@ -3074,9 +3113,9 @@ class MainWindow(FluentWindow):
         dir_group.setLayout(dir_layout)
         layout.addWidget(dir_group)
 
-
         # 界面设置
         ui_group = QGroupBox("🎨 界面设置")
+        ui_group.setStyleSheet("QGroupBox { border: 1px solid #ccc; margin-top: 1ex; padding: 10px; }")
         ui_layout = QGridLayout()
 
         ui_layout.addWidget(QLabel("默认图片数量:"), 0, 0)
@@ -3089,23 +3128,23 @@ class MainWindow(FluentWindow):
 
         theme_layout = QHBoxLayout()
         theme_layout.addWidget(QLabel("主题:"))
-        
+
         self.light_radio = RadioButton("浅色")
         self.dark_radio = RadioButton("深色")
-        
+
         current_theme = config_manager.get('ui.theme', 'dark')
         if current_theme == 'dark':
             self.dark_radio.setChecked(True)
         else:
             self.light_radio.setChecked(True)
-        
+
         self.light_radio.clicked.connect(lambda: self.change_theme('light'))
         self.dark_radio.clicked.connect(lambda: self.change_theme('dark'))
-        
+
         theme_layout.addWidget(self.light_radio)
         theme_layout.addWidget(self.dark_radio)
         theme_layout.addStretch()
-        
+
         ui_layout.addLayout(theme_layout, 1, 0, 1, 2)
 
         ui_group.setLayout(ui_layout)
@@ -3146,18 +3185,23 @@ class MainWindow(FluentWindow):
 
     def save_settings(self):
         """保存设置"""
-        config_manager.set('api.api_key', self.api_key_edit.text().strip())
-        config_manager.set('api.base_url', self.api_url_edit.text().strip())
-        config_manager.set('api.text_model', self.text_model_edit.text().strip())
-        # 保存BizyAIR App ID，确保不保存"custom"字符串
-        current_data = self.bizyair_app_id_combo.currentData()
-        if current_data != "custom":
-            config_manager.set('bizyair_params.web_app_id', current_data)
-        
+        # 保存 API 设置（使用通用组件的保存方法）
+        if not self.api_settings_widget.save_settings():
+            InfoBar.error(
+                title="保存失败",
+                content="API 设置保存失败，请检查权限",
+                orient=Qt.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=3000,
+                parent=self
+            )
+            return
+
         # 更新默认图片数量，并同步到 StoryboardPage
         new_image_count = self.default_image_count_spin.value()
         config_manager.set('ui.default_image_count', new_image_count)
-        self.storyboard_page.init_image_widgets() # 强制更新主页面的图片数量
+        self.storyboard_page.init_image_widgets()  # 强制更新主页面的图片数量
 
         if config_manager.save_config():
             InfoBar.success(
@@ -3180,65 +3224,7 @@ class MainWindow(FluentWindow):
                 parent=self
             )
 
-    def on_bizyair_app_id_changed(self, index):
-        """处理BizyAIR App ID选择变化"""
-        if self.bizyair_app_id_combo.itemData(index) == "custom":
-            # 弹出对话框让用户输入自定义模型ID
-            from PyQt5.QtWidgets import QInputDialog
-            custom_id, ok = QInputDialog.getText(
-                self,
-                "自定义模型ID",
-                "请输入自定义的BizyAIR App ID (数字):",
-                QLineEdit.Normal,
-                ""
-            )
-
-            if ok and custom_id.strip():
-                try:
-                    # 验证输入是否为数字
-                    custom_id_num = int(custom_id.strip())
-                    if 1 <= custom_id_num <= 99999:
-                        # 创建自定义选项的显示文本
-                        custom_display_text = f"🔧 自定义模型ID_{custom_id_num}"
-
-                        # 检查是否已存在相同的自定义ID
-                        existing_index = -1
-                        for i in range(self.bizyair_app_id_combo.count()):
-                            if (self.bizyair_app_id_combo.itemData(i) == custom_id_num and
-                                i != index):  # 排除当前的"custom"选项
-                                existing_index = i
-                                break
-
-                        if existing_index >= 0:
-                            # 如果已存在，直接选择该选项
-                            self.bizyair_app_id_combo.blockSignals(True)
-                            self.bizyair_app_id_combo.setCurrentIndex(existing_index)
-                            self.bizyair_app_id_combo.blockSignals(False)
-                        else:
-                            # 插入新的自定义选项到"➕ 自定义模型ID"之前
-                            insert_index = self.bizyair_app_id_combo.count() - 1
-                            self.bizyair_app_id_combo.blockSignals(True)
-                            self.bizyair_app_id_combo.insertItem(insert_index, custom_display_text)
-                            self.bizyair_app_id_combo.setItemData(insert_index, custom_id_num)
-                            self.bizyair_app_id_combo.setCurrentIndex(insert_index)
-                            self.bizyair_app_id_combo.blockSignals(False)
-                    else:
-                        QMessageBox.warning(self, "输入错误", "请输入1-99999之间的数字")
-                        # 恢复到默认选项
-                        self.bizyair_app_id_combo.blockSignals(True)
-                        self.bizyair_app_id_combo.setCurrentIndex(0)  # 选择第一个预定义选项
-                        self.bizyair_app_id_combo.blockSignals(False)
-                except ValueError:
-                    QMessageBox.warning(self, "输入错误", "请输入有效的数字")
-                    # 恢复到默认选项
-                    self.bizyair_app_id_combo.blockSignals(True)
-                    self.bizyair_app_id_combo.setCurrentIndex(0)  # 选择第一个预定义选项
-                    self.bizyair_app_id_combo.blockSignals(False)
-            else:
-                # 用户取消输入，恢复到默认选项
-                self.bizyair_app_id_combo.blockSignals(True)
-                self.bizyair_app_id_combo.setCurrentIndex(0)  # 选择第一个预定义选项
-                self.bizyair_app_id_combo.blockSignals(False)
+    # 删除不再需要的 on_bizyair_app_id_changed 方法，已在 APISettingsWidget 中实现
 
     def closeEvent(self, event):
         """窗口关闭时保存配置"""

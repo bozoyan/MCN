@@ -1,0 +1,50 @@
+{
+  "models": [
+    {
+      "name": "43731_Z-image模型ZI",
+      "app_id": 44863,
+      "description": "Z-image模型"
+    },
+    {
+      "name": "43731_Z-image模型神秘XXX",
+      "app_id": 44863,
+      "description": "Z-image模型神秘版本"
+    },
+    {
+      "name": "38654_Z-image模型滑雪场",
+      "app_id": 39808,
+      "description": "滑雪场场景模型"
+    },
+    {
+      "name": "33820_FLUX krea 文生5图",
+      "app_id": 34893,
+      "description": "FLUX krea批量模型"
+    },
+    {
+      "name": "40543_F.1 Krea 生5图",
+      "app_id": 41725,
+      "description": "F.1 Krea批量模型"
+    },
+    {
+      "name": "40516_Real-F.1 文生5图",
+      "app_id": 41697,
+      "description": "Real-F.1批量模型"
+    },
+    {
+      "name": "40372_Qwen Image 5图",
+      "app_id": 41552,
+      "description": "Qwen图像批量模型"
+    },
+    {
+      "name": "40350_flux-dev-HighRes",
+      "app_id": 41528,
+      "description": "高分辨率FLUX模型"
+    },
+    {
+      "name": "38774_Real-NSFW 文生5图",
+      "app_id": 39928,
+      "description": "NSFW模型"
+    }
+  ],
+  "default_model_index": 2
+}
