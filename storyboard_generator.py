@@ -1299,8 +1299,8 @@ class TemplateManagerDialog(QDialog):
             logger.info("[模板管理] 用户取消删除操作\n")
 
 
-# 图片预览小部件 (修改为继承 QFrame，避免层级问题)
-class ImagePreviewWidget(QFrame):
+# 图片预览小部件 (简化版，避免覆盖问题)
+class ImagePreviewWidget(QWidget):
     """图片预览小部件"""
 
     def __init__(self, index, parent=None):
@@ -1308,47 +1308,45 @@ class ImagePreviewWidget(QFrame):
         self.index = index
         self.image = None
         self.image_url = ""
-        # 设置框架样式和边距
-        self.setFrameStyle(QFrame.StyledPanel | QFrame.Raised)
-        self.setLineWidth(1)
         self.init_ui()
 
     def init_ui(self):
         layout = QVBoxLayout(self)
         layout.setSpacing(5)
-        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setContentsMargins(8, 8, 8, 8)
 
         # 设置固定大小
-        self.setFixedSize(280, 260)
+        self.setFixedSize(270, 250)
 
-        # 设置背景样式
-        self.setStyleSheet("""
-            QFrame {
-                background-color: #2d2d2d;
-                border: 1px solid #3d3d3d;
-                border-radius: 8px;
-            }
-        """)
+        # 设置背景样式（使用 objectName 避免影响子控件）
+        self.setObjectName("ImagePreviewWidget")
 
         # 标题
         self.title_label = QLabel(f"分镜 {self.index + 1}")
         self.title_label.setAlignment(Qt.AlignCenter)
-        self.title_label.setStyleSheet("font-weight: bold; color: #e0e0e0; font-size: 14px;")
+        self.title_label.setStyleSheet("font-weight: bold; color: #e0e0e0; font-size: 13px; background: transparent;")
         layout.addWidget(self.title_label)
 
         # 图片显示
         self.image_label = QLabel()
-        # 调整最小/最大尺寸，让卡片大小适中且统一
-        self.image_label.setFixedSize(250, 140)
+        self.image_label.setFixedSize(250, 130)
         self.image_label.setAlignment(Qt.AlignCenter)
-        self.image_label.setStyleSheet("border: 2px dashed #555; border-radius: 8px; background: #1e1e1e; color: #888;")
+        self.image_label.setObjectName("ImageLabel")
+        self.image_label.setStyleSheet("""
+            QLabel#ImageLabel {
+                border: 2px dashed #555;
+                border-radius: 6px;
+                background: #1e1e1e;
+                color: #888;
+            }
+        """)
         self.image_label.setText("等待生成...")
         layout.addWidget(self.image_label, alignment=Qt.AlignCenter)
 
         # 状态标签
         self.status_label = QLabel("未生成")
         self.status_label.setAlignment(Qt.AlignCenter)
-        self.status_label.setStyleSheet("color: #888; font-size: 12px;")
+        self.status_label.setStyleSheet("color: #888; font-size: 11px; background: transparent;")
         layout.addWidget(self.status_label)
 
         # 操作按钮
@@ -2261,7 +2259,7 @@ class StoryboardPage(SmoothScrollArea):
         # 图片预览区域 (占据剩余空间)
         preview_card = ElevatedCardWidget()
         preview_layout = QVBoxLayout(preview_card)
-        preview_layout.setContentsMargins(10, 10, 10, 10) # 减少边距
+        preview_layout.setContentsMargins(10, 10, 10, 10)
 
         preview_title = SubtitleLabel("🖼️ 图片预览")
         preview_title.setFont(QFont("", 14, QFont.Bold))
@@ -2272,20 +2270,17 @@ class StoryboardPage(SmoothScrollArea):
         self.image_scroll_widget = QWidget()
         self.image_grid_layout = QGridLayout(self.image_scroll_widget)
         self.image_grid_layout.setSpacing(15)
-        self.image_grid_layout.setAlignment(Qt.AlignTop | Qt.AlignLeft) # 确保内容左上对齐
+        self.image_grid_layout.setAlignment(Qt.AlignTop | Qt.AlignLeft)
 
         self.image_scroll_area.setWidget(self.image_scroll_widget)
         self.image_scroll_area.setWidgetResizable(True)
 
-        # 根据图片数量动态计算滚动区域高度
-        # 默认按10张计算，后续会在 init_image_widgets 中调整
-        self.image_scroll_area.setFixedHeight(550)
+        # 设置滚动区域的最小高度，让它在布局中自适应
+        self.image_scroll_area.setMinimumHeight(400)
 
         preview_layout.addWidget(self.image_scroll_area)
 
         right_layout.addWidget(preview_card)
-        
-        right_layout.addStretch()
 
         return right_widget
 
@@ -2343,22 +2338,8 @@ class StoryboardPage(SmoothScrollArea):
         # 2. 从配置中获取最新的图片数量
         image_count = config_manager.get('ui.default_image_count', 10)
 
-        # 3. 动态调整滚动区域高度
-        # 每个卡片约 280px 高，间距 15px，3 列布局
-        # 计算需要的行数
+        # 3. 创建新的小部件网格
         cols = 3
-        rows = (image_count + cols - 1) // cols
-        # 每行高度约 295px (280px 卡片 + 15px 间距)
-        # 限制最小高度为 300px，最大高度为 800px
-        row_height = 295
-        min_height = 300
-        max_height = 800
-        calculated_height = rows * row_height + 50  # +50 为标题栏预留空间
-        scroll_height = max(min_height, min(calculated_height, max_height))
-
-        self.image_scroll_area.setFixedHeight(scroll_height)
-
-        # 4. 创建新的小部件网格
         for i in range(image_count):
             widget = ImagePreviewWidget(i)
             self.image_widgets.append(widget)
@@ -2367,11 +2348,11 @@ class StoryboardPage(SmoothScrollArea):
             col = i % cols
             self.image_grid_layout.addWidget(widget, row, col)
 
-        # 5. 添加一个空白占位符
+        # 4. 添加一个空白占位符，确保内容靠上对齐
+        rows = (image_count + cols - 1) // cols
         if self.image_grid_layout.count() > 0:
             spacer = QWidget()
             spacer.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-            # 确保添加到下一行，占据所有列
             self.image_grid_layout.addWidget(spacer, rows, 0, 1, cols)
 
 
@@ -3338,6 +3319,13 @@ def main():
             border-radius: 4px;
             padding: 10px;
             min-height: 250px; /* 确保最小高度 */
+        }
+
+        /* 图片预览小部件样式 */
+        QWidget#ImagePreviewWidget {
+            background-color: #2d2d2d;
+            border: 1px solid #3d3d3d;
+            border-radius: 8px;
         }
     """)
 
