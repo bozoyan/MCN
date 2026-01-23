@@ -2912,12 +2912,14 @@ class StoryboardPage(SmoothScrollArea):
         self.last_export_dir = output_dir
 
         timestamp = datetime.now().strftime('%m%d%H%M%S')
+        # 获取当前模型的 app_id 作为文件名前缀
+        app_id = config_manager.get('bizyair_params.web_app_id', 39808)
         export_count = 0
 
         for i, widget in enumerate(self.image_widgets):
             if widget.image_url: # 使用 URL 而不是 widget.image
                 try:
-                    file_name = f"storyboard_{timestamp}_{i+1}.png"
+                    file_name = f"{app_id}_{timestamp}_{i+1}.png"
                     file_path = os.path.join(output_dir, file_name)
 
                     # 从 URL 下载图片并保存
