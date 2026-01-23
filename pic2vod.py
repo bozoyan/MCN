@@ -61,7 +61,7 @@ from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
                             QLineEdit, QTextEdit, QPushButton, QComboBox,
                             QSpinBox, QProgressBar, QMessageBox, QFileDialog,
                             QGroupBox, QTabWidget, QSplitter, QFrame,
-                            QGridLayout, QScrollArea, QSlider, QCheckBox, QDialog, QSizePolicy, QApplication)
+                            QGridLayout, QScrollArea, QSlider, QCheckBox, QDialog, QSizePolicy, QApplication, QStackedWidget)
 from PyQt5.QtGui import QPixmap, QDragEnterEvent, QDropEvent, QPalette, QDesktopServices, QColor
 
 import qfluentwidgets as qf
@@ -70,7 +70,7 @@ from qfluentwidgets import (FluentIcon, CardWidget, ElevatedCardWidget,
                           PrimaryPushButton, PushButton, LineEdit, ComboBox,
                           ProgressBar, InfoBar, InfoBarPosition,
                           SwitchButton, InfoBadge, TeachingTip, TeachingTipTailPosition,
-                          StrongBodyLabel, CaptionLabel)
+                          StrongBodyLabel, CaptionLabel, Pivot)
 
 # 导入配置管理器（如果可用）
 try:
@@ -2260,54 +2260,82 @@ class VideoGenerationWidget(QWidget):
 
     # ... (create_control_panel, create_image_input_group, on_input_type_changed, on_image_dropped 方法不变) ...
     def create_control_panel(self):
-        """创建控制面板（选项卡模式）"""
+        """创建控制面板（使用 Pivot 滑动选项卡）"""
         panel = QWidget()
         panel.setStyleSheet("QWidget { background-color: #2A2A2A; }")
         layout = QVBoxLayout(panel)
         layout.setSpacing(6)
         layout.setContentsMargins(8, 8, 8, 8)
 
-        # 创建选项卡控件
-        self.mode_tabs = QTabWidget()
-        self.mode_tabs.setStyleSheet("""
-            QTabWidget::pane {
+        # 创建 Pivot 导航栏（支持左右滑动）
+        self.mode_pivot = Pivot()
+        self.mode_pivot.setStyleSheet("""
+            Pivot {
+                background-color: transparent;
+                border: none;
+            }
+            PivotItem {
+                background-color: transparent;
+                color: #cccccc;
+                font-size: 14px;
+                padding: 8px 16px;
+                margin-right: 4px;
+                border-radius: 4px;
+            }
+            PivotItem:hover {
+                background-color: #3a3a3a;
+                color: #ffffff;
+            }
+            PivotItem:selected {
+                background-color: #4a90e2;
+                color: #ffffff;
+                font-weight: bold;
+            }
+            QPushButton {
+                background-color: #404040;
+                border: none;
+                border-radius: 4px;
+                color: #cccccc;
+                padding: 4px 8px;
+                min-width: 32px;
+            }
+            QPushButton:hover {
+                background-color: #505050;
+                color: #ffffff;
+            }
+        """)
+
+        # 创建 StackedWidget 用于内容切换
+        self.mode_stack = QStackedWidget()
+        self.mode_stack.setStyleSheet("""
+            QStackedWidget {
                 border: 1px solid #404040;
                 background-color: #2A2A2A;
                 border-radius: 4px;
             }
-            QTabBar::tab {
-                background-color: #333333;
-                color: #cccccc;
-                padding: 8px 20px;
-                margin-right: 2px;
-                border: 1px solid #404040;
-                border-bottom: none;
-                border-top-left-radius: 4px;
-                border-top-right-radius: 4px;
-            }
-            QTabBar::tab:selected {
-                background-color: #2A2A2A;
-                color: #ffffff;
-                border-bottom: 2px solid #4a90e2;
-            }
-            QTabBar::tab:hover {
-                background-color: #3a3a3a;
-            }
         """)
 
-        # 单图片转视频选项卡
+        # 创建三个选项卡内容
         single_tab = self.create_single_image_tab()
-        self.mode_tabs.addTab(single_tab, "单图片转视频")
-
-        # 首尾帧图片转视频选项卡
         frames_tab = self.create_frames_image_tab()
-        self.mode_tabs.addTab(frames_tab, "首尾帧转视频")
-
-        # 视频换人物选项卡
         video_tab = self.create_video_replace_tab()
-        self.mode_tabs.addTab(video_tab, "视频换人物")
 
-        layout.addWidget(self.mode_tabs)
+        # 添加到 StackedWidget
+        self.mode_stack.addWidget(single_tab)
+        self.mode_stack.addWidget(frames_tab)
+        self.mode_stack.addWidget(video_tab)
+
+        # 添加 Pivot 项并连接信号
+        self.mode_pivot.addItem(routeKey='single', text='单图片转视频', onClick=lambda: self.mode_stack.setCurrentIndex(0))
+        self.mode_pivot.addItem(routeKey='frames', text='首尾帧转视频', onClick=lambda: self.mode_stack.setCurrentIndex(1))
+        self.mode_pivot.addItem(routeKey='video', text='视频换人物', onClick=lambda: self.mode_stack.setCurrentIndex(2))
+
+        # 设置默认选中第一项
+        self.mode_pivot.setCurrentItem('single')
+
+        # 添加到布局
+        layout.addWidget(self.mode_pivot)
+        layout.addWidget(self.mode_stack)
 
         return panel
 
@@ -3263,7 +3291,7 @@ class VideoGenerationWidget(QWidget):
     def generate_single_video(self):
         """生成单个视频 - 支持单图片、首尾帧和视频换人物三种模式"""
         # 获取当前选项卡索引
-        current_tab = self.mode_tabs.currentIndex()
+        current_tab = self.mode_stack.currentIndex()
 
         if current_tab == 0:
             # 单图片转视频模式
@@ -3376,7 +3404,7 @@ class VideoGenerationWidget(QWidget):
     def generate_batch_videos(self):
         """生成批量视频 - 支持单图片、首尾帧和视频换人物三种模式"""
         # 获取当前选项卡索引
-        current_tab = self.mode_tabs.currentIndex()
+        current_tab = self.mode_stack.currentIndex()
 
         if current_tab == 0:
             # 单图片转视频模式
@@ -4353,7 +4381,7 @@ if __name__ == '__main__':
 
 
     main_window = QMainWindow()
-    main_window.setWindowTitle("图片转视频生成工具 V2.0.1")
+    main_window.setWindowTitle("图片转视频生成工具 V1.0.3")
     main_window.setMinimumSize(1200, 800)
 
     video_widget = VideoGenerationWidget(main_window)

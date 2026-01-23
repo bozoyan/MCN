@@ -981,7 +981,7 @@ class Sora2VideoGenerationWorker(QThread):
     def check_video_status(self, request_id):
         """查询 BizyAir 任务状态"""
         max_attempts = 90  #最多轮询 90次
-        check_interval = 20  #每次间隔 20秒
+        check_interval = 30  #任务每次间隔 30秒
 
         for attempt in range(max_attempts):
             if self.is_cancelled:
