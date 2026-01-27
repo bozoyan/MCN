@@ -1,0 +1,16 @@
+{
+  "id": 43691,
+  "name": "图音转视频 infiniteTalk 数字人",
+  "suppress_preview_output": true,
+  "web_app_id": 44821,
+  "url_images": "https://bizyair-prod.oss-cn-shanghai.aliyuncs.com/inputs/20260122/xIP4PTUFIvbWp5V2tgcGym17Jzw3yU33.png",
+  "input_values": {
+    "284:LoadImage.image": "https://bizyair-prod.oss-cn-shanghai.aliyuncs.com/inputs/20260122/xIP4PTUFIvbWp5V2tgcGym17Jzw3yU33.png",
+    "125:LoadAudio.audio": "https://bizyair-prod.oss-cn-shanghai.aliyuncs.com/inputs/20260122/JsO0Yz7x8G4VunuMMfluFF26hU4Am5AA.mp3",
+    "245:INTConstant.value": 786,
+    "246:INTConstant.value": 480,
+    "270:INTConstant.value": 5000,
+    "241:WanVideoTextEncodeCached.positive_prompt": "a woman is singing"
+  },
+  "info": ""
+}

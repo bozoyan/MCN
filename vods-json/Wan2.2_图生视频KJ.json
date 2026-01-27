@@ -1,0 +1,15 @@
+{
+  "id": 40360,
+  "name": "Wan2.2 I2V 图生视频",
+  "suppress_preview_output": true,
+  "web_app_id": 41538,
+  "url_images": "https://bizyair-prod.oss-cn-shanghai.aliyuncs.com/img/20260118/4O66T3fejlo755nsuIKaa0wwu5RndWiu.webp",
+  "input_values": {
+    "16:WanVideoTextEncode.positive_prompt": "机器人转过身来，发出激光光线",
+    "67:LoadImage.image": "https://bizyair-prod.oss-cn-shanghai.aliyuncs.com/inputs/20251219/LbNMmkFnZoJvEqXqkURZAhbB7AjE4m0R.png",
+    "68:ImageResizeKJv2.width": 480,
+    "68:ImageResizeKJv2.height": 600,
+    "89:WanVideoImageToVideoEncode.num_frames": 81
+  },
+  "info": "30 秒 720P 的视频，快的飞起"
+}

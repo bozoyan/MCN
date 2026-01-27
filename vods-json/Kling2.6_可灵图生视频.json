@@ -1,0 +1,13 @@
+{
+  "id": 43707,
+  "name": "可灵图生视频-Kling_2.6",
+  "suppress_preview_output": true,
+  "web_app_id": 44837,
+  "url_images": "https://bizyair-prod.oss-cn-shanghai.aliyuncs.com/inputs/20260122/3McrsAhcyzXVV0JwEPiwZ7FmQdJh42B7.png",
+  "input_values": {
+    "2:LoadImage.image": "https://bizyair-prod.oss-cn-shanghai.aliyuncs.com/inputs/20260122/3McrsAhcyzXVV0JwEPiwZ7FmQdJh42B7.png",
+    "45:BizyAir_Kling_2_6_I2V_API.prompt": "画面展现了一位短发亚洲女性，身着亮眼的橘色吊带裙。背景由纯白转为明亮的日光户外，捕捉她从静止到灵动转身的瞬间，展现阳光、活力与清新的自然美感。\n\n---\n\n**视频提示词描述：**\n\n**核心要素：** 日光，柔光，白天，中景转特写，中心构图，中焦距，眼平角度，单人镜头，暖色调，高饱和度，旋转与微笑，高兴，跟随运镜，写实风格。\n\n**分段拆解（总时长6秒）：**\n\n*   **0-1.5秒（镜头拉远+起势）：**\n    画面从女性的近景特写开始，她对着镜头灿烂一笑，随后镜头快速拉远（Zoom Out）至中景。此时阳光洒在她的肩头，产生柔和的边缘光。\n*   **1.5-3.5秒（环绕运镜+动态旋转）：**\n    女性轻快地原地旋转一周，橘色的裙摆随风轻盈飘动。镜头采用环绕运镜（Orbit Shot），紧紧跟随她的动态，捕捉发丝飞扬的瞬间，色彩充满暖意与动感。\n*   **3.5-6秒（镜头推进+定格表情）：**\n    她停止旋转，面对镜头露出惊喜且羞涩的表情。镜头迅速推进（Push In）至面部特写，背景出现自然的虚化，画面最终定格在她充满感染力的笑容上。",
+    "45:BizyAir_Kling_2_6_I2V_API.duration": 5
+  },
+  "info": ""
+}

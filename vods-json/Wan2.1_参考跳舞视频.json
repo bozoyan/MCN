@@ -1,0 +1,15 @@
+{
+  "id": 43136,
+  "name": "Wan2.1-参考跳舞",
+  "suppress_preview_output": true,
+  "web_app_id": 44271,
+  "url_images": "https://bizyair-prod.oss-cn-shanghai.aliyuncs.com/inputs/20260117/GPXrPgs5bHqjTtChZCaleHFFIA2cNfA4.webp?image_process=format,webp&x-oss-process=image/resize,w_764,m_lfit/format,webp",
+  "input_values": {
+    "45:LoadImage.image": "https://bizyair-prod.oss-cn-shanghai.aliyuncs.com/inputs/20260113/RzMP21kCQ3e3uj1loIbWMMpCf5Re6uIw.png",
+    "46:VHS_LoadVideo.video": "https://storage.bizyair.cn/inputs/20260113/TDlyEpcnS29JUCvDbrQi9fJJ4QKfqCnx.mp4",
+    "27:PrimitiveInt.value": 10,
+    "37:JWInteger.value": 720,
+    "38:JWInteger.value": 1024
+  },
+  "info": "10 秒耗时10 分钟。"
+}

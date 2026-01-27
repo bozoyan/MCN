@@ -1,0 +1,15 @@
+{
+  "id": 43645,
+  "name": "图生视频 Wan2.2_Remix_NSFW",
+  "suppress_preview_output": true,
+  "web_app_id": 44773,
+  "url_images": "https://bizyair-prod.oss-cn-shanghai.aliyuncs.com/inputs/20251219/LbNMmkFnZoJvEqXqkURZAhbB7AjE4m0R.png",
+  "input_values": {
+    "67:LoadImage.image": "https://bizyair-prod.oss-cn-shanghai.aliyuncs.com/inputs/20251219/LbNMmkFnZoJvEqXqkURZAhbB7AjE4m0R.png",
+    "89:WanVideoImageToVideoEncode.num_frames": 81,
+    "16:WanVideoTextEncode.positive_prompt": "机器人转过身来，发出激光光线",
+    "68:ImageResizeKJv2.width": 720,
+    "68:ImageResizeKJv2.height": 1280
+  },
+  "info": ""
+}

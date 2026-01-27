@@ -1,0 +1,16 @@
+{
+  "id": 43663,
+  "name": "图音转视频 Wan 2.2 S2V",
+  "suppress_preview_output": true,
+  "web_app_id": 44793,
+  "url_images": "https://bizyair-prod.oss-cn-shanghai.aliyuncs.com/inputs/20260122/phhvJR8qWzlTWT5csQWfYawkiXdfuw0l.png",
+  "input_values": {
+    "73:LoadImage.image": "https://bizyair-prod.oss-cn-shanghai.aliyuncs.com/inputs/20260122/phhvJR8qWzlTWT5csQWfYawkiXdfuw0l.png",
+    "66:LoadAudio.audio": "https://bizyair-prod.oss-cn-shanghai.aliyuncs.com/inputs/20251218/Pw8MOdXn8JKQbrjYBwtDw4VjwqZSDFUI.mp3",
+    "67:WanVideoTextEncodeCached.positive_prompt": "In the video, a woman stood on the deck of a sailing boat and sang loudly. The background was the choppy sea and the thundering sky. It was raining heavily in the sky, the ship swayed, the camera swayed, and the waves splashed everywhere, creating a heroic atmosphere. The woman has long dark hair, part of which is wet by rain. Her expression is serious and firm, her eyes are sharp, and she seems to be staring at the distance or thinking",
+    "37:WanVideoEmptyEmbeds.num_frames": 193,
+    "131:INTConstant.value": 720,
+    "132:INTConstant.value": 1280
+  },
+  "info": ""
+}

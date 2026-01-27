@@ -1,0 +1,14 @@
+{
+  "id": 43624,
+  "name": "首尾帧（1280高 ）Wan2.2_Remix_NSFW",
+  "suppress_preview_output": true,
+  "web_app_id": 44750,
+  "url_images": "https://bizyair-prod.oss-cn-shanghai.aliyuncs.com/inputs/20260122/ictdTmMPduPyy1gWxfyYHyVuDF3JyjvM.png",
+  "input_values": {
+    "52:LoadImage.image": "https://bizyair-prod.oss-cn-shanghai.aliyuncs.com/inputs/20260122/ictdTmMPduPyy1gWxfyYHyVuDF3JyjvM.png",
+    "53:LoadImage.image": "https://bizyair-prod.oss-cn-shanghai.aliyuncs.com/inputs/20260122/isbhW50waP4N3smpSDWTiP4xXaBAVdOa.png",
+    "26:JWInteger.value": 81,
+    "30:WanVideoTextEncode.positive_prompt": ""
+  },
+  "info": ""
+}

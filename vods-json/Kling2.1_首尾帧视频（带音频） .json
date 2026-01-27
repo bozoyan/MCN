@@ -1,0 +1,16 @@
+{
+  "id": 43704,
+  "name": "首尾帧视频（带音频）- Kling2.1",
+  "suppress_preview_output": true,
+  "web_app_id": 44834,
+  "url_images": "https://bizyair-prod.oss-cn-shanghai.aliyuncs.com/inputs/20260122/eBOQkg60fUgIudXrNJoklJMZN9n1xDX3.png",
+  "input_values": {
+    "40:LoadImage.image": "https://bizyair-prod.oss-cn-shanghai.aliyuncs.com/inputs/20260122/eBOQkg60fUgIudXrNJoklJMZN9n1xDX3.png",
+    "41:LoadImage.image": "https://bizyair-prod.oss-cn-shanghai.aliyuncs.com/inputs/20260122/mISbdevKETE5DT0DIFppRC1NlJG96mDW.png",
+    "43:BizyAir_Kling_2_1_I2V_API.prompt": "广告动画",
+    "43:BizyAir_Kling_2_1_I2V_API.model_name": "kling-v2-1-std",
+    "43:BizyAir_Kling_2_1_I2V_API.duration": 5,
+    "43:BizyAir_Kling_2_1_I2V_API.aspect_ratio": "16:9"
+  },
+  "info": ""
+}

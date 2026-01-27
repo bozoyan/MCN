@@ -1,0 +1,15 @@
+{
+  "id": 43699,
+  "name": "首尾帧视频（带音频）- Veo3.1",
+  "suppress_preview_output": true,
+  "web_app_id": 44829,
+  "url_images": "https://bizyair-prod.oss-cn-shanghai.aliyuncs.com/inputs/20260122/BiZY3AnXiUYBhtc1CAthrdMoqs8FaBAc.png",
+  "input_values": {
+    "40:LoadImage.image": "https://bizyair-prod.oss-cn-shanghai.aliyuncs.com/inputs/20260122/BiZY3AnXiUYBhtc1CAthrdMoqs8FaBAc.png",
+    "41:LoadImage.image": "https://bizyair-prod.oss-cn-shanghai.aliyuncs.com/inputs/20260122/cJ3ZwhqRftubHyPDNsViBcez3UeY1ObW.png",
+    "37:BizyAir_Veo_V3_1_I2V_API.prompt": "广告动画",
+    "37:BizyAir_Veo_V3_1_I2V_API.model": "veo3.1-fast",
+    "37:BizyAir_Veo_V3_1_I2V_API.aspect_ratio": "16:9"
+  },
+  "info": ""
+}

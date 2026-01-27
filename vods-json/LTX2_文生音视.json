@@ -1,0 +1,14 @@
+{
+  "id": 42306,
+  "name": "LTX-2：文生音视",
+  "suppress_preview_output": true,
+  "web_app_id": 43472,
+  "url_images": "https://storage.bizyair.cn/img/20260113/rwXJdiiVle7bbpXvYeONI2zhXeGVWjNy.webp?image_process=format,webp&x-oss-process=image/resize,w_764,m_lfit/format,webp",
+  "input_values": {
+    "15:CLIPTextEncode.text": "A graceful Chinese woman strolls through a tranquil, rain-drenched garden at dusk. She wears a flowing qipao adorned with delicate embroidery, holding a translucent oil-paper umbrella. As gentle rain falls, she hums softly, then sings with ethereal warmth: \"It's raining, it's raining... I love it when it's raining.\" Her voice blends with the soothing patter of raindrops, while lanterns glow softly in the misty background. The scene evokes a dreamy, poetic atmosphere, blending traditional elegance with serene melancholy.\nStyle: Cinematic, soft lighting, subtle slow motion, with a touch of impressionistic visual texture.",
+    "3:EmptyImage.width": 1280,
+    "3:EmptyImage.height": 720,
+    "7:PrimitiveInt.value": 121
+  },
+  "info": "3 分钟-5 秒"
+}

@@ -1,0 +1,14 @@
+{
+  "id": 43700,
+  "name": "三图生视频（带音频）- Veo3.1",
+  "suppress_preview_output": true,
+  "web_app_id": 44830,
+  "url_images": "https://bizyair-prod.oss-cn-shanghai.aliyuncs.com/inputs/20260122/eBOQkg60fUgIudXrNJoklJMZN9n1xDX3.png",
+  "input_values": {
+    "40:LoadImage.image": "https://bizyair-prod.oss-cn-shanghai.aliyuncs.com/inputs/20260122/eBOQkg60fUgIudXrNJoklJMZN9n1xDX3.png",
+    "41:LoadImage.image": "https://bizyair-prod.oss-cn-shanghai.aliyuncs.com/inputs/20260122/mISbdevKETE5DT0DIFppRC1NlJG96mDW.png",
+    "42:LoadImage.image": "https://bizyair-prod.oss-cn-shanghai.aliyuncs.com/inputs/20260122/IZoC2LD118gBH2UjVVUTBBV7mUOsnayA.png",
+    "39:BizyAir_Veo_V3_1_I2V_REF_API.prompt": "广告动画"
+  },
+  "info": ""
+}
