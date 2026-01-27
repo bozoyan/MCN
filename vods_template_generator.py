@@ -433,12 +433,10 @@ class BatchManager(QObject):
         worker.start()
         self.log_message(f"启动任务 {task_id} (异步查询模式)")
 
-        # 设置下一个任务的启动间隔
-        # 每个任务需要等待 5 分钟才开始查询，所以可以更快启动下一个任务
-        # 但为了避免同时提交太多任务导致 API 限流，设置一个合理间隔
+        # V2.2.0: 每个任务间隔 1 分钟（60秒）
         if self.pending_tasks:
-            interval_ms = 60000  # 60秒，让任务错开启动
-            self.log_message(f"下一个任务将在 {interval_ms//1000} 秒后启动 (避免 API 限流)")
+            interval_ms = 60000  # 1分钟间隔
+            self.log_message(f"下一个任务将在 {interval_ms//1000} 秒后启动 (密钥轮流模式)")
             self.task_timer.start(interval_ms)
 
     def add_tasks(self, task_list):
@@ -639,8 +637,8 @@ class AsyncVideoGenerationWorker(QThread):
                 self.progress_updated.emit(30 + int((i+1)/wait_steps*20), f"等待中... {remaining//60}:{remaining%60:02d}")
 
         # 开始轮询查询（每1分钟一次）
-        max_attempts = 30  # 最多30次（30分钟）
-        check_interval = 60  # 每60秒查询一次
+        max_attempts = 30  # 最多30次（15分钟）
+        check_interval = 30  # V2.2.0: 每30秒查询一次
 
         self.log("开始查询任务状态...")
         self.progress_updated.emit(50, "查询任务状态...")
@@ -696,16 +694,16 @@ class AsyncVideoGenerationWorker(QThread):
 
                 # 继续轮询
                 if attempt < max_attempts - 1:
-                    self.log(f"等待 {check_interval//60} 分钟后再次查询...")
+                    self.log(f"等待 {check_interval} 秒后再次查询...")
                     time.sleep(check_interval)
 
             except Exception as e:
                 self.log(f"查询状态失败: {str(e)}")
                 if attempt < max_attempts - 1:
-                    self.log(f"等待 {check_interval//60} 分钟后重试...")
+                    self.log(f"等待 {check_interval} 秒后重试...")
                     time.sleep(check_interval)
 
-        self.log("任务超时（超过30分钟）")
+        self.log("任务超时（超过15分钟）")
         return None
 
     def cancel(self):
@@ -1168,6 +1166,9 @@ class TemplateVideoGenerationWidget(QWidget):
         self.batch_tasks = {}  # {task_id: {"status": str, "result": dict, "url": str}}
         self.is_batch_mode = False
 
+        # V2.2.0: 批量任务列表
+        self.batch_task_list = []  # [{"prompt": str, "status": str}]
+
         # 历史记录管理器
         self.history_manager = TaskHistoryManager("vods_log.json")
 
@@ -1346,7 +1347,7 @@ class TemplateVideoGenerationWidget(QWidget):
         return widget
 
     def _create_batch_mode_widget(self) -> QWidget:
-        """创建批量生成模式组件"""
+        """创建批量生成模式组件 - V2.2.0 带任务管理"""
         widget = QWidget()
         layout = QVBoxLayout(widget)
         layout.setSpacing(12)
@@ -1369,31 +1370,80 @@ class TemplateVideoGenerationWidget(QWidget):
         line1.setStyleSheet("background-color: #2a2a2a; border: none; max-height: 1px;")
         layout.addWidget(line1)
 
-        # 批量提示词输入
-        prompt_label = QLabel("提示词列表")
-        prompt_label.setStyleSheet("color: #888888; font-size: 12px;")
-        layout.addWidget(prompt_label)
+        # V2.2.0: 任务列表管理区域
+        task_list_label = QLabel("任务列表")
+        task_list_label.setStyleSheet("color: #888888; font-size: 12px;")
+        layout.addWidget(task_list_label)
 
-        self.batch_prompt_edit = QTextEdit()
-        self.batch_prompt_edit.setPlaceholderText("每行一个提示词...\n提示词1\n提示词2\n提示词3")
-        self.batch_prompt_edit.setMinimumHeight(100)
-        self.batch_prompt_edit.setMaximumHeight(150)
-        self.batch_prompt_edit.setStyleSheet("""
-            QTextEdit {
+        # 任务输入区域（添加新任务）
+        task_input_layout = QHBoxLayout()
+        task_input_layout.setSpacing(8)
+
+        self.batch_task_input = LineEdit()
+        self.batch_task_input.setPlaceholderText("输入提示词，按回车添加...")
+        self.batch_task_input.setFixedHeight(36)
+        self.batch_task_input.returnPressed.connect(self.add_batch_task)
+        task_input_layout.addWidget(self.batch_task_input, 1)
+
+        add_task_btn = PushButton(FluentIcon.ADD, "添加")
+        add_task_btn.setFixedHeight(36)
+        add_task_btn.clicked.connect(self.add_batch_task)
+        task_input_layout.addWidget(add_task_btn)
+
+        layout.addLayout(task_input_layout)
+
+        # 任务列表表格
+        self.batch_task_table = TableWidget()
+        self.batch_task_table.setColumnCount(4)
+        self.batch_task_table.setHorizontalHeaderLabels(["序号", "提示词", "状态", "操作"])
+        self.batch_task_table.setStyleSheet("""
+            QTableWidget {
                 background-color: #1e1e1e;
                 color: #cccccc;
                 border: 1px solid #333333;
                 border-radius: 6px;
-                padding: 10px;
-                font-size: 13px;
-                font-family: 'SF Pro Text', 'PingFang SC', 'Microsoft YaHei', sans-serif;
-                line-height: 1.5;
+                gridline-color: #2a2a2a;
+                font-size: 11px;
             }
-            QTextEdit:focus {
-                border: 1px solid #4a90e2;
+            QTableWidget::item {
+                padding: 5px;
+            }
+            QHeaderView::section {
+                background-color: #2a2a2a;
+                color: #e0e0e0;
+                padding: 8px;
+                border: none;
+                border-right: 1px solid #333333;
+                font-weight: 500;
             }
         """)
-        layout.addWidget(self.batch_prompt_edit)
+        self.batch_task_table.setMaximumHeight(200)
+        self.batch_task_table.horizontalHeader().setSectionResizeMode(0, 0)  # 序号固定
+        self.batch_task_table.setColumnWidth(0, 50)
+        self.batch_task_table.horizontalHeader().setSectionResizeMode(1, 3)  # 提示词拉伸
+        self.batch_task_table.horizontalHeader().setSectionResizeMode(2, 1)  # 状态固定
+        self.batch_task_table.setColumnWidth(2, 80)
+        self.batch_task_table.horizontalHeader().setSectionResizeMode(3, 0)  # 操作固定
+        self.batch_task_table.setColumnWidth(3, 60)
+        layout.addWidget(self.batch_task_table)
+
+        # 批量操作按钮
+        batch_button_layout = QHBoxLayout()
+        batch_button_layout.setSpacing(8)
+
+        clear_tasks_btn = PushButton(FluentIcon.DELETE, "清空任务")
+        clear_tasks_btn.setFixedHeight(32)
+        clear_tasks_btn.clicked.connect(self.clear_batch_tasks)
+        batch_button_layout.addWidget(clear_tasks_btn)
+
+        batch_button_layout.addStretch()
+
+        # 任务计数标签
+        self.batch_task_count_label = QLabel("任务数: 0")
+        self.batch_task_count_label.setStyleSheet("color: #888888; font-size: 11px;")
+        batch_button_layout.addWidget(self.batch_task_count_label)
+
+        layout.addLayout(batch_button_layout)
 
         # 分隔线
         line2 = QFrame()
@@ -1929,6 +1979,81 @@ class TemplateVideoGenerationWidget(QWidget):
 
     # ==================== 批量模式和 API 密钥管理方法 ====================
 
+    # V2.2.0: 批量任务管理方法
+    def add_batch_task(self):
+        """添加批量任务"""
+        prompt = self.batch_task_input.text().strip()
+        if not prompt:
+            QMessageBox.warning(self, "警告", "请输入提示词")
+            return
+
+        # 添加到任务列表
+        self.batch_task_list.append({"prompt": prompt, "status": "待执行"})
+        self._update_batch_task_table()
+
+        # 清空输入框
+        self.batch_task_input.clear()
+        self.batch_task_input.setFocus()
+
+    def _update_batch_task_table(self):
+        """更新批量任务表格显示"""
+        self.batch_task_table.setRowCount(len(self.batch_task_list))
+
+        for row, task in enumerate(self.batch_task_list):
+            # 序号
+            num_item = QTableWidgetItem(str(row + 1))
+            num_item.setTextAlignment(Qt.AlignCenter)
+            self.batch_task_table.setItem(row, 0, num_item)
+
+            # 提示词
+            prompt_item = QTableWidgetItem(task["prompt"][:60] + "..." if len(task["prompt"]) > 60 else task["prompt"])
+            self.batch_task_table.setItem(row, 1, prompt_item)
+
+            # 状态
+            status_item = QTableWidgetItem(task["status"])
+            status_item.setTextAlignment(Qt.AlignCenter)
+            # 根据状态设置颜色
+            if task["status"] == "待执行":
+                status_item.setStyleSheet("color: #888888;")
+            elif task["status"] == "执行中":
+                status_item.setStyleSheet("color: #4a90e2;")
+            elif task["status"] == "已完成":
+                status_item.setStyleSheet("color: #4caf50;")
+            elif task["status"] == "失败":
+                status_item.setStyleSheet("color: #f44336;")
+            self.batch_task_table.setItem(row, 2, status_item)
+
+            # 操作（删除按钮）
+            delete_btn = PushButton("删除")
+            delete_btn.setFixedHeight(24)
+            delete_btn.clicked.connect(lambda checked, r=row: self._remove_batch_task(r))
+            self.batch_task_table.setCellWidget(row, 3, delete_btn)
+
+        # 更新任务计数
+        self.batch_task_count_label.setText(f"任务数: {len(self.batch_task_list)}")
+
+    def _remove_batch_task(self, row: int):
+        """删除批量任务"""
+        if 0 <= row < len(self.batch_task_list):
+            self.batch_task_list.pop(row)
+            self._update_batch_task_table()
+
+    def clear_batch_tasks(self):
+        """清空批量任务列表"""
+        if not self.batch_task_list:
+            return
+
+        reply = QMessageBox.question(
+            self, "确认",
+            f"确定要清空 {len(self.batch_task_list)} 个任务吗？",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No
+        )
+
+        if reply == QMessageBox.Yes:
+            self.batch_task_list.clear()
+            self._update_batch_task_table()
+
     def on_mode_changed(self, index: int):
         """模式切换处理"""
         self.is_batch_mode = (index == 1)  # 0: 单个模式, 1: 批量模式
@@ -2016,7 +2141,7 @@ class TemplateVideoGenerationWidget(QWidget):
             self.api_key_status_label.setStyleSheet("color: #4caf50; font-size: 11px;")
 
     def start_batch_generation(self):
-        """开始批量生成"""
+        """V2.2.0: 开始批量生成（从任务列表读取）"""
         # 检查模型选择
         model_name = self.batch_model_combo.currentText()
         if not model_name:
@@ -2028,15 +2153,9 @@ class TemplateVideoGenerationWidget(QWidget):
             QMessageBox.warning(self, "警告", "未找到模型配置")
             return
 
-        # 检查提示词
-        prompts_text = self.batch_prompt_edit.toPlainText().strip()
-        if not prompts_text:
-            QMessageBox.warning(self, "警告", "请输入至少一个提示词")
-            return
-
-        prompts = [p.strip() for p in prompts_text.split('\n') if p.strip()]
-        if not prompts:
-            QMessageBox.warning(self, "警告", "请输入有效的提示词")
+        # V2.2.0: 检查任务列表
+        if not self.batch_task_list:
+            QMessageBox.warning(self, "警告", "请先添加任务")
             return
 
         # 检查 API 密钥
@@ -2058,10 +2177,11 @@ class TemplateVideoGenerationWidget(QWidget):
             if value:
                 base_input_values[key] = value
 
-        # 构建任务列表
+        # V2.2.0: 从任务列表构建任务
         task_list = []
-        for i, prompt in enumerate(prompts):
+        for i, task_data in enumerate(self.batch_task_list):
             task_id = f"batch_task_{i+1}_{int(time.time())}"
+            prompt = task_data["prompt"]
 
             # 复制基础参数并替换 prompt
             input_values = base_input_values.copy()
@@ -2072,11 +2192,21 @@ class TemplateVideoGenerationWidget(QWidget):
 
             task_list.append((task_id, config, input_values))
 
+            # 更新任务状态
+            task_data["status"] = "执行中"
+
+        self._update_batch_task_table()
+
         # 开始批量生成
         self.batch_generate_btn.setEnabled(False)
         self.batch_cancel_btn.setEnabled(True)
-        self.log(f"开始批量生成，共 {len(prompts)} 个任务")
-        self.log(f"使用 {len(available_keys)} 个 API 密钥（轮询模式）")
+        self.log(f"=== V2.2.0 批量生成开始 ===")
+        self.log(f"模型: {model_name}")
+        self.log(f"任务数: {len(task_list)}")
+        self.log(f"API 密钥数: {len(available_keys)} (密钥轮流模式)")
+        self.log(f"任务间隔: 1 分钟")
+        self.log(f"轮询间隔: 30 秒")
+        self.log(f"轮询等待: 5 分钟")
 
         self.batch_manager.add_tasks(task_list)
 
@@ -2095,7 +2225,7 @@ class TemplateVideoGenerationWidget(QWidget):
             self.log("已取消批量生成")
 
     def on_batch_task_finished(self, success: bool, _message: str, result_data: dict, task_id: str):
-        """批量任务完成回调"""
+        """V2.2.0: 批量任务完成回调"""
         status = "成功" if success else "失败"
         video_url = result_data.get("video_url", "")
         self.batch_tasks[task_id] = {
@@ -2104,6 +2234,16 @@ class TemplateVideoGenerationWidget(QWidget):
             "url": video_url
         }
         self.log(f"任务 {task_id} {status}")
+
+        # V2.2.0: 更新任务列表中的对应任务状态
+        # 从 task_id 中提取任务索引
+        try:
+            task_index = int(task_id.split("_")[2]) - 1  # batch_task_X_YYYY
+            if 0 <= task_index < len(self.batch_task_list):
+                self.batch_task_list[task_index]["status"] = "已完成" if success else "失败"
+                self._update_batch_task_table()
+        except (IndexError, ValueError):
+            pass
 
         # 保存批量任务历史记录
         model_name = self.batch_model_combo.currentText()
@@ -2118,6 +2258,10 @@ class TemplateVideoGenerationWidget(QWidget):
             "video_url": video_url
         }
         self.history_manager.add_record(history_record)
+
+        # V2.2.0: 自动下载成功的视频
+        if success and video_url:
+            self._auto_download_video(video_url)
 
     def on_batch_progress_updated(self, completed: int, total: int):
         """批量进度更新"""
