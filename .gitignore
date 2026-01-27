@@ -23,7 +23,7 @@ sora2_tasks_history.json
 vlm_config.json 
 vlm_prompt_templates.json
 vlm_history.json
-
+vods_log.json
 
 # C extensions
 *.so

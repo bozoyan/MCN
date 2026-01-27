@@ -3038,6 +3038,20 @@ class MainWindow(FluentWindow):
         except ImportError as e:
             print(f"无法导入Sora2视频生成模块: {e}")
 
+        # 添加模板化视频生成页面（基于 vods-json 配置文件）
+        try:
+            from vods_template_generator import TemplateVideoGenerationWidget
+            self.template_video_generation_page = TemplateVideoGenerationWidget()
+            self.template_video_generation_page.setObjectName("template_video_generation_page")
+            self.addSubInterface(
+                self.template_video_generation_page,
+                FluentIcon.APPLICATION,
+                "模板视频",
+                NavigationItemPosition.TOP
+            )
+        except ImportError as e:
+            print(f"无法导入模板化视频生成模块: {e}")
+
         self.addSubInterface(
             self.create_settings_page(),
             FluentIcon.SETTING,
