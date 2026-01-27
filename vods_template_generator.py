@@ -17,10 +17,11 @@ from PyQt5.QtCore import QThread, pyqtSignal, Qt, QUrl, QObject, QTimer
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
                             QTextEdit, QSpinBox, QMessageBox, QFileDialog,
                             QGroupBox, QSplitter, QFrame,
-                            QScrollArea, QDialog, QGridLayout, QTabWidget)
+                            QScrollArea, QDialog, QGridLayout, QTabWidget,
+                            QTableWidgetItem, QTableWidget)
 from PyQt5.QtGui import QDesktopServices
 from qfluentwidgets import (FluentIcon, PrimaryPushButton, PushButton,
-                          LineEdit, ComboBox, ProgressBar)
+                          LineEdit, ComboBox, ProgressBar, TableWidget, InfoBar, InfoBarPosition)
 
 # ==================== 历史记录管理器 ====================
 class TaskHistoryManager:
@@ -710,6 +711,96 @@ class AsyncVideoGenerationWorker(QThread):
     def cancel(self):
         """取消任务"""
         self.is_cancelled = True
+
+# ==================== 手动轮询线程 ====================
+class ManualPollThread(QThread):
+    """手动轮询任务状态的线程"""
+
+    log_signal = pyqtSignal(str)
+    result_signal = pyqtSignal(bool, dict)
+
+    def __init__(self, request_id: str, api_key: str):
+        super().__init__()
+        self.request_id = request_id
+        self.api_key = api_key
+        self.base_url = "https://api.bizyair.cn/w/v1/webapp/task/openapi"
+
+    def run(self):
+        """运行轮询任务"""
+        try:
+            # 查询任务状态
+            self.log_signal.emit("查询任务状态...")
+            status = self._query_status()
+
+            if status == "Success":
+                self.log_signal.emit("任务成功，获取输出结果...")
+                video_url = self._get_outputs()
+                if video_url:
+                    self.result_signal.emit(True, {"video_url": video_url, "request_id": self.request_id})
+                else:
+                    self.result_signal.emit(False, {"error": "无法获取输出结果"})
+            elif status == "Failed":
+                self.result_signal.emit(False, {"error": "任务执行失败"})
+            elif status == "Running":
+                self.result_signal.emit(True, {"video_url": "", "request_id": self.request_id})
+            else:
+                self.result_signal.emit(True, {"video_url": "", "request_id": self.request_id})
+
+        except Exception as e:
+            self.log_signal.emit(f"轮询失败: {str(e)}")
+            self.result_signal.emit(False, {"error": str(e)})
+
+    def _query_status(self) -> Optional[str]:
+        """查询任务状态"""
+        url = f"{self.base_url}/detail"
+        headers = {
+            "Authorization": f"Bearer {self.api_key}"
+        }
+
+        response = requests.get(url, params={"requestId": self.request_id},
+                              headers=headers, timeout=30)
+
+        if response.status_code == 200:
+            data = response.json()
+            if data.get("status"):
+                result_data = data.get("data", {})
+                status = result_data.get("status", "")
+                self.log_signal.emit(f"任务状态: {status}")
+                return status
+            else:
+                self.log_signal.emit(f"API 错误: {data.get('message', '未知错误')}")
+                return None
+        else:
+            self.log_signal.emit(f"HTTP 错误: {response.status_code}")
+            return None
+
+    def _get_outputs(self) -> Optional[str]:
+        """获取输出结果"""
+        url = f"{self.base_url}/outputs"
+        headers = {
+            "Authorization": f"Bearer {self.api_key}"
+        }
+
+        response = requests.get(url, params={"requestId": self.request_id},
+                              headers=headers, timeout=30)
+
+        if response.status_code == 200:
+            data = response.json()
+            if data.get("status"):
+                outputs = data.get("data", {}).get("outputs", [])
+                if outputs:
+                    video_url = outputs[0].get("object_url", "")
+                    self.log_signal.emit(f"获取到视频 URL: {video_url}")
+                    return video_url
+                else:
+                    self.log_signal.emit("输出列表为空")
+                    return None
+            else:
+                self.log_signal.emit(f"API 错误: {data.get('message', '未知错误')}")
+                return None
+        else:
+            self.log_signal.emit(f"HTTP 错误: {response.status_code}")
+            return None
 
 # ==================== 动态参数输入组件 ====================
 class DynamicParameterInput(QWidget):
@@ -1423,11 +1514,11 @@ class TemplateVideoGenerationWidget(QWidget):
         self.play_btn.clicked.connect(self.play_video)
         result_button_layout.addWidget(self.play_btn)
 
-        self.download_btn = PushButton(FluentIcon.DOWNLOAD, "下载")
-        self.download_btn.setFixedHeight(34)
-        self.download_btn.setEnabled(False)
-        self.download_btn.clicked.connect(self.download_video)
-        result_button_layout.addWidget(self.download_btn)
+        self.poll_btn = PushButton(FluentIcon.SYNC, "异步轮询")
+        self.poll_btn.setFixedHeight(34)
+        self.poll_btn.setEnabled(False)
+        self.poll_btn.clicked.connect(self.manual_poll_task)
+        result_button_layout.addWidget(self.poll_btn)
 
         layout.addLayout(result_button_layout)
 
@@ -1606,12 +1697,22 @@ class TemplateVideoGenerationWidget(QWidget):
         self.generate_btn.setEnabled(True)
         self.cancel_btn.setEnabled(False)
 
+        # 获取输入参数的值（修复 JSON 序列化问题）
+        input_values = {}
+        for key, param_input in self.parameter_inputs.items():
+            try:
+                value = param_input.get_value() if hasattr(param_input, 'get_value') else str(param_input)
+                input_values[key] = value
+            except Exception as e:
+                input_values[key] = f"<无法序列化: {str(e)}>"
+                print(f"警告: 参数 {key} 无法序列化: {e}")
+
         # 保存历史记录
         history_record = {
             "type": "single",
             "model_name": self.current_config.get("name", "") if self.current_config else "",
             "web_app_id": self.current_config.get("web_app_id", "") if self.current_config else "",
-            "input_values": {k: v for k, v in self.parameter_inputs.items()},
+            "input_values": input_values,
             "success": success,
             "message": message,
             "result": result
@@ -1623,9 +1724,14 @@ class TemplateVideoGenerationWidget(QWidget):
             video_url = result.get("video_url", "")
             self.result_url_label.setText(video_url)
             self.play_btn.setEnabled(True)
-            self.download_btn.setEnabled(True)
+            self.poll_btn.setEnabled(True)
             self.current_video_url = video_url
-            QMessageBox.information(self, "成功", message)
+            self.current_request_id = result.get("request_id", "")
+
+            # 自动下载到 output 文件夹
+            self._auto_download_video(video_url)
+
+            QMessageBox.information(self, "成功", f"{message}\n\n视频已自动保存到 output 文件夹")
         else:
             self.status_label.setText("生成失败")
             QMessageBox.critical(self, "错误", message)
@@ -1635,29 +1741,139 @@ class TemplateVideoGenerationWidget(QWidget):
         if hasattr(self, 'current_video_url') and self.current_video_url:
             QDesktopServices.openUrl(QUrl(self.current_video_url))
 
-    def download_video(self):
-        """下载视频"""
-        if not hasattr(self, 'current_video_url') or not self.current_video_url:
+    def _auto_download_video(self, video_url: str):
+        """自动下载视频到 output 文件夹"""
+        if not video_url:
             return
 
-        file_path, _ = QFileDialog.getSaveFileName(
-            self, "保存视频",
-            f"video_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4",
-            "视频文件 (*.mp4)"
+        # 确保 output 文件夹存在
+        output_dir = "output"
+        if not os.path.exists(output_dir):
+            os.makedirs(output_dir)
+            self.log(f"创建 output 文件夹")
+
+        # 生成文件名
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        filename = f"video_{timestamp}.mp4"
+        file_path = os.path.join(output_dir, filename)
+
+        try:
+            self.log(f"开始下载视频到: {file_path}")
+            response = requests.get(video_url, stream=True, timeout=120)
+            response.raise_for_status()
+
+            total_size = int(response.headers.get('content-length', 0))
+            downloaded = 0
+
+            with open(file_path, 'wb') as f:
+                for chunk in response.iter_content(chunk_size=8192):
+                    if chunk:
+                        f.write(chunk)
+                        downloaded += len(chunk)
+                        if total_size > 0:
+                            progress = int(downloaded / total_size * 100)
+                            self.log(f"下载进度: {progress}%")
+
+            self.log(f"视频已保存: {file_path}")
+        except Exception as e:
+            self.log(f"自动下载失败: {str(e)}")
+            print(f"下载视频错误: {e}")
+
+    def manual_poll_task(self):
+        """手动轮询任务状态"""
+        if not hasattr(self, 'current_request_id') or not self.current_request_id:
+            QMessageBox.warning(self, "提示", "当前没有可轮询的任务")
+            return
+
+        # 询问用户是要轮询当前任务还是输入自定义 request_id
+        reply = QMessageBox.question(
+            self, "异步轮询",
+            f"当前任务 ID: {self.current_request_id}\n\n是否轮询当前任务？\n\n点击「否」可输入自定义任务 ID。",
+            QMessageBox.Yes | QMessageBox.No | QMessageBox.Cancel,
+            QMessageBox.Yes
         )
 
-        if file_path:
-            try:
-                response = requests.get(self.current_video_url, stream=True, timeout=120)
-                response.raise_for_status()
+        if reply == QMessageBox.Cancel:
+            return
 
-                with open(file_path, 'wb') as f:
-                    for chunk in response.iter_content(chunk_size=8192):
-                        f.write(chunk)
+        request_id = self.current_request_id
 
-                QMessageBox.information(self, "成功", f"视频已保存到: {file_path}")
-            except Exception as e:
-                QMessageBox.critical(self, "错误", f"下载失败: {str(e)}")
+        if reply == QMessageBox.No:
+            # 自定义输入
+            from qfluentwidgets import MessageBox
+            dialog = QDialog(self)
+            dialog.setWindowTitle("自定义轮询")
+            dialog.setMinimumSize(400, 150)
+
+            layout = QVBoxLayout(dialog)
+
+            layout.addWidget(QLabel("请输入任务 Request ID:"))
+            input_edit = LineEdit()
+            input_edit.setPlaceholderText("例如: ac7a607e-4ba0-4b44-9af4-14f54b265a87")
+            layout.addWidget(input_edit)
+
+            button_layout = QHBoxLayout()
+            ok_btn = PrimaryPushButton("开始轮询")
+            cancel_btn = PushButton("取消")
+            button_layout.addStretch()
+            button_layout.addWidget(ok_btn)
+            button_layout.addWidget(cancel_btn)
+            layout.addLayout(button_layout)
+
+            def on_ok():
+                if input_edit.text().strip():
+                    dialog.accept()
+                else:
+                    QMessageBox.warning(dialog, "警告", "请输入 Request ID")
+
+            def on_cancel():
+                dialog.reject()
+
+            ok_btn.clicked.connect(on_ok)
+            cancel_btn.clicked.connect(on_cancel)
+
+            if dialog.exec_() == QDialog.Accepted:
+                request_id = input_edit.text().strip()
+            else:
+                return
+
+        # 开始轮询
+        self.log(f"开始手动轮询任务: {request_id}")
+        self.status_label.setText("轮询中...")
+
+        # 获取 API 密钥
+        api_key = os.getenv('SiliconCloud_API_KEY', '')
+        if not api_key:
+            QMessageBox.warning(self, "错误", "未找到 API 密钥，请先配置")
+            return
+
+        # 在后台线程中轮询
+        poll_thread = ManualPollThread(request_id, api_key)
+        poll_thread.log_signal.connect(self.log)
+        poll_thread.result_signal.connect(self._on_manual_poll_result)
+        poll_thread.start()
+
+    def _on_manual_poll_result(self, success: bool, result: dict):
+        """手动轮询结果回调"""
+        if success:
+            video_url = result.get("video_url", "")
+            if video_url:
+                self.status_label.setText("轮询成功")
+                self.result_url_label.setText(video_url)
+                self.play_btn.setEnabled(True)
+                self.current_video_url = video_url
+
+                # 自动下载
+                self._auto_download_video(video_url)
+
+                QMessageBox.information(self, "成功", f"任务已完成！\n\n视频已自动保存到 output 文件夹")
+            else:
+                self.status_label.setText("任务还在运行")
+                QMessageBox.information(self, "提示", "任务还在运行中，请稍后再试")
+        else:
+            self.status_label.setText("轮询失败")
+            error_msg = result.get("error", "未知错误")
+            QMessageBox.critical(self, "错误", f"轮询失败: {error_msg}")
 
     def show_api_settings(self):
         """显示 API 设置对话框"""
@@ -2075,36 +2291,191 @@ class TemplateVideoGenerationWidget(QWidget):
         self.on_log_updated(message)
 
     def export_history(self):
-        """导出历史记录"""
-        count = len(self.history_manager.get_history())
+        """显示历史记录对话框"""
+        history = self.history_manager.get_history()
+
+        # 创建对话框
+        dialog = QDialog(self)
+        dialog.setWindowTitle("历史记录")
+        dialog.setMinimumSize(900, 600)
+
+        layout = QVBoxLayout(dialog)
+
+        # 标题
+        title = QLabel(f"历史记录 (共 {len(history)} 条)")
+        title.setStyleSheet("font-size: 14px; font-weight: 500; color: #e0e0e0;")
+        layout.addWidget(title)
+
+        # 创建表格
+        table = TableWidget()
+        table.setColumnCount(6)
+        table.setHorizontalHeaderLabels(["时间", "类型", "模型", "状态", "视频 URL", "详情"])
+
+        # 设置表格样式
+        table.setStyleSheet("""
+            QTableWidget {
+                background-color: #1e1e1e;
+                color: #cccccc;
+                border: 1px solid #333333;
+                border-radius: 6px;
+                gridline-color: #2a2a2a;
+                font-size: 11px;
+            }
+            QTableWidget::item {
+                padding: 5px;
+            }
+            QTableWidget::item:selected {
+                background-color: #4a90e2;
+                color: #ffffff;
+            }
+            QHeaderView::section {
+                background-color: #2a2a2a;
+                color: #e0e0e0;
+                padding: 8px;
+                border: none;
+                border-right: 1px solid #333333;
+                font-weight: 500;
+            }
+        """)
+
+        # 填充数据
+        table.setRowCount(len(history))
+        for row, record in enumerate(reversed(history)):
+            # 时间
+            time_item = QTableWidgetItem(record.get("timestamp", ""))
+            table.setItem(row, 0, time_item)
+
+            # 类型
+            type_item = QTableWidgetItem(record.get("type", ""))
+            table.setItem(row, 1, type_item)
+
+            # 模型名称
+            model_item = QTableWidgetItem(record.get("model_name", ""))
+            table.setItem(row, 2, model_item)
+
+            # 状态
+            success = record.get("success", False)
+            status_text = "成功" if success else "失败"
+            status_item = QTableWidgetItem(status_text)
+            table.setItem(row, 3, status_item)
+
+            # 视频 URL
+            result = record.get("result", {})
+            video_url = result.get("video_url", "") if isinstance(result, dict) else ""
+            url_item = QTableWidgetItem(video_url[:50] + "..." if len(video_url) > 50 else video_url)
+            table.setItem(row, 4, url_item)
+
+            # 详情按钮
+            detail_btn = PushButton("查看")
+            detail_btn.setFixedHeight(28)
+            detail_btn.clicked.connect(lambda checked, r=record: self._show_record_detail(r, dialog))
+            table.setCellWidget(row, 5, detail_btn)
+
+        # 调整列宽
+        table.horizontalHeader().setSectionResizeMode(0, 1)  # 时间自动
+        table.horizontalHeader().setSectionResizeMode(1, 1)  # 类型自动
+        table.horizontalHeader().setSectionResizeMode(2, 2)  # 模型拉伸
+        table.horizontalHeader().setSectionResizeMode(3, 1)  # 状态自动
+        table.horizontalHeader().setSectionResizeMode(4, 3)  # URL拉伸
+        table.horizontalHeader().setSectionResizeMode(5, 0)  # 详情固定
+        table.setColumnWidth(5, 80)
+
+        layout.addWidget(table)
+
+        # 按钮区域
+        button_layout = QHBoxLayout()
+        button_layout.addStretch()
+
+        export_btn = PrimaryPushButton("导出历史")
+        export_btn.clicked.connect(lambda: self._export_history_from_dialog(history, dialog))
+        button_layout.addWidget(export_btn)
+
+        clear_btn = PushButton("清空历史")
+        clear_btn.clicked.connect(lambda: self._clear_history(dialog))
+        button_layout.addWidget(clear_btn)
+
+        close_btn = PushButton("关闭")
+        close_btn.clicked.connect(dialog.accept)
+        button_layout.addWidget(close_btn)
+
+        layout.addLayout(button_layout)
+
+        dialog.exec_()
+
+    def _show_record_detail(self, record: dict, parent_dialog: QDialog):
+        """显示记录详情"""
+        detail_dialog = QDialog(parent_dialog)
+        detail_dialog.setWindowTitle("记录详情")
+        detail_dialog.setMinimumSize(600, 400)
+
+        layout = QVBoxLayout(detail_dialog)
+
+        # 创建文本显示
+        text_edit = QTextEdit()
+        text_edit.setReadOnly(True)
+        text_edit.setStyleSheet("""
+            QTextEdit {
+                background-color: #1e1e1e;
+                color: #cccccc;
+                border: 1px solid #333333;
+                border-radius: 6px;
+                padding: 10px;
+                font-family: 'SF Mono', 'Menlo', monospace;
+                font-size: 11px;
+            }
+        """)
+
+        # 格式化 JSON 显示
+        import json
+        try:
+            formatted_json = json.dumps(record, ensure_ascii=False, indent=2)
+            text_edit.setText(formatted_json)
+        except Exception as e:
+            text_edit.setText(f"无法格式化记录: {str(e)}\n\n原始数据:\n{str(record)}")
+
+        layout.addWidget(text_edit)
+
+        # 关闭按钮
+        close_btn = PushButton("关闭")
+        close_btn.clicked.connect(detail_dialog.accept)
+        button_layout = QHBoxLayout()
+        button_layout.addStretch()
+        button_layout.addWidget(close_btn)
+        layout.addLayout(button_layout)
+
+        detail_dialog.exec_()
+
+    def _export_history_from_dialog(self, history: list, parent_dialog: QDialog):
+        """从对话框导出历史记录"""
+        default_name = f"vods_history_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+        file_path, _ = QFileDialog.getSaveFileName(
+            parent_dialog, "导出历史记录",
+            default_name,
+            "JSON 文件 (*.json);;所有文件 (*)"
+        )
+
+        if file_path:
+            try:
+                with open(file_path, 'w', encoding='utf-8') as f:
+                    json.dump(history, f, ensure_ascii=False, indent=2)
+                QMessageBox.information(
+                    parent_dialog, "成功",
+                    f"历史记录已导出到:\n{file_path}\n\n共 {len(history)} 条记录"
+                )
+            except Exception as e:
+                QMessageBox.warning(parent_dialog, "错误", f"导出失败: {str(e)}")
+
+    def _clear_history(self, parent_dialog: QDialog):
+        """清空历史记录"""
         reply = QMessageBox.question(
-            self, "导出历史记录",
-            f"当前有 {count} 条历史记录。\n是否导出到新文件？",
+            parent_dialog, "确认",
+            "确定要清空所有历史记录吗？此操作不可恢复。",
             QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.Yes
+            QMessageBox.No
         )
 
         if reply == QMessageBox.Yes:
-            # 让用户选择保存位置
-            default_name = f"vods_history_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
-            file_path, _ = QFileDialog.getSaveFileName(
-                self, "导出历史记录",
-                default_name,
-                "JSON 文件 (*.json);;所有文件 (*)"
-            )
-
-            if file_path:
-                result_path = self.history_manager.export_history(file_path)
-                if result_path:
-                    QMessageBox.information(
-                        self, "成功",
-                        f"历史记录已导出到:\n{result_path}\n\n共 {count} 条记录"
-                    )
-                else:
-                    QMessageBox.warning(self, "错误", "导出历史记录失败")
-        else:
-            # 用户选择不导出新文件，显示当前记录信息
-            QMessageBox.information(
-                self, "历史记录",
-                f"当前有 {count} 条历史记录\n已保存在 vods_log.json 文件中"
-            )
+            self.history_manager.history = []
+            self.history_manager.save_history()
+            QMessageBox.information(parent_dialog, "成功", "历史记录已清空")
+            parent_dialog.accept()  # 关闭对话框
