@@ -175,14 +175,14 @@ class ParameterDefinition:
         # 模型字段
         "model": ["model", ".model", "model_name"],
         # 宽度字段
-        "width": ["width", ".width", "WInteger.value",
-                  "245:INTConstant.value", "131:INTConstant.value", "132:INTConstant.value"],
+        "width": ["width", ".width",
+                  "245:INTConstant.value", "131:INTConstant.value"],
         # 高度字段
-        "height": ["height", ".height", "JWInteger.value",
-                   "246:INTConstant.value", "38:JWInteger.value"],
+        "height": ["height", ".height",
+                   "246:INTConstant.value", "38:JWInteger.value", "132:INTConstant.value"],
         # 帧数字段
         "frames": ["270:INTConstant.value", "7:PrimitiveInt.value", "num_frames",
-                   "107:WanImageToVideo.length", "WanVideoEmptyEmbeds.num_frames"],
+                   "107:WanImageToVideo.length", "WanVideoEmptyEmbeds.num_frames", "26:JWInteger.value"],
         # 时长字段
         "duration": ["duration", ".duration", "27:PrimitiveInt.value"],
         # 宽高比字段
