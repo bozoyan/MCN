@@ -878,9 +878,11 @@ class VoiceManagerPage(BasePage):
         layout.addLayout(format_layout)
 
         btn = PrimaryPushButton("生成语音")
-        btn.setFixedWidth(200)
+        # btn.setFixedWidth(200)
+        btn.setFixedHeight(45)
         btn.clicked.connect(self.generate_user_voice)
-        layout.addWidget(btn, 0, Qt.AlignHCenter)
+        # layout.addWidget(btn, 0, Qt.AlignHCenter)
+        layout.addWidget(btn)
         layout.addStretch()
         return widget
 
@@ -930,9 +932,9 @@ class VoiceManagerPage(BasePage):
         layout.addLayout(format_layout)
 
         btn = PrimaryPushButton("生成语音")
-        btn.setFixedWidth(200)
+        btn.setFixedHeight(45)
         btn.clicked.connect(self.generate_system_voice)
-        layout.addWidget(btn, 0, Qt.AlignHCenter)
+        layout.addWidget(btn)
         layout.addStretch()
         return widget
 
@@ -1019,9 +1021,9 @@ class VoiceManagerPage(BasePage):
         layout.addWidget(self.b64_data)
 
         btn = PrimaryPushButton("上传音色")
-        btn.setFixedWidth(200)
+        btn.setFixedHeight(45)
         btn.clicked.connect(self.upload_base64)
-        layout.addWidget(btn, 0, Qt.AlignHCenter)
+        layout.addWidget(btn)
         layout.addStretch()
         return widget
 
@@ -1085,9 +1087,9 @@ class VoiceManagerPage(BasePage):
         layout.addWidget(self.fu_text)
 
         btn = PrimaryPushButton("上传音色")
-        btn.setFixedWidth(200)
+        btn.setFixedHeight(45)
         btn.clicked.connect(self.upload_file)
-        layout.addWidget(btn, 0, Qt.AlignHCenter)
+        layout.addWidget(btn)
         layout.addStretch()
         return widget
 
@@ -1184,9 +1186,9 @@ class VoiceManagerPage(BasePage):
         layout.addWidget(self.del_uri)
 
         del_btn = PrimaryPushButton(FluentIcon.DELETE, "删除音色")
-        del_btn.setFixedWidth(200)
+        del_btn.setFixedHeight(45)
         del_btn.clicked.connect(self.delete_voice)
-        layout.addWidget(del_btn, 0, Qt.AlignHCenter)
+        layout.addWidget(del_btn)
 
         layout.addStretch()
         return widget
@@ -1551,14 +1553,26 @@ class APIVoiceApiWidget(BasePage):
 
     def init_ui(self):
         layout = QVBoxLayout(self)
+        layout.setSpacing(12)  # 统一设置较小的间距
+        layout.setContentsMargins(20, 20, 20, 20)
 
-        # 顶部一行：音色选择 + 密钥文件
-        top_layout = QHBoxLayout()
+        # 标题
+        title = SubtitleLabel("🤖 API声音生成")
+        title.setFont(TITLE_FONT)
+        layout.addWidget(title)
+
+        # 顶部一行：音色选择 + 密钥文件（固定高度80px）
+        top_container = QWidget()
+        top_container.setFixedHeight(80)
+        top_layout = QHBoxLayout(top_container)
+        top_layout.setContentsMargins(0, 5, 0, 5)
+        top_layout.setSpacing(15)
 
         # 音色选择
         voice_label = BodyLabel("音色:", self)
         voice_label.setFixedWidth(50)
         self.voice_combo = ComboBox(self)
+        self.voice_combo.setFixedHeight(35)
         self.voice_combo.addItems([voice['title'] for voice in self.voice_colors_data])
         self.voice_combo.currentIndexChanged.connect(self.on_voice_changed)
         top_layout.addWidget(voice_label)
@@ -1567,7 +1581,7 @@ class APIVoiceApiWidget(BasePage):
         # 音色描述
         self.voice_desc_label = BodyLabel("", self)
         self.voice_desc_label.setStyleSheet("color: gray; font-size: 10px;")
-        self.voice_desc_label.setMaximumWidth(200)
+        self.voice_desc_label.setMaximumWidth(180)
         top_layout.addWidget(self.voice_desc_label)
 
         top_layout.addSpacing(20)
@@ -1577,8 +1591,10 @@ class APIVoiceApiWidget(BasePage):
         self.key_file_input = LineEdit(self)
         self.key_file_input.setText(self.DEFAULT_KEY_FILE)
         self.key_file_input.setReadOnly(True)
+        self.key_file_input.setFixedHeight(35)
         key_browse_button = PushButton("浏览", self)
         key_browse_button.setFixedWidth(60)
+        key_browse_button.setFixedHeight(35)
         key_browse_button.clicked.connect(self.browse_key_file)
         top_layout.addWidget(key_file_label)
         top_layout.addWidget(self.key_file_input)
@@ -1589,21 +1605,23 @@ class APIVoiceApiWidget(BasePage):
         self.key_status_label.setStyleSheet("color: #0078d4; font-size: 10px;")
         top_layout.addWidget(self.key_status_label)
 
-        layout.addLayout(top_layout)
+        top_layout.addStretch()
+        layout.addWidget(top_container)
 
-        # 多行文本输入框（顶部）
+        # 多行文本输入框（固定高度200px）
         self.text_input = TextEdit(self)
         self.text_input.setPlaceholderText("在此输入需要合成语音的文本...")
-        self.text_input.setFixedHeight(100)
+        self.text_input.setFixedHeight(200)
         layout.addWidget(self.text_input)
 
-        # 状态显示标签
+        # 状态显示标签（较小高度）
         self.status_label = BodyLabel("", self)
         self.status_label.setAlignment(Qt.AlignCenter)
-        self.status_label.setStyleSheet("color: #0078d4; font-size: 12px;")
+        self.status_label.setStyleSheet("color: #0078d4; font-size: 11px;")
+        self.status_label.setMaximumHeight(20)
         layout.addWidget(self.status_label)
 
-        # 任务记录表格（任务模式）
+        # 任务记录表格（自适应高度）
         task_label = BodyLabel("任务记录:", self)
         layout.addWidget(task_label)
 
@@ -1618,11 +1636,13 @@ class APIVoiceApiWidget(BasePage):
         header.setSectionResizeMode(2, QHeaderView.ResizeToContents)
         header.setSectionResizeMode(3, QHeaderView.ResizeToContents)
         self.history_table.setWordWrap(True)
-        self.history_table.setMaximumHeight(200)
+        # 设置表格可以自适应高度，占据剩余空间
+        self.history_table.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         layout.addWidget(self.history_table)
 
-        # 声音生成按钮（支持多次点击）
+        # 声音生成按钮（固定高度）
         self.generate_button = PushButton("生成声音", self)
+        self.generate_button.setFixedHeight(45)
         self.generate_button.clicked.connect(self.generate_voice)
         layout.addWidget(self.generate_button)
 
@@ -4604,7 +4624,7 @@ def main():
 
     # 设置应用信息
     app.setApplicationName("BOZO-MCN多媒体编辑器")
-    app.setApplicationVersion("2.2.1")
+    app.setApplicationVersion("2.2.2")
 
     # 设置应用图标（用于 Dock/任务栏）
     icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "icon.png")
