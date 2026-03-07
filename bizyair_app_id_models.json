@@ -1,6 +1,11 @@
 {
   "models": [
     {
+      "name": "46486_Qwen—2026 5图",
+      "app_id": 47751,
+      "description": "Q2026-FEISEX_15模型"
+    },
+    {
       "name": "43740_Z-image-SEX",
       "app_id": 44875,
       "description": "Z-image模型Z-FEIFEI"
@@ -31,9 +36,9 @@
       "description": "Real-F.1批量模型"
     },
     {
-      "name": "40372_Qwen Image 5图",
+      "name": "40372_Qwen—2025 5图",
       "app_id": 41552,
-      "description": "Qwen图像批量模型"
+      "description": "Qwen2512-FEI_20模型"
     },
     {
       "name": "40350_flux-dev-HighRes",
