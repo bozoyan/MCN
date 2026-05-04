@@ -127,7 +127,7 @@ class AdvancedConfigManager:
         return {
             "api": {
                 "base_url": "https://api.siliconflow.cn/v1/",
-                "text_model": "Qwen/Qwen3-Coder-480B-A35B-Instruct",
+                "text_model": "deepseek-ai/DeepSeek-V4-Flash",
                 "enable_thinking": True,
                 "api_key": MODEL_API_KEY or ""
             },
@@ -663,7 +663,7 @@ class TextGenerationWorker(QThread):
         super().__init__()
         self.content = content
         self.system_prompt = system_prompt
-        self.model_id = model_id or config_manager.get('api.text_model', 'Qwen/Qwen3-Coder-480B-A35B-Instruct')
+        self.model_id = model_id or config_manager.get('api.text_model', 'deepseek-ai/DeepSeek-V4-Flash')
         self.is_cancelled = False
         self.start_time = None
 
@@ -713,9 +713,12 @@ class TextGenerationWorker(QThread):
             )
 
             content_text = ""
+            display_text = ""
             char_count = 0
-            
-            # 处理流式响应
+            in_thinking = False
+            thinking_buffer = ""
+
+            # 处理流式响应（过滤 DeepSeek 等模型的 <think/> 内容）
             for chunk in response:
                 if self.is_cancelled:
                     break
@@ -732,21 +735,60 @@ class TextGenerationWorker(QThread):
                     if content_chunk and content_chunk != '':
                         content_text += content_chunk
                         char_count += len(content_chunk)
-                        self.content_updated.emit(content_text)
+
+                        # 过滤 <think/> 标签内容，只向 UI 传递非 thinking 的文本
+                        thinking_buffer += content_chunk
+
+                        while True:
+                            if not in_thinking:
+                                start_idx = thinking_buffer.find('<think')
+                                if start_idx != -1:
+                                    # 找到 <think 标签，输出标签前的内容
+                                    before = thinking_buffer[:start_idx]
+                                    if before:
+                                        display_text += before
+                                        self.content_updated.emit(display_text)
+                                    thinking_buffer = thinking_buffer[start_idx:]
+                                    in_thinking = True
+                                else:
+                                    break
+                            if in_thinking:
+                                end_idx = thinking_buffer.find('</think')
+                                if end_idx != -1:
+                                    # 找到 </think 结束标签
+                                    # 跳过到 > 之后
+                                    close_idx = thinking_buffer.find('>', end_idx)
+                                    if close_idx != -1:
+                                        thinking_buffer = thinking_buffer[close_idx + 1:]
+                                        in_thinking = False
+                                    else:
+                                        break
+                                else:
+                                    break
+
+                        # 输出 thinking 标签外的缓冲区内容
+                        if not in_thinking and thinking_buffer:
+                            display_text += thinking_buffer
+                            self.content_updated.emit(display_text)
+                            thinking_buffer = ""
 
                         # 每500字符更新一次进度
                         if char_count % 500 == 0:
                             elapsed = time.time() - self.start_time
                             speed = char_count / elapsed if elapsed > 0 else 0
-                            self.progress_updated.emit(f"生成中... 已生成 {len(content_text)} 字符 (速度: {speed:.1f} 字符/秒)")
+                            self.progress_updated.emit(f"生成中... 已生成 {len(display_text)} 字符 (速度: {speed:.1f} 字符/秒)")
 
                 except Exception as e:
                     logger.error(f"处理API响应时出错: {e}")
                     continue
 
-            # 确保最终结果被发送
+            # 确保最终结果被发送（使用过滤后的纯文本）
             if not self.is_cancelled:
-                self.finished.emit(True, content_text)
+                # 如果最后缓冲区还有内容且不在 thinking 中，追加到 display_text
+                if not in_thinking and thinking_buffer:
+                    display_text += thinking_buffer
+                self.content_updated.emit(display_text)
+                self.finished.emit(True, display_text)
             else:
                 self.finished.emit(False, "任务已取消")
 
@@ -1785,7 +1827,7 @@ class APISettingsWidget(QWidget):
         """从配置管理器加载当前的设置值"""
         self.api_key_edit.setText(config_manager.get('api.api_key', ''))
         self.api_url_edit.setText(config_manager.get('api.base_url', 'https://api.siliconflow.cn/v1/'))
-        self.text_model_edit.setText(config_manager.get('api.text_model', 'Qwen/Qwen3-Coder-480B-A35B-Instruct'))
+        self.text_model_edit.setText(config_manager.get('api.text_model', 'deepseek-ai/DeepSeek-V4-Flash'))
 
         # 设置当前选中的值
         current_app_id = config_manager.get('bizyair_params.web_app_id', bizyair_models_config.get_default_app_id())
@@ -2628,14 +2670,28 @@ class StoryboardPage(SmoothScrollArea):
             self.current_prompts.clear()
             
             target_count = config_manager.get('ui.default_image_count', 10)
-            
-            # 过滤掉标题、序号和非英文内容，只保留实际的英文提示词
+
+            # 过滤掉标题行、分隔线等非提示词内容，保留英文提示词
             clean_prompts = []
             for line in raw_prompts:
-                 # 简单的过滤规则：排除包含中文、等号或分镜字样的行，且长度不为零
-                 if not re.search(r'[\u4e00-\u9fa5]|=|\*', line) and len(line) > 5:
-                     clean_prompts.append(line)
+                stripped = line.strip()
+                if not stripped:
+                    continue
+                # 跳过分隔线（===, ---, ***）
+                if re.match(r'^[=\-\*]{3,}$', stripped):
+                    continue
+                # 跳过 Markdown 标题行
+                if stripped.startswith('#'):
+                    continue
+                # 跳过纯中文行（没有英文字母的行）
+                if not re.search(r'[a-zA-Z]', stripped):
+                    continue
+                # 跳过 "分镜 N" 等中文标记行
+                if re.match(r'^[\*]*分镜\s*\d+[\*]*', stripped):
+                    continue
+                clean_prompts.append(stripped)
             
+            final_display_text = ""
             for i, prompt in enumerate(clean_prompts):
                 if i < target_count:
                     self.current_prompts.append(prompt)
@@ -2645,7 +2701,9 @@ class StoryboardPage(SmoothScrollArea):
             while len(self.current_prompts) < target_count:
                 self.current_prompts.append('')
 
-            self.generated_prompts_edit.setPlainText(final_display_text.strip())
+            if final_display_text.strip():
+                self.generated_prompts_edit.setPlainText(final_display_text.strip())
+            # 如果过滤后为空，保留流式输出时的原始内容，不做清空处理
             self.image_status_label.setText("提示词生成完成！")
             
             if hasattr(self, 'all_generation_step') and self.all_generation_step == 3:
@@ -2935,8 +2993,8 @@ class StoryboardPage(SmoothScrollArea):
                     logger.error(f"保存图片失败: {e}")
 
         if export_count > 0:
-            # 直接打开导出文件夹，不显示弹窗
-            self.open_directory(output_dir)
+            # 直接打开导出文件夹
+            QDesktopServices.openUrl(QUrl.fromLocalFile(os.path.abspath(output_dir)))
         else:
             QMessageBox.warning(self, "警告", "没有可导出的图片")
 
@@ -2976,6 +3034,33 @@ class MainWindow(FluentWindow):
         width = config_manager.get('ui.window_width', 1600)
         height = config_manager.get('ui.window_height', 1000)
         self.resize(width, height)
+
+        # 恢复窗口位置，并确保在屏幕可见区域内
+        screen = QApplication.primaryScreen()
+        if screen:
+            screen_geometry = screen.availableGeometry()
+            saved_x = config_manager.get('ui.window_x', -1)
+            saved_y = config_manager.get('ui.window_y', -1)
+
+            if saved_x >= 0 and saved_y >= 0:
+                # 检查保存的位置是否在屏幕范围内
+                if (saved_x < screen_geometry.right() and
+                    saved_y < screen_geometry.bottom() and
+                    saved_x + width > screen_geometry.left() and
+                    saved_y + height > screen_geometry.top()):
+                    self.move(saved_x, saved_y)
+                else:
+                    # 位置超出屏幕，居中显示
+                    self.move(
+                        screen_geometry.center().x() - width // 2,
+                        screen_geometry.center().y() - height // 2
+                    )
+            else:
+                # 首次启动，居中显示
+                self.move(
+                    screen_geometry.center().x() - width // 2,
+                    screen_geometry.center().y() - height // 2
+                )
 
     def init_navigation(self):
         """初始化导航栏"""
@@ -3227,6 +3312,8 @@ class MainWindow(FluentWindow):
         """窗口关闭时保存配置"""
         config_manager.set('ui.window_width', self.width())
         config_manager.set('ui.window_height', self.height())
+        config_manager.set('ui.window_x', self.x())
+        config_manager.set('ui.window_y', self.y())
         config_manager.save_config()
 
         thread_manager.cancel_all()
