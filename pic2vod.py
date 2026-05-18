@@ -972,8 +972,8 @@ class ConcurrentBatchManager(QObject):
             # 获取视频模式（默认为单图片模式）
             video_mode = task.get('video_mode', 'single')
 
-            # 计算延迟时间（第一个任务0秒，后续任务间隔95秒）
-            delay_seconds = (current_batch_index - 1) * 95
+            # 计算延迟时间（第一个任务0秒，后续任务间隔80秒）
+            delay_seconds = (current_batch_index - 1) * 80
 
             # 添加到调度器
             self.scheduler.add_scheduled_task(delay_seconds, task, task_id, api_key, video_mode)
