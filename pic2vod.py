@@ -194,7 +194,8 @@ class VideoSettingsManager:
                 "web_app_id_single": 41538,  # 单图片转视频 Web App ID
                 "web_app_id_frames": 39388,  # 首尾帧图片转视频 Web App ID
                 "web_app_id_video": 38808,  # 视频换人物 Web App ID
-                "api_url": "https://api.bizyair.cn/w/v1/webapp/task/openapi/create"
+                "api_url": "https://api.bizyair.cn/w/v1/webapp/task/openapi/create",
+                "async_api_enabled": False  # 异步API开关（默认关闭）
             },
             "ui_settings": {
                 "last_export_dir": "output"
@@ -251,7 +252,7 @@ class VideoSettingsManager:
         settings = self.load_settings()
         return settings.get("api_settings", self.default_settings["api_settings"])
 
-    def set_api_settings(self, key_file="", web_app_id_single=41538, web_app_id_frames=39388, web_app_id_video=38808, api_url=None, key_text="", key_source="file"):
+    def set_api_settings(self, key_file="", web_app_id_single=41538, web_app_id_frames=39388, web_app_id_video=38808, api_url=None, key_text="", key_source="file", async_api_enabled=False):
         """设置API参数
 
         Args:
@@ -262,6 +263,7 @@ class VideoSettingsManager:
             api_url: API 请求地址
             key_text: 密钥文本（直接输入的密钥）
             key_source: 密钥来源 (file, env, text)
+            async_api_enabled: 异步API开关
         """
         settings = self.load_settings()
 
@@ -276,7 +278,8 @@ class VideoSettingsManager:
             "web_app_id_single": web_app_id_single,
             "web_app_id_frames": web_app_id_frames,
             "web_app_id_video": web_app_id_video,
-            "api_url": api_url
+            "api_url": api_url,
+            "async_api_enabled": async_api_enabled
         }
         return self.save_settings(settings)
 
@@ -307,6 +310,7 @@ class APIKeyManager:
         self.web_app_id_frames = 39388  # 首尾帧图片转视频 Web App ID
         self.web_app_id_video = 38808  # 视频换人物 Web App ID
         self.key_source = "file"  # "file", "env" 或 "text"
+        self.async_api_enabled = False  # 异步API开关
 
     def load_keys_from_file(self, file_path):
         """从文件加载API密钥"""
@@ -404,6 +408,7 @@ class SingleVideoGenerationWorker(QThread):
     task_finished = pyqtSignal(bool, str, dict, str)  # success, message, result_data, task_id
     time_updated = pyqtSignal(str, str)  # time_string, task_id
     log_updated = pyqtSignal(str)  # 日志更新信号
+    request_id_updated = pyqtSignal(str, str)  # bizyair_request_id, task_id
 
     def __init__(self, task, task_id, api_key, api_manager, video_mode="single"):
         """
@@ -682,82 +687,145 @@ class SingleVideoGenerationWorker(QThread):
                 "Content-Type": "application/json",
                 "Authorization": f"Bearer {self.api_key}"
             }
-            
+
+            # 检查是否启用异步API
+            async_enabled = hasattr(self.api_manager, 'async_api_enabled') and self.api_manager.async_api_enabled
+            if async_enabled:
+                headers["X-Bizyair-Task-Async"] = "enable"
+                self.log_message(f"🔄 异步API模式已启用")
+
             # 获取配置的 API URL，如果未配置则使用默认值
             default_api_url = "https://api.bizyair.cn/w/v1/webapp/task/openapi/create"
             api_url = default_api_url
             if hasattr(self.api_manager, 'api_url') and self.api_manager.api_url:
                 api_url = self.api_manager.api_url
-            
+
             base_url = api_url
             self.log_message(f"📤 发送BizyAir API请求: {base_url}")
-            
+
             # --- API请求和错误处理统一 ---
             try:
                 # 禁用代理设置，确保国内API免受全局代理影响
                 proxies = {"http": None, "https": None}
-                
+
+                # 异步模式使用较短超时（仅提交任务）
+                if async_enabled:
+                    timeout = (30, 60)  # 30秒连接，60秒读取
+                else:
+                    timeout = (300, 1200)  # 5分钟连接，20分钟读取
+
                 response = requests.post(
                     base_url,
                     headers=headers,
                     json=bizyair_request_data,
-                    timeout=(300, 1200),  # 5分钟连接超时，20分钟读取超时
+                    timeout=timeout,
                     proxies=proxies
                 )
-                
+
                 self.log_message(f"📡 API响应状态: {response.status_code}")
-                response.raise_for_status() # 抛出 HTTPError 4xx/5xx
 
-                result_data = response.json()
-                self.log_message(f"📋 API响应内容: {json.dumps(result_data, ensure_ascii=False, indent=2)}")
+                # === 异步API模式处理 ===
+                if async_enabled and response.status_code == 202:
+                    result_data = response.json()
+                    self.log_message(f"📋 异步API完整响应: {json.dumps(result_data, ensure_ascii=False, indent=2)}")
 
-                request_id = result_data.get('request_id')
-                status = result_data.get('status', '').lower()
+                    # 兼容多种响应格式提取requestId
+                    bizyair_request_id = (
+                        result_data.get('requestId') or
+                        result_data.get('request_id') or
+                        result_data.get('data', {}).get('requestId') or
+                        result_data.get('data', {}).get('request_id') or
+                        ''
+                    )
+                    self.log_message(f"📋 异步任务已提交，RequestID: {bizyair_request_id}")
 
-                if not request_id:
-                    error_msg = result_data.get('message', 'API响应格式错误：缺少request_id')
-                    self.task_finished.emit(False, error_msg, {}, self.task_id)
-                    return
+                    if not bizyair_request_id:
+                        error_msg = result_data.get('message', '异步API响应格式错误：缺少requestId')
+                        self.task_finished.emit(False, error_msg, {}, self.task_id)
+                        return
 
-                # 处理立即失败的情况
-                if status == 'failed':
-                    error_info = result_data.get('error', result_data.get('message', '任务执行失败'))
-                    self.task_finished.emit(False, f"视频生成失败: {error_info}", {}, self.task_id)
-                    return
+                    # 通知UI显示RequestID
+                    self.request_id_updated.emit(bizyair_request_id, self.task_id)
 
-                video_url = None
-                
-                # 如果任务立即完成且有输出
-                if status == 'success' and 'outputs' in result_data:
-                    outputs = result_data['outputs']
-                    if outputs and len(outputs) > 0:
-                        video_url = outputs[0].get('object_url', '')
+                    # 异步轮询获取结果
+                    self.progress_updated.emit(50, f"异步等待中 (ID: {bizyair_request_id[:8]}...)", self.task_id)
+                    video_url = self.run_async_poll(bizyair_request_id)
 
-                # 如果任务还在处理中，查询状态
-                if not video_url:
-                    self.progress_updated.emit(50, "查询任务状态...", self.task_id)
-                    video_url = self.check_video_status(request_id)
+                    if video_url:
+                        self.progress_updated.emit(90, "获取视频URL成功", self.task_id)
 
-                if video_url:
-                    self.progress_updated.emit(90, "获取视频URL成功", self.task_id)
+                        result = {
+                            'id': bizyair_request_id,
+                            'url': video_url,
+                            'width': width,
+                            'height': height,
+                            'num_frames': num_frames,
+                            'prompt': prompt,
+                            'task_name': task_name,
+                            'timestamp': datetime.now().isoformat(),
+                            'base_filename': base_filename,
+                            'thumbnail_path': image_save_path
+                        }
 
-                    result = {
-                        'id': request_id,
-                        'url': video_url,
-                        'width': width,
-                        'height': height,
-                        'num_frames': num_frames,
-                        'prompt': prompt,
-                        'task_name': task_name,
-                        'timestamp': datetime.now().isoformat(),
-                        'base_filename': base_filename,  # 传递统一的基础文件名
-                        'thumbnail_path': image_save_path
-                    }
+                        self.progress_updated.emit(100, "任务完成（异步）！", self.task_id)
+                        self.task_finished.emit(True, "视频生成成功（异步）", result, self.task_id)
+                    else:
+                        self.task_finished.emit(False, "异步视频生成失败或超时", {}, self.task_id)
 
-                    self.progress_updated.emit(100, "任务完成！", self.task_id)
-                    self.task_finished.emit(True, "视频生成成功", result, self.task_id)
+                # === 同步API模式处理（原有逻辑） ===
                 else:
-                    self.task_finished.emit(False, "视频生成失败或超时", {}, self.task_id)
+                    response.raise_for_status()  # 抛出 HTTPError 4xx/5xx
+
+                    result_data = response.json()
+                    self.log_message(f"📋 API响应内容: {json.dumps(result_data, ensure_ascii=False, indent=2)}")
+
+                    request_id = result_data.get('request_id')
+                    status = result_data.get('status', '').lower()
+
+                    if not request_id:
+                        error_msg = result_data.get('message', 'API响应格式错误：缺少request_id')
+                        self.task_finished.emit(False, error_msg, {}, self.task_id)
+                        return
+
+                    # 处理立即失败的情况
+                    if status == 'failed':
+                        error_info = result_data.get('error', result_data.get('message', '任务执行失败'))
+                        self.task_finished.emit(False, f"视频生成失败: {error_info}", {}, self.task_id)
+                        return
+
+                    video_url = None
+
+                    # 如果任务立即完成且有输出
+                    if status == 'success' and 'outputs' in result_data:
+                        outputs = result_data['outputs']
+                        if outputs and len(outputs) > 0:
+                            video_url = outputs[0].get('object_url', '')
+
+                    # 如果任务还在处理中，查询状态
+                    if not video_url:
+                        self.progress_updated.emit(50, "查询任务状态...", self.task_id)
+                        video_url = self.check_video_status(request_id)
+
+                    if video_url:
+                        self.progress_updated.emit(90, "获取视频URL成功", self.task_id)
+
+                        result = {
+                            'id': request_id,
+                            'url': video_url,
+                            'width': width,
+                            'height': height,
+                            'num_frames': num_frames,
+                            'prompt': prompt,
+                            'task_name': task_name,
+                            'timestamp': datetime.now().isoformat(),
+                            'base_filename': base_filename,  # 传递统一的基础文件名
+                            'thumbnail_path': image_save_path
+                        }
+
+                        self.progress_updated.emit(100, "任务完成！", self.task_id)
+                        self.task_finished.emit(True, "视频生成成功", result, self.task_id)
+                    else:
+                        self.task_finished.emit(False, "视频生成失败或超时", {}, self.task_id)
             
             except requests.exceptions.HTTPError as http_err:
                 error_msg = f"API请求失败: HTTP {response.status_code}"
@@ -853,6 +921,103 @@ class SingleVideoGenerationWorker(QThread):
         self.log_message(f"⏰ 视频生成超时 ({max_attempts * check_interval // 60}分钟)")
         return None
 
+    def run_async_poll(self, bizyair_request_id):
+        """异步API轮询查询任务结果 - 静默等待5分钟后每隔1分钟轮询"""
+        self.log_message(f"⏳ 异步任务静默等待5分钟...")
+
+        # 静默等待5分钟（300秒），每秒检查取消状态
+        for i in range(300):
+            if self.is_cancelled:
+                self.log_message("⏹️ 任务已取消")
+                return None
+            time.sleep(1)
+
+        self.log_message(f"📊 开始轮询异步任务状态...")
+        self.progress_updated.emit(55, f"轮询中 (ID: {bizyair_request_id[:8]}...)", self.task_id)
+
+        # 轮询间隔1分钟（60秒）
+        poll_interval = 60
+        max_attempts = 60  # 最多轮询60次（约1小时）
+
+        for attempt in range(max_attempts):
+            if self.is_cancelled:
+                self.log_message("⏹️ 任务已取消")
+                return None
+
+            try:
+                headers = {
+                    "Authorization": f"Bearer {self.api_key}"
+                }
+
+                # 查询任务状态
+                response = requests.get(
+                    f"https://api.bizyair.cn/w/v1/webapp/task/openapi/detail?requestId={bizyair_request_id}",
+                    headers=headers,
+                    timeout=30,
+                    proxies={"http": None, "https": None}
+                )
+
+                data = response.json()
+                status_data = data.get('data', {})
+                status = status_data.get('status', '')
+
+                self.log_message(f"📊 异步轮询第{attempt+1}次 - 状态: {status}")
+
+                if status == 'Success':
+                    # 获取输出结果
+                    return self.get_async_outputs(bizyair_request_id)
+                elif status in ['Failed', 'Canceled']:
+                    error_msg = status_data.get('error_message', '任务执行失败')
+                    self.log_message(f"❌ 异步任务失败: {error_msg}")
+                    return None
+                else:
+                    # Queuing, Preparing, Running 等状态
+                    progress = min(80, 55 + attempt)
+                    self.progress_updated.emit(progress, f"异步 {status} (第{attempt+1}次轮询)", self.task_id)
+
+            except Exception as e:
+                self.log_message(f"⚠️ 异步轮询异常: {e}")
+
+            # 等待1分钟（60秒），每秒检查取消状态
+            for i in range(poll_interval):
+                if self.is_cancelled:
+                    self.log_message("⏹️ 任务已取消")
+                    return None
+                time.sleep(1)
+
+        self.log_message(f"⏰ 异步任务轮询超时 ({max_attempts * poll_interval // 3600}小时)")
+        return None
+
+    def get_async_outputs(self, bizyair_request_id):
+        """获取异步任务输出结果"""
+        try:
+            headers = {
+                "Authorization": f"Bearer {self.api_key}"
+            }
+
+            response = requests.get(
+                f"https://api.bizyair.cn/w/v1/webapp/task/openapi/outputs?requestId={bizyair_request_id}",
+                headers=headers,
+                timeout=30,
+                proxies={"http": None, "https": None}
+            )
+
+            data = response.json()
+            outputs = data.get('data', {}).get('outputs', [])
+
+            if outputs and len(outputs) > 0:
+                video_url = outputs[0].get('object_url', '')
+                if video_url:
+                    cost_time = outputs[0].get('cost_time', 0)
+                    self.log_message(f"🎉 异步任务完成，耗时: {cost_time}ms，视频URL: {video_url}")
+                    return video_url
+
+            self.log_message(f"❌ 异步任务输出为空")
+            return None
+        except Exception as e:
+            self.log_message(f"❌ 获取异步输出失败: {e}")
+            return None
+
     def cancel(self):
         """取消任务"""
         self.is_cancelled = True
@@ -898,6 +1063,7 @@ class ConcurrentBatchManager(QObject):
     task_time_updated = pyqtSignal(str, str)  # 任务时间更新 (time_string, task_id)
     log_updated = pyqtSignal(str)  # 日志更新
     batch_progress_updated = pyqtSignal(int, int)  # 批量进度更新 (completed, total)
+    request_id_updated = pyqtSignal(str, str)  # 异步API请求ID (bizyair_request_id, task_id)
 
     def __init__(self, api_manager=None):
         super().__init__()
@@ -924,6 +1090,7 @@ class ConcurrentBatchManager(QObject):
             worker.task_finished.connect(self.on_single_task_finished)
             worker.time_updated.connect(self.task_time_updated)
             worker.log_updated.connect(self.log_updated)
+            worker.request_id_updated.connect(self.request_id_updated)
 
             # 立即启动任务
             worker.start()
@@ -972,8 +1139,8 @@ class ConcurrentBatchManager(QObject):
             # 获取视频模式（默认为单图片模式）
             video_mode = task.get('video_mode', 'single')
 
-            # 计算延迟时间（第一个任务0秒，后续任务间隔70秒）
-            delay_seconds = (current_batch_index - 1) * 70
+            # 计算延迟时间（第一个任务0秒，后续任务间隔 95秒）
+            delay_seconds = (current_batch_index - 1) * 95
 
             # 添加到调度器
             self.scheduler.add_scheduled_task(delay_seconds, task, task_id, api_key, video_mode)
@@ -1319,7 +1486,7 @@ class TaskStatusCard(CardWidget):
         layout.setContentsMargins(15, 12, 15, 12)
         layout.setSpacing(8)
 
-        # 第一行：任务名称和状态
+        # 第一行：任务名称、密钥类型、状态（同一行）
         top_layout = QHBoxLayout()
 
         # 任务名称
@@ -1330,14 +1497,21 @@ class TaskStatusCard(CardWidget):
         # 弹性空间
         top_layout.addStretch()
 
-        # 状态标签
+        # 密钥类型标签（标题栏右侧）
+        self.key_type_label = CaptionLabel(self.key_source)
+        self.key_type_label.setStyleSheet("color: #4a90e2; font-size: 11px; padding: 4px 8px; background: #2a3a4a; border-radius: 4px;")
+        top_layout.addWidget(self.key_type_label)
+
+        top_layout.addSpacing(6)
+
+        # 状态标签（标题栏最右侧）
         self.status_label = CaptionLabel(self.status)
         self.status_label.setStyleSheet("color: #cccccc; font-size: 11px; padding: 4px 8px; background: #333333; border-radius: 4px;")
         top_layout.addWidget(self.status_label)
 
         layout.addLayout(top_layout)
 
-        # 第二行：任务参数
+        # 第二行：任务参数（仅尺寸和帧数）
         params_layout = QHBoxLayout()
 
         # 帧数、尺寸信息
@@ -1350,15 +1524,15 @@ class TaskStatusCard(CardWidget):
         self.params_label.setStyleSheet("color: #888888; font-size: 12px;")
         params_layout.addWidget(self.params_label)
 
-        # 弹性空间
         params_layout.addStretch()
 
-        # 密钥类型标签
-        self.key_type_label = CaptionLabel(self.key_source)
-        self.key_type_label.setStyleSheet("color: #4a90e2; font-size: 11px; padding: 4px 8px; background: #2a3a4a; border-radius: 4px;")
-        params_layout.addWidget(self.key_type_label)
-
         layout.addLayout(params_layout)
+
+        # 任务ID显示行（异步API时显示）
+        self.request_id_label = CaptionLabel("")
+        self.request_id_label.setStyleSheet("color: #9c27b0; font-size: 11px; padding: 2px 8px; background: #2a1a3a; border-radius: 4px;")
+        self.request_id_label.hide()  # 默认隐藏
+        layout.addWidget(self.request_id_label)
 
         # 第三行：提示词（单行显示，超出部分省略）
         prompt = self.task_params.get('prompt', '')
@@ -1493,23 +1667,35 @@ class TaskStatusCard(CardWidget):
             """)
         self.status_label.setText(self.status)
 
+    def set_request_id(self, request_id):
+        """设置异步API的RequestID显示"""
+        if request_id:
+            self.request_id_label.setText(f"任务ID: {request_id}")
+            self.request_id_label.show()
+        else:
+            self.request_id_label.hide()
+
 # --- 9. 视频结果卡片 (VideoResultCard) ---
 class VideoResultCard(CardWidget):
     """视频结果展示卡片 (优化版本，用于展示已完成任务)"""
+    poll_clicked = pyqtSignal(str, str)  # bizyair_request_id, task_id
 
-    def __init__(self, video_data, task_id, parent=None, elapsed_time=""):
+    def __init__(self, video_data, task_id, parent=None, elapsed_time="", is_pending=False, bizyair_request_id=""):
         super().__init__(parent)
         self.video_data = video_data
         self.task_id = task_id
         self.parent = parent
-        self.local_video_path = None # 用于存储本地下载路径
-        self.completion_time = video_data.get('timestamp', '')  # 获取完成时间
-        self.elapsed_time = elapsed_time  # 任务执行耗时时间
-        self.is_visible = True  # 控制卡片可见性
+        self.local_video_path = None
+        self.completion_time = video_data.get('timestamp', '')
+        self.elapsed_time = elapsed_time
+        self.is_visible = True
+        self.is_pending = is_pending
+        self.bizyair_request_id = bizyair_request_id or video_data.get('id', '')
+        self.result_obtained = False
         self.init_ui()
 
-        # 尝试自动下载
-        self.auto_download_video(self.video_data.get('url', ''))
+        if not is_pending:
+            self.auto_download_video(self.video_data.get('url', ''))
 
 
     def init_ui(self):
@@ -1517,37 +1703,72 @@ class VideoResultCard(CardWidget):
         layout.setContentsMargins(15, 12, 15, 12)
         layout.setSpacing(8)
 
-        # === 第一行：标题、尺寸、帧数、耗时时间、隐藏按钮 ===
+        # === 第一行：标题、任务ID、尺寸、帧数、耗时时间、轮询按钮、隐藏按钮 ===
         # 这一行在卡片隐藏时保持可见
         first_row_layout = QHBoxLayout()
 
         # 任务标题
-        title_label = StrongBodyLabel(f"{self.video_data.get('task_name', f'任务_{self.task_id}')}")
-        title_label.setStyleSheet("font-size: 14px; font-weight: bold; color: #ffffff;")
-        first_row_layout.addWidget(title_label)
+        self.title_label = StrongBodyLabel(f"{self.video_data.get('task_name', f'任务_{self.task_id}')}")
+        self.title_label.setStyleSheet("font-size: 14px; font-weight: bold; color: #ffffff;")
+        first_row_layout.addWidget(self.title_label)
+
+        first_row_layout.addSpacing(10)
+
+        # 异步任务ID标识（完整显示）
+        self.request_id_badge = CaptionLabel(f"ID: {self.bizyair_request_id}" if self.bizyair_request_id else "")
+        self.request_id_badge.setStyleSheet("color: #9c27b0; font-size: 11px; padding: 2px 8px; background: #2a1a3a; border-radius: 4px;")
+        self.request_id_badge.setWordWrap(False)
+        first_row_layout.addWidget(self.request_id_badge)
 
         first_row_layout.addSpacing(15)
 
         # 尺寸
-        size_label = CaptionLabel(f"{self.video_data.get('width', 480)}×{self.video_data.get('height', 854)}")
-        size_label.setStyleSheet("color: #cccccc; font-size: 12px;")
-        first_row_layout.addWidget(size_label)
+        self.size_label = CaptionLabel(f"{self.video_data.get('width', 480)}×{self.video_data.get('height', 854)}")
+        self.size_label.setStyleSheet("color: #cccccc; font-size: 12px;")
+        first_row_layout.addWidget(self.size_label)
 
         first_row_layout.addSpacing(15)
 
         # 帧数
-        frames_label = CaptionLabel(f"{self.video_data.get('num_frames', 81)}帧")
-        frames_label.setStyleSheet("color: #cccccc; font-size: 12px;")
-        first_row_layout.addWidget(frames_label)
+        self.frames_label = CaptionLabel(f"{self.video_data.get('num_frames', 81)}帧")
+        self.frames_label.setStyleSheet("color: #cccccc; font-size: 12px;")
+        first_row_layout.addWidget(self.frames_label)
 
         first_row_layout.addSpacing(15)
 
         # 耗时时间
-        elapsed_time_label = CaptionLabel(f"⏱ {self.elapsed_time}" if self.elapsed_time else "")
-        elapsed_time_label.setStyleSheet("color: #4a90e2; font-size: 12px;")
-        first_row_layout.addWidget(elapsed_time_label)
+        self.elapsed_time_label = CaptionLabel(f"⏱ {self.elapsed_time}" if self.elapsed_time else "")
+        self.elapsed_time_label.setStyleSheet("color: #4a90e2; font-size: 12px;")
+        first_row_layout.addWidget(self.elapsed_time_label)
 
         first_row_layout.addStretch()
+
+        # 轮询按钮（异步等待时可用）
+        self.poll_btn = QPushButton("轮询")
+        self.poll_btn.setFixedSize(50, 24)
+        self.poll_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #9c27b0;
+                border: none;
+                border-radius: 4px;
+                color: #ffffff;
+                font-size: 12px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #ab47bc;
+            }
+            QPushButton:pressed {
+                background-color: #7b1fa2;
+            }
+            QPushButton:disabled {
+                background-color: #555555;
+                color: #888888;
+            }
+        """)
+        self.poll_btn.setToolTip("立即轮询异步任务状态")
+        self.poll_btn.clicked.connect(self._on_poll_clicked)
+        first_row_layout.addWidget(self.poll_btn)
 
         # 隐藏按钮
         self.hide_btn = QPushButton("👁")
@@ -1662,6 +1883,85 @@ class VideoResultCard(CardWidget):
             }
         """)
 
+        # 根据状态设置初始显示
+        if self.is_pending:
+            self._setup_pending_state()
+        else:
+            self._setup_completed_state()
+
+    def _setup_pending_state(self):
+        """设置为异步等待状态"""
+        self.size_label.hide()
+        self.frames_label.hide()
+        self.elapsed_time_label.hide()
+        self.request_id_badge.show()
+        self.poll_btn.show()
+        self.download_status_label.setText("⏳ 等待异步结果...")
+        self.download_status_label.setStyleSheet("color: #9c27b0; font-size: 12px; font-weight: bold;")
+        self.setStyleSheet("""
+            VideoResultCard {
+                background-color: #2a1a3a;
+                border: 1px solid #9c27b0;
+                border-radius: 8px;
+                margin: 5px;
+            }
+        """)
+
+    def _setup_completed_state(self):
+        """设置为已完成状态"""
+        self.size_label.show()
+        self.frames_label.show()
+        if self.elapsed_time:
+            self.elapsed_time_label.show()
+        self.request_id_badge.hide()
+        self.poll_btn.hide()
+
+    def _on_poll_clicked(self):
+        """轮询按钮点击"""
+        if self.bizyair_request_id:
+            self.download_status_label.setText("🔍 正在轮询...")
+            self.download_status_label.setStyleSheet("color: #f39c12; font-size: 12px; font-weight: bold;")
+            self.poll_btn.setEnabled(False)
+            self.poll_clicked.emit(self.bizyair_request_id, self.task_id)
+
+    def update_with_result(self, video_data, elapsed_time=""):
+        """用异步结果更新卡片"""
+        if self.result_obtained:
+            return
+        self.result_obtained = True
+        self.is_pending = False
+        self.video_data = {**self.video_data, **video_data}
+        self.elapsed_time = elapsed_time or self.elapsed_time
+
+        # 切换到完成状态
+        self._setup_completed_state()
+
+        # 更新尺寸和帧数
+        self.size_label.setText(f"{video_data.get('width', self.video_data.get('width', 480))}×{video_data.get('height', self.video_data.get('height', 854))}")
+        self.frames_label.setText(f"{video_data.get('num_frames', self.video_data.get('num_frames', 81))}帧")
+        if elapsed_time:
+            self.elapsed_time_label.setText(f"⏱ {elapsed_time}")
+            self.elapsed_time_label.show()
+
+        # 更新URL显示
+        self.url_text_label.setText(video_data.get('url', ''))
+
+        # 恢复正常样式
+        self.setStyleSheet("""
+            VideoResultCard {
+                background-color: #2a2a2a;
+                border: 1px solid #404040;
+                border-radius: 8px;
+                margin: 5px;
+            }
+            VideoResultCard:hover {
+                border: 1px solid #4a90e2;
+            }
+        """)
+
+        # 自动下载
+        self.auto_download_video(video_data.get('url', ''))
+
     def auto_download_video(self, video_url):
         """自动下载视频到output文件夹"""
         if not video_url:
@@ -1762,11 +2062,9 @@ class VideoResultCard(CardWidget):
             # 展开卡片：显示所有内容
             self.hide_btn.setText("👁")
             self.hide_btn.setToolTip("缩小任务卡片")
-            # 清除固定尺寸限制，恢复弹性大小
             self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
-            # 使用最小/最大尺寸来清除固定尺寸
             self.setMinimumSize(0, 0)
-            self.setMaximumSize(16777215, 16777215)  # QWIDGETSIZE_MAX
+            self.setMaximumSize(16777215, 16777215)
             # 显示所有子控件
             for i in range(self.layout().count()):
                 item = self.layout().itemAt(i)
@@ -1774,7 +2072,6 @@ class VideoResultCard(CardWidget):
                     if item.widget():
                         item.widget().show()
                     elif item.layout():
-                        # 显示布局中的所有子项
                         for j in range(item.layout().count()):
                             sub_item = item.layout().itemAt(j)
                             if sub_item and sub_item.widget():
@@ -1792,26 +2089,19 @@ class VideoResultCard(CardWidget):
                 }
             """)
         else:
-            # 收缩卡片：只显示第一行（标题、尺寸、帧数、耗时、隐藏按钮）
+            # 收缩卡片：只显示第一行（标题、尺寸、帧数、耗时、轮询、隐藏按钮）
             self.hide_btn.setText("👁‍🗨")
             self.hide_btn.setToolTip("展开任务卡片")
-            # 设置固定高度，确保第一行内容完整显示
-            # 考虑到字体大小（14px标题 + 12px信息）和 padding（上下各12px），需要足够的高度
             current_width = self.width() if self.width() > 0 else 300
             self.setFixedSize(current_width, 75)
 
-            # 隐藏除第一行外的所有内容
-            # layout().itemAt(0) 是 first_row_layout，需要保留
-            # layout().itemAt(1) 是 status_time_layout，需要隐藏
-            # layout().itemAt(2) 是 prompt_label，需要隐藏
-            # layout().itemAt(3) 是 button_url_layout，需要隐藏
+            # 隐藏除第一行外的所有内容（含操作按钮）
             for i in range(1, self.layout().count()):
                 item = self.layout().itemAt(i)
                 if item:
                     if item.widget():
                         item.widget().hide()
                     elif item.layout():
-                        # 隐藏布局中的所有子项
                         for j in range(item.layout().count()):
                             sub_item = item.layout().itemAt(j)
                             if sub_item and sub_item.widget():
@@ -1833,6 +2123,71 @@ class VideoResultCard(CardWidget):
         # 通知父组件更新布局
         if self.parent:
             self.parent.update()
+
+
+# --- 9.5 异步手动轮询工作线程 ---
+class AsyncManualPollWorker(QThread):
+    """手动轮询异步任务工作线程 - 立即查询不做等待"""
+    poll_result = pyqtSignal(bool, str, str)  # success, message_or_url, bizyair_request_id
+    poll_status = pyqtSignal(str, str)  # status_text, bizyair_request_id
+    log_updated = pyqtSignal(str)
+
+    def __init__(self, bizyair_request_id, api_key):
+        super().__init__()
+        self.bizyair_request_id = bizyair_request_id
+        self.api_key = api_key
+
+    def run(self):
+        """立即查询任务状态"""
+        try:
+            headers = {"Authorization": f"Bearer {self.api_key}"}
+            proxies = {"http": None, "https": None}
+
+            # 查询任务状态
+            response = requests.get(
+                f"https://api.bizyair.cn/w/v1/webapp/task/openapi/detail?requestId={self.bizyair_request_id}",
+                headers=headers,
+                timeout=30,
+                proxies=proxies
+            )
+
+            data = response.json()
+            status_data = data.get('data', {})
+            status = status_data.get('status', '')
+
+            self.poll_status.emit(status, self.bizyair_request_id)
+            self.log_updated.emit(f"📊 手动轮询 {self.bizyair_request_id[:8]}... 状态: {status}")
+
+            if status == 'Success':
+                # 获取输出结果
+                resp = requests.get(
+                    f"https://api.bizyair.cn/w/v1/webapp/task/openapi/outputs?requestId={self.bizyair_request_id}",
+                    headers=headers,
+                    timeout=30,
+                    proxies=proxies
+                )
+
+                out_data = resp.json()
+                outputs = out_data.get('data', {}).get('outputs', [])
+
+                if outputs:
+                    video_url = outputs[0].get('object_url', '')
+                    if video_url:
+                        self.poll_result.emit(True, video_url, self.bizyair_request_id)
+                        return
+
+                self.poll_result.emit(False, "输出为空", self.bizyair_request_id)
+
+            elif status in ['Failed', 'Canceled']:
+                error_msg = status_data.get('error_message', '任务执行失败')
+                self.poll_result.emit(False, error_msg, self.bizyair_request_id)
+
+            else:
+                # Queuing / Preparing / Running
+                self.poll_result.emit(False, f"任务状态: {status}", self.bizyair_request_id)
+
+        except Exception as e:
+            self.poll_result.emit(False, f"查询异常: {str(e)}", self.bizyair_request_id)
 
 
 # --- 10. 视频下载工作线程 (VideoDownloadWorker) ---
@@ -1973,6 +2328,8 @@ class VideoGenerationWidget(QWidget):
 
         # 任务状态卡片管理器
         self.task_status_cards = {}  # task_id -> TaskStatusCard
+        self.pending_async_cards = {}  # bizyair_request_id -> VideoResultCard（异步等待中）
+        self._manual_poll_workers = {}  # bizyair_request_id -> AsyncManualPollWorker（防止GC回收）
 
         # 初始化隐藏的参数控件
         self.init_hidden_params_controls()
@@ -1992,6 +2349,7 @@ class VideoGenerationWidget(QWidget):
         self.concurrent_batch_manager.log_updated.connect(self.add_log)
         self.concurrent_batch_manager.batch_progress_updated.connect(self.update_batch_progress)
         self.concurrent_batch_manager.all_tasks_finished.connect(self.on_all_tasks_finished)
+        self.concurrent_batch_manager.request_id_updated.connect(self.on_request_id_updated)
 
     def init_ui(self):
         layout = QVBoxLayout(self)
@@ -3475,7 +3833,13 @@ class VideoGenerationWidget(QWidget):
             if task_id in self.task_status_cards:
                 elapsed_time = self.task_status_cards[task_id].time_string
 
-            self.create_video_result_card(result_data, task_id, elapsed_time)
+            # 检查是否已有异步等待卡片，有则更新
+            bizyair_request_id = result_data.get('id', '')
+            if bizyair_request_id and bizyair_request_id in self.pending_async_cards:
+                card = self.pending_async_cards.pop(bizyair_request_id)
+                card.update_with_result(result_data, elapsed_time)
+            else:
+                self.create_video_result_card(result_data, task_id, elapsed_time)
         else:
             self.add_log(f"❌ [{task_id}] 任务失败: {message}")
             self.complete_task_status_card(task_id, False, message)
@@ -3483,6 +3847,95 @@ class VideoGenerationWidget(QWidget):
     def update_task_time(self, time_string, task_id):
         """更新任务时间显示"""
         self.update_task_time_card(task_id, time_string)
+
+    def on_request_id_updated(self, bizyair_request_id, task_id):
+        """异步API返回RequestID时的回调"""
+        self.add_log(f"📋 [{task_id}] 异步任务ID: {bizyair_request_id}")
+
+        # 在任务状态卡片中显示RequestID
+        if task_id in self.task_status_cards:
+            self.task_status_cards[task_id].set_request_id(bizyair_request_id)
+
+        # 在响应结果选项卡创建等待中的卡片
+        try:
+            pending_data = {
+                'task_name': f"异步任务_{task_id}",
+                'id': bizyair_request_id,
+                'url': '',
+                'width': 0,
+                'height': 0,
+                'num_frames': 0,
+                'prompt': ''
+            }
+
+            card = VideoResultCard(
+                pending_data, task_id, self, "",
+                is_pending=True,
+                bizyair_request_id=bizyair_request_id
+            )
+            card.poll_clicked.connect(self.on_manual_poll_clicked)
+            self.results_scroll_layout.insertWidget(0, card)
+            self.pending_async_cards[bizyair_request_id] = card
+        except Exception as e:
+            self.add_log(f"❌ 创建异步等待卡片失败: {e}")
+
+    def on_manual_poll_clicked(self, bizyair_request_id, task_id):
+        """手动轮询按钮点击"""
+        self.add_log(f"🔍 手动轮询异步任务: {bizyair_request_id}")
+
+        api_key = self.api_manager.get_next_key()
+        if not api_key:
+            self.add_log(f"❌ 无可用API密钥")
+            return
+
+        worker = AsyncManualPollWorker(bizyair_request_id, api_key)
+        worker.poll_result.connect(self.on_manual_poll_result)
+        worker.poll_status.connect(self.on_manual_poll_status)
+        worker.log_updated.connect(self.add_log)
+        worker.finished.connect(lambda rid=bizyair_request_id: self._cleanup_poll_worker(rid))
+        # 存储引用防止被GC回收导致崩溃
+        self._manual_poll_workers[bizyair_request_id] = worker
+        worker.start()
+
+    def on_manual_poll_result(self, success, result_text, bizyair_request_id):
+        """手动轮询结果回调"""
+        if success and bizyair_request_id in self.pending_async_cards:
+            card = self.pending_async_cards.pop(bizyair_request_id)
+            video_data = {
+                'url': result_text,
+                'task_name': card.video_data.get('task_name', ''),
+                'id': bizyair_request_id,
+                'width': 0,
+                'height': 0,
+                'num_frames': 0,
+            }
+            # 尝试从原始任务数据获取尺寸信息
+            if card.task_id in self.task_status_cards:
+                params = self.task_status_cards[card.task_id].task_params
+                video_data['width'] = params.get('width', 0)
+                video_data['height'] = params.get('height', 0)
+                video_data['num_frames'] = params.get('num_frames', 0)
+
+            card.update_with_result(video_data)
+            self.add_log(f"✅ 手动轮询成功获取结果: {bizyair_request_id[:8]}...")
+        else:
+            self.add_log(f"📊 轮询结果: {result_text}")
+            # 更新等待卡片状态文字，重新启用轮询按钮
+            if bizyair_request_id in self.pending_async_cards:
+                card = self.pending_async_cards[bizyair_request_id]
+                card.download_status_label.setText(f"⏳ {result_text}")
+                card.download_status_label.setStyleSheet("color: #f39c12; font-size: 12px; font-weight: bold;")
+                card.poll_btn.setEnabled(True)
+
+    def on_manual_poll_status(self, status_text, bizyair_request_id):
+        """手动轮询状态回调"""
+        self.add_log(f"📊 异步任务 {bizyair_request_id[:8]}... 状态: {status_text}")
+
+    def _cleanup_poll_worker(self, bizyair_request_id):
+        """清理已完成的轮询Worker引用"""
+        if bizyair_request_id in self._manual_poll_workers:
+            worker = self._manual_poll_workers.pop(bizyair_request_id)
+            worker.deleteLater()
 
     def update_batch_progress(self, completed, total):
         """更新批量进度"""
@@ -3647,6 +4100,9 @@ class VideoGenerationWidget(QWidget):
             self.api_manager.web_app_id_frames = api_settings.get('web_app_id_frames', 39388)
             self.api_manager.web_app_id_video = api_settings.get('web_app_id_video', 38808)
 
+            # 加载异步API设置
+            self.api_manager.async_api_enabled = api_settings.get('async_api_enabled', False)
+
             self.update_key_status()
             self.update_current_params_display()
             self.refresh_task_videos()
@@ -3682,7 +4138,8 @@ class VideoGenerationWidget(QWidget):
                 web_app_id_frames=self.api_manager.web_app_id_frames,
                 web_app_id_video=self.api_manager.web_app_id_video,
                 key_text=key_text,
-                key_source=key_source
+                key_source=key_source,
+                async_api_enabled=self.api_manager.async_api_enabled
             )
 
             if success1 and success2:
@@ -4048,6 +4505,28 @@ class APISettingsDialog(QDialog):
 
         layout.addWidget(webapp_group)
 
+        # 异步API开关
+        async_group = QGroupBox("异步API设置")
+        async_layout = QHBoxLayout(async_group)
+
+        async_label = QLabel("异步API模式:")
+        async_label.setStyleSheet("color: #ffffff; font-size: 14px;")
+        async_layout.addWidget(async_label)
+
+        self.async_api_switch = SwitchButton()
+        self.async_api_switch.setOnText("开启")
+        self.async_api_switch.setOffText("关闭")
+        self.async_api_switch.setChecked(False)
+        async_layout.addWidget(self.async_api_switch)
+
+        async_layout.addStretch()
+
+        async_desc = QLabel("提交后立即返回任务ID，后台轮询查询结果")
+        async_desc.setStyleSheet("color: #888888; font-size: 12px;")
+        async_layout.addWidget(async_desc)
+
+        layout.addWidget(async_group)
+
         key_group = QGroupBox("API密钥设置")
         key_layout = QVBoxLayout(key_group)
 
@@ -4213,11 +4692,16 @@ class APISettingsDialog(QDialog):
         self.api_manager.web_app_id_video = webapp_id_video
         self.api_manager.api_url = api_url
 
+        # 保存异步API设置
+        async_api_enabled = self.async_api_switch.isChecked()
+        self.api_manager.async_api_enabled = async_api_enabled
+
         # 更新父级管理器
         self.parent().api_manager.web_app_id_single = webapp_id_single
         self.parent().api_manager.web_app_id_frames = webapp_id_frames
         self.parent().api_manager.web_app_id_video = webapp_id_video
         self.parent().api_manager.api_url = api_url
+        self.parent().api_manager.async_api_enabled = async_api_enabled
 
         # 处理密钥来源
         key_file_to_save = ""
@@ -4277,7 +4761,8 @@ class APISettingsDialog(QDialog):
                 web_app_id_video=webapp_id_video,
                 api_url=api_url,
                 key_text=key_text_to_save,
-                key_source=key_source
+                key_source=key_source,
+                async_api_enabled=async_api_enabled
             )
             if hasattr(self.parent(), 'add_log'):
                 source_name = {
@@ -4285,7 +4770,8 @@ class APISettingsDialog(QDialog):
                     "env": "系统变量",
                     "text": "密钥文本"
                 }.get(key_source, "未知")
-                self.parent().add_log(f"✅ API密钥设置已保存 ({source_name})")
+                async_status = "异步" if async_api_enabled else "同步"
+                self.parent().add_log(f"✅ API密钥设置已保存 ({source_name}, {async_status}模式)")
 
         self.accept()
 
@@ -4309,15 +4795,21 @@ class APISettingsDialog(QDialog):
                 self.webapp_id_video_spin.setValue(webapp_id_video)
                 self.api_url_edit.setText(api_url)
 
+                # 加载异步API设置
+                async_api_enabled = api_settings.get('async_api_enabled', False)
+                self.async_api_switch.setChecked(async_api_enabled)
+
                 # 更新管理器
                 self.api_manager.web_app_id_single = webapp_id_single
                 self.api_manager.web_app_id_frames = webapp_id_frames
                 self.api_manager.web_app_id_video = webapp_id_video
                 self.api_manager.api_url = api_url
+                self.api_manager.async_api_enabled = async_api_enabled
                 self.parent().api_manager.web_app_id_single = webapp_id_single
                 self.parent().api_manager.web_app_id_frames = webapp_id_frames
                 self.parent().api_manager.web_app_id_video = webapp_id_video
                 self.parent().api_manager.api_url = api_url
+                self.parent().api_manager.async_api_enabled = async_api_enabled
 
                 # 根据密钥来源设置界面
                 env_key = os.getenv('SiliconCloud_API_KEY')

@@ -1,8 +1,8 @@
 ## BizyAIR 异步查询使用教程
 
-## 适用场景[¶](https://docs.bizyair.cn/api/asynctask-tutorial.html#_2 "Permanent link")
+## 适用场景[¶]
 
-- **它是什么**: 异步查询模式允许你提交任务后立即获得一个 `requestId` 并断开连接，随后通过主动轮询接口来查询任务的实时进度和最终结果。
+- **它是什么**: 异步查询模式允许你提交任务后立即获得一个 `requestId`或者`request_id` 并断开连接，随后通过主动轮询接口来查询任务的实时进度和最终结果。
 - **它能解决的问题**: 避免客户端与服务端长时间保持 HTTP 连接；适用于客户端网络不稳定、无法维持长连接，或者无法提供公网回调地址（无法使用 WebHook）的场景。
 
 快速判断是否适合使用
@@ -14,18 +14,35 @@
 本教程将带你完成一次完整的异步查询流程：
 
 1.  获取 API 指令
-2.  启用异步模式并发起任务，拿到 `requestId`
-3.  任务完成后，使用 `requestId` 获取最终的生成内容
+2.  启用异步模式并发起任务，拿到 `requestId`或者`request_id`
+3.  任务完成后，使用 `requestId` 或者`request_id`获取最终的生成内容
 
 ---
+异步工作流程
+1. 用户在"API密钥设置"中开启异步API开关并保存
+2. 任务提交时自动在 HTTP Header 中添加 X-Bizyair-Task-Async: enable
+3. 收到 202 Accepted + requestId → 在"任务状态"选项卡显示任务ID
+4. 静默等待5分钟 → 每10分钟轮询 detail 接口查状态
+5. 状态变为 Success → 调用 outputs 接口获取视频URL → 显示在"响应结果"选项卡
+6. 计时器正常运行，任务间隔保持15秒不变
 
-## 前置准备[¶](https://docs.bizyair.cn/api/asynctask-tutorial.html#_3 "Permanent link")
+兼容多种响应格式 (requestId / request_id / data.requestId /
+  data.request_id)
+
+## 异步任务交互流程
+
+  1. 异步任务提交 → 响应结果选项卡出现紫色等待卡片（显示任务ID + 轮询按钮）
+  2. 用户点击轮询 → 立即查询API状态 → 成功则卡片变绿色完成态并自动下载
+  3. 后台5分钟等待的自动轮询完成后也会更新同一张卡片（不重复创建）
+  4. 已获取到结果的卡片不再显示轮询按钮
+
+## 前置准备[¶]
 
 - 已获取 BizyAir API Key（ ）
 
 ---
 
-## 步骤一：获取 API 指令[¶](https://docs.bizyair.cn/api/asynctask-tutorial.html#api "Permanent link")
+## 步骤一：获取 API 指令[¶]
 
 首先，你需要从 BizyAir 官网获取用于发起任务的 API 命令：
 
@@ -36,7 +53,7 @@
 
 ---
 
-## 步骤二：发起异步任务[¶](https://docs.bizyair.cn/api/asynctask-tutorial.html#_4 "Permanent link")
+## 步骤二：发起异步任务[¶]
 
 将步骤一中获取的 API 命令稍作修改，在 HTTP Header 中加入 `X-Bizyair-Task-Async: enable` 即可启用异步模式。
 
@@ -64,7 +81,7 @@ curl -s -X POST "https://api.bizyair.cn/w/v1/webapp/task/openapi/create" \
 }'
 ```
 
-成功后服务会立即返回 `202 Accepted` 与 `requestId`，而不是等待任务完成：
+成功后服务会立即返回 `202 Accepted` 与 `requestId`或者`request_id`，而不是等待任务完成：
 
 | 响应示例 |
 | -------- |
@@ -78,11 +95,11 @@ curl -s -X POST "https://api.bizyair.cn/w/v1/webapp/task/openapi/create" \
 
 保存 requestId
 
-请务必保存返回的 `requestId`，它是你后续查询任务状态和结果的唯一凭证。
+请务必保存返回的 `requestId`或者`request_id`，它是你后续查询任务状态和结果的唯一凭证。
 
 ---
 
-## 步骤三：获取异步任务生成内容[¶](https://docs.bizyair.cn/api/asynctask-tutorial.html#_5 "Permanent link")
+## 步骤三：获取异步任务生成内容
 
 当步骤三中的状态变为 `Success` 时，调用“查询任务结果”接口来获取最终的图片或其他输出。
 
@@ -93,7 +110,7 @@ curl -X GET "https://api.bizyair.cn/w/v1/webapp/task/openapi/outputs?requestId={
   -H "Authorization: Bearer ${BIZYAIR_API_KEY}"
 ```
 
-### 结果解析[¶](https://docs.bizyair.cn/api/asynctask-tutorial.html#_6 "Permanent link")
+### 结果解析
 
 响应中的 `data.outputs` 数组包含了所有的生成结果：
 
@@ -162,9 +179,9 @@ curl -X GET "https://api.bizyair.cn/w/v1/webapp/task/openapi/outputs?requestId={
 
 ---
 
-## 附加：轮询任务状态[¶](https://docs.bizyair.cn/api/asynctask-tutorial.html#_7 "Permanent link")
+## 附加：轮询任务状态
 
-拿到 `requestId` 后，你可以定期调用“查询任务状态”接口来检查任务是否完成。
+拿到 `requestId`或者`request_id` 后，你可以定期调用“查询任务状态”接口来检查任务是否完成。
 
 查询任务状态
 
@@ -173,7 +190,7 @@ curl -X GET "https://api.bizyair.cn/w/v1/webapp/task/openapi/detail?requestId={r
   -H "Authorization: Bearer ${BIZYAIR_API_KEY}"
 ```
 
-### 响应解析[¶](https://docs.bizyair.cn/api/asynctask-tutorial.html#_8 "Permanent link")
+### 响应解析
 
 响应中的 `data.status` 字段代表了当前任务的状态：
 
@@ -286,7 +303,7 @@ curl -X GET "https://api.bizyair.cn/w/v1/webapp/task/openapi/detail?requestId={r
 
 ---
 
-## 附加：完整代码示例 (Python)[¶](https://docs.bizyair.cn/api/asynctask-tutorial.html#python "Permanent link")
+## 附加：完整代码示例 (Python)
 
 下面是一个使用 Python 串联整个异步查询流程的简单脚本：
 
@@ -373,13 +390,13 @@ if __name__ == "__main__":
             get_results(req_id)
 ```
 
-### 执行脚本[¶](https://docs.bizyair.cn/api/asynctask-tutorial.html#_9 "Permanent link")
+### 执行脚本
 
 ```text
 python async_task.py
 ```
 
-### 脚本输出示例[¶](https://docs.bizyair.cn/api/asynctask-tutorial.html#_10 "Permanent link")
+### 脚本输出示例
 
 脚本输出示例
 
