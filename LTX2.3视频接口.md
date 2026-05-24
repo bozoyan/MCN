@@ -1,6 +1,9 @@
 ## API Key 
 API Key 调用 API 密钥管理器 或者 BIZYAIR_API_KEY 变量的数据，包括 txt 文本内的批量keys 数据
 
+## 轮询获取url数据
+优先从 data 内部取 status 和 outputs，能正确匹配到 "Success" 和视频 URL。
+
 ## LTX2.3-文生视频
 ### 请求参数代码 
 界面上只需要保留展示方式display（宽屏与竖屏的radio 按钮选项）、提示词prompt 多行文本框 两个参数输入项
