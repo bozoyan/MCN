@@ -1645,8 +1645,8 @@ class Sora2TaskStatusCard(CardWidget):
         # Row 3: Prompt
         prompt = self.task_params.get('prompt', '')
         if prompt:
-            if len(prompt) > 40:
-                prompt_display = prompt[:37] + "..."
+            if len(prompt) > 70:
+                prompt_display = prompt[:67] + "..."
             else:
                 prompt_display = prompt
 
