@@ -3109,19 +3109,19 @@ class MainWindow(FluentWindow):
         except ImportError as e:
             print(f"无法导入视频生成模块: {e}")
 
-        # 添加Sora2视频生成页面
+        # 添加LTX2视频生成页面
         try:
-            from sora2 import Sora2VideoGenerationWidget
-            self.sora2_video_generation_page = Sora2VideoGenerationWidget()
-            self.sora2_video_generation_page.setObjectName("sora2_video_generation_page")
+            from vods import Sora2VideoGenerationWidget
+            self.ltx2_video_generation_page = Sora2VideoGenerationWidget()
+            self.ltx2_video_generation_page.setObjectName("ltx2_video_generation_page")
             self.addSubInterface(
-                self.sora2_video_generation_page,
+                self.ltx2_video_generation_page,
                 FluentIcon.ROBOT,
-                "Sora2生成",
+                "LTX2生成",
                 NavigationItemPosition.TOP
             )
         except ImportError as e:
-            print(f"无法导入Sora2视频生成模块: {e}")
+            print(f"无法导入LTX2视频生成模块: {e}")
 
         # 添加模板化视频生成页面（基于 vods-json 配置文件）
         try:

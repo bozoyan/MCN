@@ -87,7 +87,16 @@ class VLMConfigManager:
         if os.path.exists(self.config_file):
             try:
                 with open(self.config_file, 'r', encoding='utf-8') as f:
-                    return json.load(f)
+                    config = json.load(f)
+                # 补全缺失的默认字段
+                defaults = {
+                    "default_template": "default",
+                    "default_template_gemini_vlm": "人像",
+                }
+                for key, value in defaults.items():
+                    if key not in config:
+                        config[key] = value
+                return config
             except Exception as e:
                 logger.error(f"加载 VLM 配置失败: {e}")
 
@@ -97,12 +106,14 @@ class VLMConfigManager:
             "model": "SiliconFlow:Qwen/Qwen3-VL-8B-Instruct",
             "suppress_preview_output": True,
             "default_template": "default",
+            "default_template_gemini_vlm": "人像",
             "available_models": [
                 "SiliconFlow:Qwen/Qwen3-VL-8B-Instruct",
-                "SiliconFlow:Qwen/Qwen2-VL-7B-Instruct",
-                "SiliconFlow:Qwen/Qwen-VL-Plus-01",
-                "OpenAI:gpt-4o",
-                "OpenAI:gpt-4-vision-preview"
+                "SiliconFlow:Qwen/Qwen3-VL-32B-Instruct",
+                "SiliconFlow:Qwen/Qwen3-VL-30B-A3B-Instruct",
+                "SiliconFlow:THUDM/GLM-4.1V-9B-Thinking",
+                "SiliconFlow:zai-org/GLM-4.5V",
+                "SiliconFlow:zai-org/GLM-4.6V"
             ]
         }
 
@@ -164,7 +175,11 @@ class VLMConfigManager:
         """获取可用模型列表"""
         return self.config.get("available_models", [
             "SiliconFlow:Qwen/Qwen3-VL-8B-Instruct",
-            "SiliconFlow:Qwen/Qwen2-VL-7B-Instruct"
+            "SiliconFlow:Qwen/Qwen3-VL-32B-Instruct",
+            "SiliconFlow:Qwen/Qwen3-VL-30B-A3B-Instruct",
+            "SiliconFlow:THUDM/GLM-4.1V-9B-Thinking",
+            "SiliconFlow:zai-org/GLM-4.5V",
+            "SiliconFlow:zai-org/GLM-4.6V"
         ])
 
 
@@ -347,11 +362,12 @@ class VLMImageWorker(QThread):
     error_occurred = pyqtSignal(str)
     log_message = pyqtSignal(str)  # 新增：日志消息信号
 
-    def __init__(self, image_url, config_manager, template):
+    def __init__(self, image_url, config_manager, template, mode="base"):
         super().__init__()
         self.image_url = image_url
         self.config_manager = config_manager
         self.template = template
+        self.mode = mode  # "base" 或 "gemini_vlm"
         self.is_cancelled = False
         self.start_time = None
         # 存储任务信息
@@ -367,6 +383,21 @@ class VLMImageWorker(QThread):
         """内部日志方法"""
         self.log_message.emit(message)
         logger.info(message)
+
+    @staticmethod
+    def _clean_think_mode_json(text):
+        """清理 think 模式模型返回的 JSON 中的 Unicode 转义字符和 think 标签"""
+        import re
+        # 移除 <think...</think] 或 <think...>...</think] 包裹的思考过程
+        text = re.sub(r'<think[^>]*>.*?</think\s*>', '', text, flags=re.DOTALL)
+        text = re.sub(r'<think[^]]*>.*?</think\s*\]>', '', text, flags=re.DOTALL)
+        # 解码常见的 HTML 实体转义（think 模式模型会生成这些）
+        text = text.replace('\\u003c', '<').replace('\\u003e', '>')
+        text = text.replace('\\u0026', '&').replace('\\u0022', '"')
+        text = text.replace('\\u0027', "'")
+        # 清理可能残留的 \\n \\t
+        text = text.replace('\\n', '\n').replace('\\t', '\t')
+        return text.strip()
 
     def run(self):
         """运行图片识别"""
@@ -390,22 +421,37 @@ class VLMImageWorker(QThread):
                 "Content-Type": "application/json",
             }
 
-            # 构建请求参数
-            web_app_id = self.config_manager.get("web_app_id", 40122)
-            model = self.config_manager.get("model", "SiliconFlow:Qwen/Qwen3-VL-8B-Instruct")
-            suppress_preview = self.config_manager.get("suppress_preview_output", True)
+            # 根据模式构建不同的请求参数
+            if self.mode == "gemini_vlm":
+                # Gemini VLM 模式
+                web_app_id = 44279
+                suppress_preview = True
+                input_values = {
+                    "2:LoadImage.image": self.image_url,
+                    "20:BizyAir_TRD_VLM_API.system_prompt": "你是一个能分析图像的AI助手。请仔细观察图像，并根据用户的问题提供详细、准确的描述。当你接收到上传的一张图片时，请遵循以下核心原则和结构化标准，生成详细的 AI 绘画提示词。",
+                    "20:BizyAir_TRD_VLM_API.user_prompt": self.template,
+                    "25:EG_TC_Node.文本3": ".md"
+                }
+            else:
+                # 基础模型模式（默认）
+                web_app_id = 40122  # 硬编码基础模型 web_app_id
+                model = self.config_manager.get("model", "SiliconFlow:Qwen/Qwen3-VL-8B-Instruct")
+                suppress_preview = self.config_manager.get("suppress_preview_output", True)
 
-            input_values = {
-                "65:LoadImage.image": self.image_url,
-                "64:BizyAirSiliconCloudVLMAPI.model": model,
-                "64:BizyAirSiliconCloudVLMAPI.user_prompt": self.template
-            }
+                input_values = {
+                    "65:LoadImage.image": self.image_url,
+                    "64:BizyAirSiliconCloudVLMAPI.model": model,
+                    "64:BizyAirSiliconCloudVLMAPI.user_prompt": self.template
+                }
 
             # 输出完整的 API 请求信息
+            mode_label = "Gemini VLM" if self.mode == "gemini_vlm" else "基础模型"
             self._log("📤 API 请求信息:")
             self._log(f"  URL: {base_url}")
+            self._log(f"  模式: {mode_label}")
             self._log(f"  Web App ID: {web_app_id}")
-            self._log(f"  模型: {model}")
+            if self.mode == "base":
+                self._log(f"  模型: {self.config_manager.get('model', 'SiliconFlow:Qwen/Qwen3-VL-8B-Instruct')}")
             self._log(f"  抑制预览输出: {suppress_preview}")
             self._log(f"  图片大小: {len(self.image_url)} 字符")
             self._log(f"  提示词模板长度: {len(self.template)} 字符")
@@ -503,21 +549,66 @@ class VLMImageWorker(QThread):
                             self._log("🔍 开始解析结果文件...")
                             prompt_data = None
 
-                            if prompt_url.endswith('.json') or save_path.endswith('.json'):
+                            # Gemini VLM 模式：返回 MD 文件
+                            if self.mode == "gemini_vlm":
+                                self._log("  检测到 Gemini VLM 模式（MD 格式）")
+                                import chardet
+                                raw_data = prompt_response.content
+                                encoding = chardet.detect(raw_data)['encoding'] or 'utf-8'
+                                md_content = raw_data.decode(encoding)
+                                self._log(f"  MD 内容长度: {len(md_content)} 字符")
+
+                                # 尝试从 MD 内容中提取四维 JSON 数据
+                                extracted_json = False
+                                cleaned = self._clean_think_mode_json(md_content)
+                                import re
+                                json_match = re.search(r'\{[\s\S]*\}', cleaned)
+                                if json_match:
+                                    try:
+                                        parsed = json.loads(json_match.group())
+                                        if isinstance(parsed, dict) and all(k in parsed for k in ("CN", "EN", "CN_tag", "EN_tag")):
+                                            self._log("  ✅ 从 MD 内容中成功提取四维 JSON 数据")
+                                            prompt_data = {
+                                                "CN": parsed["CN"],
+                                                "EN": parsed["EN"],
+                                                "CN_tag": parsed["CN_tag"],
+                                                "EN_tag": parsed["EN_tag"]
+                                            }
+                                            extracted_json = True
+                                    except (json.JSONDecodeError, ValueError):
+                                        pass
+
+                                if not extracted_json:
+                                    self._log("  ⚠️ 未提取到四维 JSON，MD 内容放入中文描述")
+                                    prompt_data = {
+                                        "CN": md_content,
+                                        "EN": "",
+                                        "CN_tag": "",
+                                        "EN_tag": ""
+                                    }
+                            elif prompt_url.endswith('.json') or save_path.endswith('.json'):
                                 # JSON 文件
                                 self._log("  检测到 JSON 格式")
+                                import chardet
+                                raw_data = prompt_response.content
+                                encoding = chardet.detect(raw_data)['encoding'] or 'utf-8'
+                                text_content = raw_data.decode(encoding)
+                                # 清理 think 模式的转义字符
+                                text_content = self._clean_think_mode_json(text_content)
+                                self._log(f"  清理后文本长度: {len(text_content)} 字符")
                                 try:
-                                    prompt_data = prompt_response.json()
+                                    prompt_data = json.loads(text_content)
                                     self._log(f"  JSON 解析成功，包含键: {list(prompt_data.keys()) if isinstance(prompt_data, dict) else 'N/A'}")
                                 except json.JSONDecodeError as e:
                                     self._log(f"  ❌ JSON 解析失败: {e}")
-                                    # 尝试作为文本解析
-                                    import chardet
-                                    raw_data = prompt_response.content
-                                    encoding = chardet.detect(raw_data)['encoding'] or 'utf-8'
-                                    text_content = raw_data.decode(encoding)
-                                    self._log(f"  尝试解析为文本，编码: {encoding}")
-                                    prompt_data = json.loads(text_content)
+                                    # 尝试提取 JSON 部分
+                                    import re
+                                    json_match = re.search(r'\{[\s\S]*\}', text_content)
+                                    if json_match:
+                                        self._log("  尝试提取 JSON 片段...")
+                                        prompt_data = json.loads(json_match.group())
+                                    else:
+                                        raise
                             else:
                                 # TXT 文件 - 尝试检测编码并解析
                                 self._log("  检测到 TXT 格式")
@@ -526,17 +617,29 @@ class VLMImageWorker(QThread):
                                 encoding = chardet.detect(raw_data)['encoding'] or 'utf-8'
                                 self._log(f"  检测到编码: {encoding}")
                                 text_content = raw_data.decode(encoding)
-                                self._log(f"  文本内容长度: {len(text_content)} 字符")
-                                self._log(f"  文本内容预览: {text_content[:200]}...")
+                                # 清理 think 模式的转义字符
+                                text_content = self._clean_think_mode_json(text_content)
+                                self._log(f"  清理后文本长度: {len(text_content)} 字符")
 
                                 # 尝试解析为 JSON
                                 try:
                                     prompt_data = json.loads(text_content)
                                     self._log(f"  ✅ 成功从文本中解析 JSON")
                                 except json.JSONDecodeError:
-                                    # 如果不是 JSON，保持原文本
-                                    self._log(f"  ⚠️ 文本内容不是 JSON 格式，保持原样")
-                                    prompt_data = {"raw_text": text_content}
+                                    # 尝试提取 JSON 部分
+                                    import re
+                                    json_match = re.search(r'\{[\s\S]*\}', text_content)
+                                    if json_match:
+                                        self._log("  尝试提取 JSON 片段...")
+                                        try:
+                                            prompt_data = json.loads(json_match.group())
+                                            self._log(f"  ✅ JSON 片段解析成功")
+                                        except json.JSONDecodeError:
+                                            self._log(f"  ⚠️ 文本内容不是 JSON 格式，保持原样")
+                                            prompt_data = {"raw_text": text_content}
+                                    else:
+                                        self._log(f"  ⚠️ 文本内容不是 JSON 格式，保持原样")
+                                        prompt_data = {"raw_text": text_content}
 
                             # 验证解析结果
                             if prompt_data:
@@ -621,14 +724,8 @@ class VLMSettingsDialog(QDialog):
         api_group.setStyleSheet("QGroupBox { border: 1px solid #ccc; margin-top: 1ex; padding: 10px; }")
         api_layout = QGridLayout(api_group)
 
-        # Web App ID
-        api_layout.addWidget(QLabel("Web App ID:"), 0, 0)
-        self.web_app_id_edit = LineEdit()
-        self.web_app_id_edit.setFixedHeight(32)
-        api_layout.addWidget(self.web_app_id_edit, 0, 1)
-
         # 模型选择（下拉框 + 自定义输入）
-        api_layout.addWidget(QLabel("VLM 模型:"), 1, 0)
+        api_layout.addWidget(QLabel("VLM 模型:"), 0, 0)
 
         model_layout = QHBoxLayout()
         self.model_combo = ComboBox()
@@ -643,29 +740,29 @@ class VLMSettingsDialog(QDialog):
         self.add_model_btn.clicked.connect(self.add_custom_model)
         model_layout.addWidget(self.add_model_btn)
 
-        api_layout.addLayout(model_layout, 1, 1)
+        api_layout.addLayout(model_layout, 0, 1)
 
         # 自定义模型输入
-        api_layout.addWidget(QLabel("自定义模型:"), 2, 0)
+        api_layout.addWidget(QLabel("自定义模型:"), 1, 0)
         self.custom_model_edit = LineEdit()
         self.custom_model_edit.setPlaceholderText("输入自定义模型 (如: SiliconFlow:Qwen/Qwen2-VL-7B-Instruct)")
         self.custom_model_edit.setFixedHeight(32)
-        api_layout.addWidget(self.custom_model_edit, 2, 1)
+        api_layout.addWidget(self.custom_model_edit, 1, 1)
 
         # 模型说明标签
         self.model_help_label = QLabel("💡 可选择预设模型或在下方输入自定义模型")
         self.model_help_label.setStyleSheet("color: #666; font-size: 11px;")
-        api_layout.addWidget(self.model_help_label, 3, 0, 1, 2)
+        api_layout.addWidget(self.model_help_label, 2, 0, 1, 2)
 
         # Suppress Preview Output
         self.suppress_preview_check = RadioButton("启用")
-        api_layout.addWidget(QLabel("抑制预览输出:"), 4, 0)
-        api_layout.addWidget(self.suppress_preview_check, 4, 1)
+        api_layout.addWidget(QLabel("抑制预览输出:"), 3, 0)
+        api_layout.addWidget(self.suppress_preview_check, 3, 1)
 
         layout.addWidget(api_group)
 
-        # --- 提示词模板管理 ---
-        template_group = QGroupBox("📝 提示词模板管理")
+        # --- 提示词模板管理（两种模式通用 user_prompt） ---
+        template_group = QGroupBox("📝 提示词模板管理（基础模型 / Gemini VLM 通用 user_prompt）")
         template_group.setStyleSheet("QGroupBox { border: 1px solid #ccc; margin-top: 1ex; padding: 10px; }")
         template_layout = QVBoxLayout(template_group)
 
@@ -674,7 +771,7 @@ class VLMSettingsDialog(QDialog):
         template_select_layout.addWidget(QLabel("选择模板:"))
         self.template_combo = ComboBox()
         self.template_combo.setFixedHeight(32)
-        self.template_combo.currentIndexChanged.connect(self.on_template_changed)
+        self.template_combo.currentIndexChanged.connect(self._on_template_user_changed)
         template_select_layout.addWidget(self.template_combo)
         template_layout.addLayout(template_select_layout)
 
@@ -717,10 +814,17 @@ class VLMSettingsDialog(QDialog):
         button_layout.addWidget(cancel_btn)
         layout.addLayout(button_layout)
 
+    def _on_template_user_changed(self, index):
+        """用户主动切换模板时触发"""
+        self.on_template_changed(index)
+        # 自动设为默认模板并持久化
+        template_key = self.template_combo.itemData(index)
+        if template_key:
+            self.vlm_config.set("default_template", template_key)
+            self.vlm_config.save_config()
+
     def load_current_config(self):
         """加载当前配置"""
-        self.web_app_id_edit.setText(str(self.vlm_config.get("web_app_id", 40122)))
-
         # 加载可用模型列表
         available_models = self.vlm_config.get_available_models()
         self.model_combo.clear()
@@ -741,18 +845,24 @@ class VLMSettingsDialog(QDialog):
 
         # 加载模板列表
         self.update_template_combo()
-        # 设置默认模板
+        # 设置默认模板（阻塞信号避免误触发自动保存）
+        self.template_combo.blockSignals(True)
         default_template = self.vlm_config.get("default_template", "default")
         for i in range(self.template_combo.count()):
             if self.template_combo.itemData(i) == default_template:
                 self.template_combo.setCurrentIndex(i)
                 break
+        self.template_combo.blockSignals(False)
+        # 手动触发一次加载模板内容
+        self.on_template_changed(self.template_combo.currentIndex())
 
     def update_template_combo(self):
         """更新模板下拉框"""
+        self.template_combo.blockSignals(True)
         self.template_combo.clear()
         for key, template in self.vlm_config.templates.items():
             self.template_combo.addItem(template.get("name", key), key)
+        self.template_combo.blockSignals(False)
 
     def on_template_changed(self, index):
         """模板选择变化"""
@@ -777,23 +887,34 @@ class VLMSettingsDialog(QDialog):
             show_auto_hide_message(self, "警告", "模板名称和内容不能为空", "warning")
             return
 
-        # 生成模板 key
-        base_key = name.replace(" ", "_").lower()
-        template_key = base_key
-        counter = 1
-        while template_key in self.vlm_config.templates:
-            template_key = f"{base_key}_{counter}"
-            counter += 1
+        # 判断是编辑现有模板还是新建
+        current_key = self.template_combo.itemData(self.template_combo.currentIndex())
+        current_name = self.vlm_config.templates.get(current_key, {}).get("name", "") if current_key else ""
+
+        if current_key and current_name == name:
+            # 编辑现有模板：原地更新
+            template_key = current_key
+        else:
+            # 新建模板：生成唯一 key
+            base_key = name.replace(" ", "_").lower()
+            template_key = base_key
+            counter = 1
+            while template_key in self.vlm_config.templates:
+                template_key = f"{base_key}_{counter}"
+                counter += 1
 
         self.vlm_config.templates[template_key] = {
             "name": name,
             "template": content
         }
 
-        if self.vlm_config.save_templates():
+        # 立即设为默认模板
+        self.vlm_config.set("default_template", template_key)
+
+        if self.vlm_config.save_templates() and self.vlm_config.save_config():
             show_auto_hide_message(self, "成功", "模板保存成功", "success")
             self.update_template_combo()
-            # 选中新保存的模板
+            # 选中刚保存的模板
             for i in range(self.template_combo.count()):
                 if self.template_combo.itemData(i) == template_key:
                     self.template_combo.setCurrentIndex(i)
@@ -854,12 +975,6 @@ class VLMSettingsDialog(QDialog):
 
     def save_settings(self):
         """保存设置"""
-        try:
-            self.vlm_config.set("web_app_id", int(self.web_app_id_edit.text()))
-        except ValueError:
-            show_auto_hide_message(self, "警告", "Web App ID 必须是数字", "warning")
-            return
-
         # 保存当前选择的模型（支持下拉框选择或手动输入）
         current_model = self.model_combo.currentText().strip()
         if current_model:
@@ -1786,6 +1901,12 @@ class ImagePromptPage(SmoothScrollArea):
 
         top_bar_layout.addStretch()
 
+        # 当前模板名称标签
+        self.template_name_label = QLabel()
+        self.template_name_label.setStyleSheet("color: #aaa; font-size: 12px; padding: 4px 10px; border: 1px solid #444; border-radius: 4px;")
+        self.template_name_label.setFixedHeight(30)
+        top_bar_layout.addWidget(self.template_name_label)
+
         # 设置按钮
         self.settings_btn = PushButton(FluentIcon.SETTING, "设置")
         self.settings_btn.setFixedHeight(36)
@@ -1897,11 +2018,28 @@ class ImagePromptPage(SmoothScrollArea):
 
         left_layout.addWidget(upload_card)
 
-        # 生成按钮
+        # 生成按钮区域（模式选择 + 开始识别）
+        generate_layout = QHBoxLayout()
+        generate_layout.setSpacing(10)
+
+        # 识别模式选择
+        self.model_mode_combo = ComboBox()
+        self.model_mode_combo.addItems(["基础模型", "Gemini VLM"])
+        self.model_mode_combo.setFixedHeight(40)
+        self.model_mode_combo.setFixedWidth(140)
+        self.model_mode_combo.setToolTip("选择识别模型模式")
+        self.model_mode_combo.currentIndexChanged.connect(lambda: self._refresh_template_label())
+        generate_layout.addWidget(self.model_mode_combo)
+        # 初始化模板标签（在 combo 创建后才能调用）
+        self._refresh_template_label()
+
+        # 开始识别按钮
         self.generate_btn = PrimaryPushButton(FluentIcon.PLAY, "开始识别")
         self.generate_btn.setFixedHeight(40)
         self.generate_btn.clicked.connect(self.start_recognition)
-        left_layout.addWidget(self.generate_btn)
+        generate_layout.addWidget(self.generate_btn, 1)
+
+        left_layout.addLayout(generate_layout)
 
         # 进度显示卡片（固定高度）
         progress_card = CardWidget()
@@ -1949,7 +2087,7 @@ class ImagePromptPage(SmoothScrollArea):
         cn_layout = QVBoxLayout(self.cn_page)
         cn_layout.addWidget(QLabel("")) #完整中文描述
         self.cn_edit = QTextEdit()
-        self.cn_edit.setReadOnly(True)
+        self.cn_edit.setReadOnly(False)
         self.cn_edit.setStyleSheet("font-size: 32px; color: white; background: #2d2d2d; padding: 20px;")
         cn_layout.addWidget(self.cn_edit)
         # 复制/导出按钮移到右下角
@@ -1969,7 +2107,7 @@ class ImagePromptPage(SmoothScrollArea):
         en_layout = QVBoxLayout(self.en_page)
         en_layout.addWidget(QLabel("")) #完整英文描述
         self.en_edit = QTextEdit()
-        self.en_edit.setReadOnly(True)
+        self.en_edit.setReadOnly(False)
         self.en_edit.setStyleSheet("font-size: 32px; color: white; background: #2d2d2d; padding: 20px;")
         en_layout.addWidget(self.en_edit)
         # 复制/导出按钮移到右下角
@@ -1989,7 +2127,7 @@ class ImagePromptPage(SmoothScrollArea):
         cn_tag_layout = QVBoxLayout(self.cn_tag_page)
         cn_tag_layout.addWidget(QLabel("")) #中文标签 (逗号分隔)
         self.cn_tag_edit = QTextEdit()
-        self.cn_tag_edit.setReadOnly(True)
+        self.cn_tag_edit.setReadOnly(False)
         self.cn_tag_edit.setStyleSheet("font-size: 32px; color: white; background: #2d2d2d; padding: 20px;")
         cn_tag_layout.addWidget(self.cn_tag_edit)
         # 复制/导出按钮移到右下角
@@ -2009,7 +2147,7 @@ class ImagePromptPage(SmoothScrollArea):
         en_tag_layout = QVBoxLayout(self.en_tag_page)
         en_tag_layout.addWidget(QLabel("")) #英文标签 (逗号分隔)
         self.en_tag_edit = QTextEdit()
-        self.en_tag_edit.setReadOnly(True)
+        self.en_tag_edit.setReadOnly(False)
         self.en_tag_edit.setStyleSheet("font-size: 32px; color: white; background: #2d2d2d; padding: 20px;")
         en_tag_layout.addWidget(self.en_tag_edit)
         # 复制/导出按钮移到右下角
@@ -2116,6 +2254,7 @@ class ImagePromptPage(SmoothScrollArea):
         dialog = VLMSettingsDialog(self.vlm_config, self)
         if dialog.exec_() == QDialog.Accepted:
             show_auto_hide_message(self, "成功", "设置已保存", "success")
+            self._refresh_template_label()
 
     def show_history(self):
         """显示历史记录"""
@@ -2165,23 +2304,48 @@ class ImagePromptPage(SmoothScrollArea):
 
             self.process_batch_images()
 
+    def _get_current_mode(self):
+        """获取当前选择的识别模式"""
+        return "gemini_vlm" if self.model_mode_combo.currentIndex() == 1 else "base"
+
+    def _refresh_template_label(self):
+        """刷新顶部模板名称标签"""
+        mode = self._get_current_mode()
+        if mode == "gemini_vlm":
+            key = self.vlm_config.get("default_template_gemini_vlm", "default")
+        else:
+            key = self.vlm_config.get("default_template", "default")
+        template_dict = self.vlm_config.templates.get(key, {})
+        name = template_dict.get("name", "默认模板") if isinstance(template_dict, dict) else "默认模板"
+        self.template_name_label.setText(f"📝 模板: {name}")
+
+    def _get_template_for_mode(self, mode):
+        """根据模式获取对应的模板内容"""
+        if mode == "gemini_vlm":
+            key = self.vlm_config.get("default_template_gemini_vlm", "default")
+        else:
+            key = self.vlm_config.get("default_template", "default")
+        template_dict = self.vlm_config.templates.get(key, {})
+        return template_dict.get("template", "") if isinstance(template_dict, dict) else ""
+
     def process_single_image(self, image_url):
         """处理单个图片"""
-        # 获取当前选中的模板
-        default_template = self.vlm_config.get("default_template", "default")
-        template_dict = self.vlm_config.templates.get(default_template, {})
-        template = template_dict.get("template", "") if isinstance(template_dict, dict) else ""
+        mode = self._get_current_mode()
+
+        # 根据模式获取对应的模板
+        template = self._get_template_for_mode(mode)
 
         # 简化日志显示：本地图片只显示文件名
         display_name = self._format_image_url_for_log(image_url)
+        mode_label = "Gemini VLM" if mode == "gemini_vlm" else "基础模型"
         self.add_log(f"开始识别图片: {display_name}")
-        self.add_log(f"使用模板: {default_template}")
+        self.add_log(f"识别模式: {mode_label}")
 
         self.generate_btn.setEnabled(False)
         self.progress_bar.setRange(0, 0)
-        self.status_label.setText("准备识别...")
+        self.status_label.setText(f"准备识别（{mode_label}）...")
 
-        self.current_worker = VLMImageWorker(image_url, self.vlm_config, template)
+        self.current_worker = VLMImageWorker(image_url, self.vlm_config, template, mode=mode)
         self.current_worker.progress_updated.connect(self.on_progress_updated)
         self.current_worker.time_updated.connect(self.on_time_updated)
         self.current_worker.finished.connect(self.on_recognition_finished)
@@ -2284,9 +2448,8 @@ class ImagePromptPage(SmoothScrollArea):
             return
 
         # 获取模板
-        default_template = self.vlm_config.get("default_template", "default")
-        template_dict = self.vlm_config.templates.get(default_template, {})
-        template = template_dict.get("template", "") if isinstance(template_dict, dict) else ""
+        mode = self._get_current_mode()
+        template = self._get_template_for_mode(mode)
 
         # 更新进度
         total = len(self.batch_files)
@@ -2296,7 +2459,8 @@ class ImagePromptPage(SmoothScrollArea):
         self.status_label.setText(f"批量处理中: {current_num}/{total}")
 
         # 启动识别线程
-        self.current_worker = VLMImageWorker(image_url, self.vlm_config, template)
+        mode = self._get_current_mode()
+        self.current_worker = VLMImageWorker(image_url, self.vlm_config, template, mode=mode)
         self.current_worker.progress_updated.connect(self.on_batch_progress_updated)
         self.current_worker.time_updated.connect(self.on_time_updated)
         self.current_worker.finished.connect(self.on_batch_recognition_finished)

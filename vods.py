@@ -158,6 +158,180 @@ class VideoUtils:
 
         return os.path.exists(local_path) and os.path.getsize(local_path) > 0
 
+# ==================== BizyAir Upload Utils ====================
+class BizyAirUploadUtils:
+    """BizyAir 文件上传工具类，支持本地图片上传获取远程 URL"""
+
+    @staticmethod
+    def upload_local_file(file_path, api_key, log_signal=None):
+        """上传本地文件到 BizyAir OSS，返回远程 URL
+
+        步骤：
+        1. 获取上传凭证 (GET /x/v1/upload/token)
+        2. 使用凭证上传到阿里云 OSS
+        3. 提交输入资源 (POST /x/v1/input_resource/commit)
+        4. 返回可用的远程 URL
+        """
+        try:
+            file_name = os.path.basename(file_path)
+
+            # 步骤1：获取上传凭证
+            if log_signal:
+                log_signal.emit(f"[上传] 获取上传凭证: {file_name}")
+
+            token_url = "https://api.bizyair.cn/x/v1/upload/token"
+            params = {
+                "file_name": file_name,
+                "file_type": "inputs"
+            }
+            headers = {
+                "Authorization": f"Bearer {api_key}"
+            }
+
+            proxies = {"http": None, "https": None}
+            resp = requests.get(token_url, params=params, headers=headers,
+                               timeout=30, proxies=proxies)
+            resp.raise_for_status()
+            token_data = resp.json()
+
+            # 解析凭证信息
+            credential = token_data.get("credential", {})
+            endpoint = token_data.get("endpoint", "")
+            bucket = token_data.get("bucket", "")
+            region = token_data.get("region", "")
+            object_key = token_data.get("object_key", "")
+
+            access_key_id = credential.get("access_key_id", "")
+            access_key_secret = credential.get("access_key_secret", "")
+            security_token = credential.get("security_token", "")
+
+            if not all([endpoint, bucket, object_key, access_key_id, access_key_secret]):
+                raise Exception(f"上传凭证不完整: {token_data}")
+
+            if log_signal:
+                log_signal.emit(f"[上传] 凭证获取成功, object_key: {object_key}")
+
+            # 步骤2：上传文件到阿里云 OSS
+            BizyAirUploadUtils._upload_to_oss(
+                endpoint, bucket, region, object_key, file_path,
+                access_key_id, access_key_secret, security_token,
+                log_signal
+            )
+
+            # 步骤3：提交输入资源
+            if log_signal:
+                log_signal.emit(f"[上传] 提交输入资源...")
+
+            commit_url = "https://api.bizyair.cn/x/v1/input_resource/commit"
+            commit_payload = {
+                "name": file_name,
+                "object_key": object_key
+            }
+            commit_headers = {
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json"
+            }
+
+            resp = requests.post(commit_url, json=commit_payload, headers=commit_headers,
+                                timeout=30, proxies=proxies)
+            resp.raise_for_status()
+            commit_data = resp.json()
+
+            # 构建可用的远程 URL
+            remote_url = f"https://{bucket}.{endpoint}/{object_key}"
+
+            if log_signal:
+                log_signal.emit(f"[上传] 上传完成: {remote_url}")
+
+            return remote_url
+
+        except Exception as e:
+            if log_signal:
+                log_signal.emit(f"[上传] 上传失败: {str(e)}")
+            raise
+
+    @staticmethod
+    def _upload_to_oss(endpoint, bucket, region, object_key, file_path,
+                       access_key_id, access_key_secret, security_token,
+                       log_signal=None):
+        """使用 requests PUT 上传文件到阿里云 OSS（使用 V1 签名）"""
+        import hmac
+        import hashlib
+        import base64
+        from datetime import datetime
+
+        url = f"https://{bucket}.{endpoint}/{object_key}"
+
+        # 读取文件内容
+        with open(file_path, 'rb') as f:
+            file_data = f.read()
+
+        # 猜测 Content-Type
+        import mimetypes
+        content_type = mimetypes.guess_type(file_path)[0] or 'application/octet-stream'
+
+        # GMT 时间
+        date_str = datetime.utcnow().strftime('%a, %d %b %Y %H:%M:%S GMT')
+
+        # 构造 V1 签名
+        # StringToSign = VERB + "\n" + Content-MD5 + "\n" + Content-Type + "\n" + Date + "\n"
+        #                + CanonicalizedOSSHeaders + CanonicalizedResource
+        md5 = base64.b64encode(hashlib.md5(file_data).digest()).decode()
+        canonicalized_headers = f"x-oss-security-token:{security_token}\n"
+        canonicalized_resource = f"/{bucket}/{object_key}"
+
+        string_to_sign = f"PUT\n{md5}\n{content_type}\n{date_str}\n{canonicalized_headers}{canonicalized_resource}"
+
+        signature = base64.b64encode(
+            hmac.new(access_key_secret.encode(), string_to_sign.encode(), hashlib.sha1).digest()
+        ).decode()
+
+        upload_headers = {
+            'Authorization': f'OSS {access_key_id}:{signature}',
+            'Content-Type': content_type,
+            'Content-MD5': md5,
+            'Date': date_str,
+            'x-oss-security-token': security_token
+        }
+
+        if log_signal:
+            log_signal.emit(f"[上传] PUT 上传到 OSS: {url[:80]}...")
+
+        resp = requests.put(url, data=file_data, headers=upload_headers,
+                           timeout=120, proxies={"http": None, "https": None})
+        resp.raise_for_status()
+
+        if log_signal:
+            log_signal.emit(f"[上传] OSS 上传成功 (HTTP {resp.status_code})")
+
+    @staticmethod
+    def get_image_url(image_input, api_key, log_signal=None):
+        """将图片输入转换为远程 URL
+
+        支持的输入格式：
+        - 远程 URL（http/https 开头）：直接返回
+        - 本地文件路径：上传到 BizyAir OSS 后返回 URL
+        - URL 列表：逐个处理
+        """
+        if isinstance(image_input, list):
+            urls = []
+            for item in image_input:
+                url = BizyAirUploadUtils.get_image_url(item, api_key, log_signal)
+                if url:
+                    urls.append(url)
+            return urls
+
+        if isinstance(image_input, str):
+            if image_input.startswith('http://') or image_input.startswith('https://'):
+                return image_input
+            # 本地文件路径，需要上传
+            if os.path.exists(image_input):
+                return BizyAirUploadUtils.upload_local_file(image_input, api_key, log_signal)
+            else:
+                raise Exception(f"图片文件不存在: {image_input}")
+
+        raise Exception(f"不支持的图片输入格式: {type(image_input)}")
+
 # ==================== Play Video Mixin ====================
 class PlayVideoMixin:
     """视频播放功能混入类，提供统一的播放逻辑
@@ -251,18 +425,18 @@ class Sora2SettingsManager:
         self.config_file = config_file
         self.default_settings = {
             "video_params": {
-                "aspect_ratio": "9:16",
-                "duration": 10,
-                "duration_t2v": 10,
-                "duration_i2v": 10
+                "display": "vertical",
+                "duration": 5
             },
             "api_settings": {
                 "key_file": "",
                 "key_text": "",
                 "key_source": "file",
-                "web_app_id_t2v": 42921,
-                "web_app_id_i2v": 42936,
-                "api_url": "https://api.bizyair.cn/w/v1/webapp/task/openapi/create"
+                "api_url_t2v": "https://api.bizyair.cn/x/v1/modelzoo/tasks/openapi/ltx-2-3/text-to-video",
+                "api_url_i2v": "https://api.bizyair.cn/x/v1/modelzoo/tasks/openapi/ltx-2-3/image-to-video",
+                "query_url": "https://api.bizyair.cn/x/v1/modelzoo/tasks/openapi",
+                "upload_token_url": "https://api.bizyair.cn/x/v1/upload/token",
+                "upload_commit_url": "https://api.bizyair.cn/x/v1/input_resource/commit"
             },
             "ui_settings": {
                 "last_export_dir": "output",
@@ -298,14 +472,12 @@ class Sora2SettingsManager:
         settings = self.load_settings()
         return settings.get("video_params", self.default_settings["video_params"])
 
-    def set_video_params(self, aspect_ratio="9:16", duration=10, duration_t2v=10, duration_i2v=10):
+    def set_video_params(self, display="vertical", duration=5):
         """设置视频参数"""
         settings = self.load_settings()
         settings["video_params"] = {
-            "aspect_ratio": aspect_ratio,
-            "duration": duration,
-            "duration_t2v": duration_t2v,
-            "duration_i2v": duration_i2v
+            "display": display,
+            "duration": duration
         }
         return self.save_settings(settings)
 
@@ -314,23 +486,26 @@ class Sora2SettingsManager:
         settings = self.load_settings()
         return settings.get("api_settings", self.default_settings["api_settings"])
 
-    def set_api_settings(self, key_file="", web_app_id_t2v=42921, web_app_id_i2v=42936,
-                        api_url=None, key_text="", key_source="file"):
+    def set_api_settings(self, key_file="", key_text="", key_source="file",
+                        api_url_t2v=None, api_url_i2v=None, query_url=None):
         """设置 API 参数"""
         settings = self.load_settings()
 
-        current_api_url = settings.get("api_settings", {}).get("api_url",
-            "https://api.bizyair.cn/w/v1/webapp/task/openapi/create")
-        if api_url is None:
-            api_url = current_api_url
-
+        current_api = settings.get("api_settings", {})
         settings["api_settings"] = {
             "key_file": key_file,
             "key_text": key_text,
             "key_source": key_source,
-            "web_app_id_t2v": web_app_id_t2v,
-            "web_app_id_i2v": web_app_id_i2v,
-            "api_url": api_url
+            "api_url_t2v": api_url_t2v or current_api.get("api_url_t2v",
+                "https://api.bizyair.cn/x/v1/modelzoo/tasks/openapi/ltx-2-3/text-to-video"),
+            "api_url_i2v": api_url_i2v or current_api.get("api_url_i2v",
+                "https://api.bizyair.cn/x/v1/modelzoo/tasks/openapi/ltx-2-3/image-to-video"),
+            "query_url": query_url or current_api.get("query_url",
+                "https://api.bizyair.cn/x/v1/modelzoo/tasks/openapi"),
+            "upload_token_url": current_api.get("upload_token_url",
+                "https://api.bizyair.cn/x/v1/upload/token"),
+            "upload_commit_url": current_api.get("upload_commit_url",
+                "https://api.bizyair.cn/x/v1/input_resource/commit")
         }
         return self.save_settings(settings)
 
@@ -355,7 +530,7 @@ class Sora2SettingsManager:
             "url": settings.get("api_settings", {}).get("webhook_url", ""),
             "token": settings.get("api_settings", {}).get("webhook_token", ""),
             "query_url": settings.get("api_settings", {}).get("query_url",
-                "https://api.bizyair.cn/w/v1/webapp/task/openapi/outputs"),
+                "https://api.bizyair.cn/x/v1/modelzoo/tasks/openapi"),
             "delay_minutes": settings.get("api_settings", {}).get("query_delay_minutes", 10),
             "fallback_to_polling": settings.get("api_settings", {}).get("fallback_to_polling", False)
         }
@@ -371,7 +546,7 @@ class Sora2SettingsManager:
         settings["api_settings"]["webhook_url"] = url
         settings["api_settings"]["webhook_token"] = token
         settings["api_settings"]["query_url"] = query_url or \
-            "https://api.bizyair.cn/w/v1/webapp/task/openapi/outputs"
+            "https://api.bizyair.cn/x/v1/modelzoo/tasks/openapi"
         settings["api_settings"]["query_delay_minutes"] = delay_minutes
         settings["api_settings"]["fallback_to_polling"] = fallback_to_polling
 
@@ -386,8 +561,6 @@ class Sora2APIKeyManager:
         self.key_file = ""
         self.key_text = ""
         self.current_key_index = 0
-        self.web_app_id_t2v = 42921
-        self.web_app_id_i2v = 42936
         self.key_source = "file"
 
     def load_keys_from_file(self, file_path):
@@ -520,10 +693,9 @@ class Sora2TaskHistoryManager:
             "status": "pending",
             "video_mode": task_data.get('video_mode', 't2v'),
             "prompt": task_data.get('prompt', ''),
-            "aspect_ratio": task_data.get('aspect_ratio', '9:16'),
-            "duration": task_data.get('duration', 10),
+            "display": task_data.get('display', 'vertical'),
+            "duration": task_data.get('duration', 5),
             "api_key_used": self._mask_api_key(api_key_used),
-            "web_app_id": task_data.get('web_app_id', 0),
             "timestamps": {
                 "created_at": datetime.now().isoformat(),
                 "submitted_at": datetime.now().isoformat(),
@@ -803,13 +975,11 @@ class Sora2VideoGenerationWorker(QThread):
 
             prompt = self.task.get('prompt', '')
             video_mode = self.task.get('video_mode', 't2v')
-            aspect_ratio = self.task.get('aspect_ratio', '9:16')
-            duration = self.task.get('duration', 10)
+            display = self.task.get('display', 'vertical')
             image_input = self.task.get('image_input', '')
 
             self.log_message(f"Mode: {'文生视频' if video_mode == 't2v' else '图生视频'}")
-            self.log_message(f"Aspect Ratio: {aspect_ratio}")
-            self.log_message(f"Duration: {duration}s")
+            self.log_message(f"Display: {display}")
 
             output_dir = "output"
             if not os.path.exists(output_dir):
@@ -820,73 +990,50 @@ class Sora2VideoGenerationWorker(QThread):
 
             if video_mode == "i2v":
                 if not image_input:
-                    self.log_message("图生视频 mode requires an image")
-                    self.task_finished.emit(False, "图生视频 mode requires an image", {}, self.task_id)
+                    self.task_finished.emit(False, "图生视频模式需要上传图片", {}, self.task_id)
                     return
 
-                image_value = image_input
-                if isinstance(image_input, str) and not image_input.startswith('http') and not image_input.startswith('data:'):
-                    image_path = self.task.get('image_path', '')
-                    if image_path and os.path.exists(image_path):
-                        with open(image_path, 'rb') as f:
-                            image_data = f.read()
+                # LTX2.3 I2V 需要图片 URL，本地文件需先上传
+                self.progress_updated.emit(20, "处理图片中...", self.task_id)
+                try:
+                    image_input = BizyAirUploadUtils.get_image_url(
+                        image_input, self.api_key, self.log_updated
+                    )
+                    self.log_message(f"图片URL准备完成")
+                except Exception as upload_err:
+                    self.log_message(f"图片上传失败: {str(upload_err)}")
+                    self.task_finished.emit(False, f"图片上传失败: {str(upload_err)}", {}, self.task_id)
+                    return
 
-                        max_size = 8 * 1024 * 1024
-                        if len(image_data) > max_size:
-                            self.log_message(f"Image too large ({len(image_data)} bytes), compressing...")
-                            image_data = Utils.compress_image(image_data, self.log_updated)
-
-                        import imghdr
-                        detected_type = imghdr.what(None, image_data)
-                        image_type = f'image/{detected_type}' if detected_type else 'image/jpeg'
-
-                        base64_data = base64.b64encode(image_data).decode('utf-8')
-                        image_value = f"data:{image_type};base64,{base64_data}"
-                        self.log_message(f"Converted to data URL format ({image_type})")
-                    else:
-                        self.log_message("Cannot read image file")
-                        self.task_finished.emit(False, "Cannot read image file", {}, self.task_id)
-                        return
-
-                self.progress_updated.emit(30, "Preparing image-to-video request...", self.task_id)
-
-                bizyair_request_data = {
-                    "web_app_id": self.api_manager.web_app_id_i2v,
-                    "suppress_preview_output": True,
-                    "input_values": {
-                        "18:LoadImage.image": image_value,
-                        "6:CR Prompt Text.prompt": prompt,
-                        "54:BizyAir_Sora_V2_I2V_API.aspect_ratio": aspect_ratio,
-                        "54:BizyAir_Sora_V2_I2V_API.duration": duration
-                    }
-                }
-                self.log_message(f"Using 图生视频 mode, Web App ID: {self.api_manager.web_app_id_i2v}")
+                self.progress_updated.emit(30, "准备图生视频请求...", self.task_id)
 
             else:
-                self.progress_updated.emit(30, "Preparing text-to-video request...", self.task_id)
+                self.progress_updated.emit(30, "准备文生视频请求...", self.task_id)
+                self.log_message("使用文生视频模式")
 
-                bizyair_request_data = {
-                    "web_app_id": self.api_manager.web_app_id_t2v,
-                    "suppress_preview_output": True,
-                    "input_values": {
-                        "57:BizyAir_Sora_V2_T2V_API.prompt": prompt,
-                        "57:BizyAir_Sora_V2_T2V_API.aspect_ratio": aspect_ratio,
-                        "57:BizyAir_Sora_V2_T2V_API.duration": duration
-                    }
-                }
-                self.log_message(f"Using 文生视频 mode, Web App ID: {self.api_manager.web_app_id_t2v}")
+            # 更新 task 中的 image_input 为已上传的 URL
+            self.task['image_input'] = image_input
 
             headers = {
                 "Content-Type": "application/json",
                 "Authorization": f"Bearer {self.api_key}"
             }
 
-            api_url = "https://api.bizyair.cn/w/v1/webapp/task/openapi/create"
-            if hasattr(self.api_manager, 'api_url') and self.api_manager.api_url:
-                api_url = self.api_manager.api_url
+            # 构建 LTX2.3 请求数据
+            bizyair_request_data = self._build_request_data()
 
-            self.log_message(f"Sending BizyAir API request: {api_url}")
-            self.log_message(f"Request data: {json.dumps(bizyair_request_data, ensure_ascii=False, indent=2)}")
+            # 根据视频模式选择 LTX2.3 API URL
+            settings_manager = Sora2SettingsManager()
+            api_settings = settings_manager.get_api_settings()
+            if video_mode == "i2v":
+                api_url = api_settings.get("api_url_i2v",
+                    "https://api.bizyair.cn/x/v1/modelzoo/tasks/openapi/ltx-2-3/image-to-video")
+            else:
+                api_url = api_settings.get("api_url_t2v",
+                    "https://api.bizyair.cn/x/v1/modelzoo/tasks/openapi/ltx-2-3/text-to-video")
+
+            self.log_message(f"发送 LTX2.3 API 请求: {api_url}")
+            self.log_message(f"请求数据: {json.dumps(bizyair_request_data, ensure_ascii=False, indent=2)}")
             self.progress_updated.emit(40, "Sending API request...", self.task_id)
 
             try:
@@ -907,47 +1054,34 @@ class Sora2VideoGenerationWorker(QThread):
                 self.log_message(f"API response: {json.dumps(result_data, ensure_ascii=False, indent=2)}")
 
                 request_id = result_data.get('request_id')
-                status = result_data.get('status', '').lower()
 
                 if not request_id:
                     error_msg = result_data.get('message', 'API response format error: missing request_id')
                     self.task_finished.emit(False, error_msg, {}, self.task_id)
                     return
 
-                if status == 'failed':
-                    error_info = result_data.get('error', result_data.get('message', 'Task execution failed'))
-                    self.task_finished.emit(False, f"Video generation failed: {error_info}", {}, self.task_id)
-                    return
-
-                video_url = None
-
-                if status == 'success' and 'outputs' in result_data:
-                    outputs = result_data['outputs']
-                    if outputs and len(outputs) > 0:
-                        video_url = outputs[0].get('object_url', '')
-
-                if not video_url:
-                    self.progress_updated.emit(60, "Querying task status...", self.task_id)
-                    video_url = self.check_video_status(request_id)
+                # LTX2.3 始终是异步，需要轮询查询结果
+                self.progress_updated.emit(60, "查询任务状态...", self.task_id)
+                video_url = self.check_video_status(request_id)
 
                 if video_url:
-                    self.progress_updated.emit(90, "Video URL obtained successfully", self.task_id)
+                    self.progress_updated.emit(90, "视频URL获取成功", self.task_id)
 
                     result = {
                         'id': request_id,
                         'url': video_url,
                         'prompt': prompt,
-                        'aspect_ratio': aspect_ratio,
+                        'display': display,
                         'video_mode': video_mode,
                         'task_name': task_name,
                         'timestamp': datetime.now().isoformat(),
                         'base_filename': base_filename
                     }
 
-                    self.progress_updated.emit(100, "Task completed!", self.task_id)
-                    self.task_finished.emit(True, "Sora2 video generation successful", result, self.task_id)
+                    self.progress_updated.emit(100, "任务完成!", self.task_id)
+                    self.task_finished.emit(True, "LTX2 视频生成成功", result, self.task_id)
                 else:
-                    self.task_finished.emit(False, "Sora2 video generation failed or timeout", {}, self.task_id)
+                    self.task_finished.emit(False, "LTX2 视频生成失败或超时", {}, self.task_id)
 
             except requests.exceptions.HTTPError as http_err:
                 error_msg = f"API request failed: HTTP {response.status_code}"
@@ -979,9 +1113,14 @@ class Sora2VideoGenerationWorker(QThread):
             self.task_finished.emit(False, f"Task initialization exception: {str(e)}", {}, self.task_id)
 
     def check_video_status(self, request_id):
-        """查询 BizyAir 任务状态"""
-        max_attempts = 90  #最多轮询 90次
-        check_interval = 30  #任务每次间隔 30秒
+        """查询 LTX2.3 任务状态"""
+        max_attempts = 90
+        check_interval = 30
+
+        settings_manager = Sora2SettingsManager()
+        api_settings = settings_manager.get_api_settings()
+        query_base_url = api_settings.get("query_url",
+            "https://api.bizyair.cn/x/v1/modelzoo/tasks/openapi")
 
         for attempt in range(max_attempts):
             if self.is_cancelled:
@@ -995,7 +1134,7 @@ class Sora2VideoGenerationWorker(QThread):
                 }
 
                 response = requests.get(
-                    f"https://api.bizyair.cn/w/v1/webapp/task/openapi/query?request_id={request_id}",
+                    f"{query_base_url}/{request_id}",
                     headers=headers,
                     timeout=30,
                     proxies={"http": None, "https": None}
@@ -1004,29 +1143,29 @@ class Sora2VideoGenerationWorker(QThread):
                 response.raise_for_status()
 
                 data = response.json()
-                status = data.get('status', '').lower()
+                status = data.get('status', '')
 
                 self.progress_updated.emit(
                     min(90, 60 + (attempt * 30 // max_attempts)),
-                    f"Checking progress... ({status.capitalize()})",
+                    f"Checking progress... ({status})",
                     self.task_id
                 )
 
-                if status == 'success' and 'outputs' in data:
-                    outputs = data['outputs']
-                    if outputs and len(outputs) > 0:
-                        video_url = outputs[0].get('object_url', '')
-                        if video_url:
-                            self.log_message(f"Video generation completed: {video_url}")
-                            return video_url
+                if status == 'Success':
+                    outputs = data.get('outputs', {})
+                    videos = outputs.get('videos', [])
+                    if videos:
+                        video_url = videos[0]
+                        self.log_message(f"Video generation completed: {video_url}")
+                        return video_url
 
-                elif status == 'failed':
-                    error_info = data.get('error', 'Generation failed')
+                elif status == 'Failed':
+                    error_info = data.get('message', 'Generation failed')
                     self.log_message(f"Video generation failed: {error_info}")
                     return None
 
                 else:
-                    self.log_message(f"Video generating... ({status.capitalize()}) - Check {attempt+1}")
+                    self.log_message(f"Video generating... ({status}) - Check {attempt+1}")
 
             except requests.exceptions.RequestException as e:
                 self.log_message(f"Status query exception: {str(e)}")
@@ -1043,16 +1182,36 @@ class Sora2VideoGenerationWorker(QThread):
             task_name = self.task.get('name', f'Task {self.task_id}')
             video_mode = self.task.get('video_mode', 't2v')
 
+            # I2V 模式先上传本地图片
+            if video_mode == "i2v":
+                image_input = self.task.get('image_input', '')
+                if image_input:
+                    self.progress_updated.emit(10, "WebHook: 上传图片中...", self.task_id)
+                    try:
+                        image_input = BizyAirUploadUtils.get_image_url(
+                            image_input, self.api_key, self.log_updated
+                        )
+                        self.task['image_input'] = image_input
+                    except Exception as upload_err:
+                        self.task_finished.emit(False, f"图片上传失败: {str(upload_err)}", {}, self.task_id)
+                        return
+
             # 构建 API 请求数据
             request_data = self._build_request_data()
 
             # 构建请求头(包含 WebHook 配置)
             headers = self._build_headers_with_webhook()
 
-            # 发送请求
-            api_url = "https://api.bizyair.cn/w/v1/webapp/task/openapi/create"
-            if hasattr(self.api_manager, 'api_url') and self.api_manager.api_url:
-                api_url = self.api_manager.api_url
+            # 根据视频模式选择 LTX2.3 API URL
+            settings_manager = Sora2SettingsManager()
+            api_settings = settings_manager.get_api_settings()
+            video_mode = self.task.get('video_mode', 't2v')
+            if video_mode == "i2v":
+                api_url = api_settings.get("api_url_i2v",
+                    "https://api.bizyair.cn/x/v1/modelzoo/tasks/openapi/ltx-2-3/image-to-video")
+            else:
+                api_url = api_settings.get("api_url_t2v",
+                    "https://api.bizyair.cn/x/v1/modelzoo/tasks/openapi/ltx-2-3/text-to-video")
 
             self.log_message(f"[WebHook] 发送请求到: {api_url}")
             self.progress_updated.emit(20, "WebHook 模式: 提交中...", self.task_id)
@@ -1083,8 +1242,6 @@ class Sora2VideoGenerationWorker(QThread):
             self.webhook_info_updated.emit(True, request_id, self.task_id)
 
             # 保存到任务历史
-            web_app_id = self.api_manager.web_app_id_t2v if video_mode == 't2v' else self.api_manager.web_app_id_i2v
-            self.task['web_app_id'] = web_app_id
             self.history_manager.add_task(self.task_id, self.task, request_id, self.api_key)
 
             self.progress_updated.emit(100, "WebHook 模式: 任务已提交", self.task_id)
@@ -1093,7 +1250,7 @@ class Sora2VideoGenerationWorker(QThread):
                 'id': request_id,
                 'url': None,
                 'prompt': self.task.get('prompt', ''),
-                'aspect_ratio': self.task.get('aspect_ratio', '9:16'),
+                'display': self.task.get('display', 'vertical'),
                 'video_mode': video_mode,
                 'task_name': task_name,
                 'timestamp': datetime.now().isoformat(),
@@ -1144,9 +1301,15 @@ class Sora2VideoGenerationWorker(QThread):
                 "Authorization": f"Bearer {self.api_key}"
             }
 
-            api_url = "https://api.bizyair.cn/w/v1/webapp/task/openapi/create"
-            if hasattr(self.api_manager, 'api_url') and self.api_manager.api_url:
-                api_url = self.api_manager.api_url
+            settings_mgr = Sora2SettingsManager()
+            api_settings = settings_mgr.get_api_settings()
+            vm = self.task.get('video_mode', 't2v')
+            if vm == "i2v":
+                api_url = api_settings.get("api_url_i2v",
+                    "https://api.bizyair.cn/x/v1/modelzoo/tasks/openapi/ltx-2-3/image-to-video")
+            else:
+                api_url = api_settings.get("api_url_t2v",
+                    "https://api.bizyair.cn/x/v1/modelzoo/tasks/openapi/ltx-2-3/text-to-video")
 
             proxies = {"http": None, "https": None}
             response = requests.post(
@@ -1173,7 +1336,7 @@ class Sora2VideoGenerationWorker(QThread):
                     'id': request_id,
                     'url': video_url,
                     'prompt': self.task.get('prompt', ''),
-                    'aspect_ratio': self.task.get('aspect_ratio', '9:16'),
+                    'display': self.task.get('display', 'vertical'),
                     'video_mode': self.task.get('video_mode', 't2v'),
                     'task_name': self.task.get('name', f'Task {self.task_id}'),
                     'timestamp': datetime.now().isoformat(),
@@ -1206,33 +1369,31 @@ class Sora2VideoGenerationWorker(QThread):
         return headers
 
     def _build_request_data(self):
-        """构建 API 请求数据"""
+        """构建 LTX2.3 API 请求数据"""
         video_mode = self.task.get('video_mode', 't2v')
         prompt = self.task.get('prompt', '')
-        aspect_ratio = self.task.get('aspect_ratio', '9:16')
-        duration = self.task.get('duration', 10)
+        display = self.task.get('display', 'vertical')
         image_input = self.task.get('image_input', '')
 
         if video_mode == "i2v":
+            # 图生视频 - image_input 已在上传阶段转换为 URL
+            image_urls = image_input if isinstance(image_input, list) else [image_input]
             return {
-                "web_app_id": self.api_manager.web_app_id_i2v,
-                "suppress_preview_output": True,
-                "input_values": {
-                    "18:LoadImage.image": image_input,
-                    "6:CR Prompt Text.prompt": prompt,
-                    "54:BizyAir_Sora_V2_I2V_API.aspect_ratio": aspect_ratio,
-                    "54:BizyAir_Sora_V2_I2V_API.duration": duration
-                }
+                "prompt": prompt,
+                "image": image_urls,
+                "duration": 5,
+                "resolution": "1080P",
+                "display": display,
+                "seed": -1
             }
         else:
+            # 文生视频
             return {
-                "web_app_id": self.api_manager.web_app_id_t2v,
-                "suppress_preview_output": True,
-                "input_values": {
-                    "57:BizyAir_Sora_V2_T2V_API.prompt": prompt,
-                    "57:BizyAir_Sora_V2_T2V_API.aspect_ratio": aspect_ratio,
-                    "57:BizyAir_Sora_V2_T2V_API.duration": duration
-                }
+                "seed": -1,
+                "display": display,
+                "resolution": "1080P",
+                "duration": 5,
+                "prompt": prompt
             }
 
     def cancel(self):
@@ -1401,7 +1562,7 @@ class Sora2BatchManager(QObject):
 
 # ==================== Image Drop Widget ====================
 class Sora2ImageDropWidget(QFrame):
-    """Sora2 image drag and drop widget"""
+    """图片拖拽上传组件，支持本地文件和远程 URL"""
     image_dropped = pyqtSignal(str, str)
 
     def __init__(self, parent=None):
@@ -1477,6 +1638,28 @@ class Sora2ImageDropWidget(QFrame):
         self.select_btn.clicked.connect(self.select_file)
         container_layout.addWidget(self.select_btn)
 
+        # URL 输入按钮
+        self.url_btn = PushButton("🔗 输入URL")
+        self.url_btn.setFixedHeight(32)
+        self.url_btn.setStyleSheet("""
+            PushButton {
+                background-color: #3a3a3a;
+                color: #ffffff;
+                border: 1px solid #505050;
+                border-radius: 6px;
+                font-size: 12px;
+            }
+            PushButton:hover {
+                background-color: #4a4a4a;
+                border: 1px solid #606060;
+            }
+            PushButton:pressed {
+                background-color: #2a2a2a;
+            }
+        """)
+        self.url_btn.clicked.connect(self.input_url)
+        container_layout.addWidget(self.url_btn)
+
         # 使容器可点击
         container.mousePressEvent = self.on_container_clicked
 
@@ -1513,11 +1696,10 @@ class Sora2ImageDropWidget(QFrame):
             self.load_image(file_path)
 
     def load_image(self, file_path):
-        """加载图片并显示"""
+        """加载本地图片并显示"""
         try:
             pixmap = QPixmap(file_path)
             if not pixmap.isNull():
-                # 缩放图片以适应标签大小
                 scaled_pixmap = pixmap.scaled(
                     250, 130,
                     Qt.KeepAspectRatio,
@@ -1525,17 +1707,29 @@ class Sora2ImageDropWidget(QFrame):
                 )
                 self.image_label.setPixmap(scaled_pixmap)
 
-                with open(file_path, 'rb') as f:
-                    image_data = f.read()
-                    compressed_data = Utils.compress_image(image_data)
-                    self.base64_data = base64.b64encode(compressed_data).decode('utf-8')
-
                 self.current_image_path = file_path
-                self.current_image_data = self.base64_data
-                self.image_dropped.emit(file_path, self.base64_data)
+                self.current_image_data = file_path
+                self.image_dropped.emit(file_path, file_path)
 
         except Exception as e:
             QMessageBox.warning(self, "错误", f"加载图片失败: {str(e)}")
+
+    def input_url(self):
+        """输入远程图片 URL"""
+        from PyQt5.QtWidgets import QInputDialog
+        url, ok = QInputDialog.getText(
+            self, "输入图片URL", "请输入图片的远程URL地址:",
+            text=self.current_image_path if self.current_image_path.startswith('http') else ""
+        )
+        if ok and url.strip():
+            url = url.strip()
+            if url.startswith('http://') or url.startswith('https://'):
+                self.current_image_path = url
+                self.current_image_data = url
+                self.image_label.setText(f"🌐\n\n已设置远程URL\n{url[:50]}...")
+                self.image_dropped.emit(url, url)
+            else:
+                QMessageBox.warning(self, "警告", "请输入有效的HTTP/HTTPS URL地址")
 
     def clear_image(self):
         """清除图片"""
@@ -1657,10 +1851,11 @@ class Sora2TaskStatusCard(CardWidget):
         params_layout = QHBoxLayout()
 
         video_mode = self.task_params.get('video_mode', 't2v')
-        aspect_ratio = self.task_params.get('aspect_ratio', '9:16')
-        duration = self.task_params.get('duration', 10)
+        display = self.task_params.get('display', 'vertical')
+        duration = self.task_params.get('duration', 5)
 
-        params_text = f"{'图生视频' if video_mode == 'i2v' else '文生视频'} - {aspect_ratio} - {duration}秒"
+        display_text = "竖屏" if display == "vertical" else "横屏"
+        params_text = f"{'图生视频' if video_mode == 'i2v' else '文生视频'} - {display_text} - {duration}秒"
         self.params_label = CaptionLabel(params_text)
         self.params_label.setStyleSheet("color: #888888; font-size: 12px; background: #353535;")
         params_layout.addWidget(self.params_label)
@@ -1859,8 +2054,6 @@ class Sora2VideoGenerationWidget(QWidget, PlayVideoMixin):
         self.settings_manager = Sora2SettingsManager()
 
         api_settings = self.settings_manager.get_api_settings()
-        self.api_manager.api_url = api_settings.get("api_url",
-            "https://api.bizyair.cn/w/v1/webapp/task/openapi/create")
 
         self.key_file_path = None
 
@@ -1880,10 +2073,6 @@ class Sora2VideoGenerationWidget(QWidget, PlayVideoMixin):
         """初始化日志显示"""
         # self.add_log("=== Sora2 视频生成系统已启动 ===")
         # self.add_log(f"初始化时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-        # self.add_log(f"文生视频 Web App ID: {self.api_manager.web_app_id_t2v}")
-        # self.add_log(f"图生视频 Web App ID: {self.api_manager.web_app_id_i2v}")
-        # self.add_log(f"API URL: {self.api_manager.api_url}")
-        # self.add_log("系统就绪，请输入提示词开始生成视频")
         self.add_log("")
 
     def init_batch_manager(self):
@@ -1940,7 +2129,7 @@ class Sora2VideoGenerationWidget(QWidget, PlayVideoMixin):
         layout = QHBoxLayout(bar)
         layout.setContentsMargins(12, 12, 12, 12)
 
-        title = QLabel("Sora2 AI 视频生成")
+        title = QLabel("LTX2 AI 视频生成")
         title.setStyleSheet("font-size: 18px; font-weight: bold; color: #ffffff;")
         layout.addWidget(title)
 
@@ -2007,24 +2196,22 @@ class Sora2VideoGenerationWidget(QWidget, PlayVideoMixin):
         ratio_layout.setContentsMargins(0, 0, 0, 0)
         ratio_layout.setSpacing(20)
 
-        self.aspect_ratio_9_16 = QRadioButton("9:16 (竖屏)")
-        self.aspect_ratio_9_16.setChecked(True)
-        self.aspect_ratio_9_16.setStyleSheet("QRadioButton { color: #ffffff; font-size: 13px; }")
+        self.display_vertical = QRadioButton("竖屏")
+        self.display_vertical.setChecked(True)
+        self.display_vertical.setStyleSheet("QRadioButton { color: #ffffff; font-size: 13px; }")
 
-        self.aspect_ratio_16_9 = QRadioButton("16:9 (横屏)")
-        self.aspect_ratio_16_9.setStyleSheet("QRadioButton { color: #ffffff; font-size: 13px; }")
+        self.display_horizontal = QRadioButton("横屏")
+        self.display_horizontal.setStyleSheet("QRadioButton { color: #ffffff; font-size: 13px; }")
 
-        ratio_layout.addWidget(self.aspect_ratio_9_16)
-        ratio_layout.addWidget(self.aspect_ratio_16_9)
+        ratio_layout.addWidget(self.display_vertical)
+        ratio_layout.addWidget(self.display_horizontal)
 
         mode_ratio_layout.addWidget(ratio_widget, 1)
 
-        # 视频时长选择
-        self.duration_combo = ComboBox()
-        self.duration_combo.addItems(["10秒", "15秒"])
-        self.duration_combo.setCurrentIndex(0)
-        self.duration_combo.setFixedHeight(35)
-        mode_ratio_layout.addWidget(self.duration_combo, 1)
+        # 视频时长（LTX2.3 固定 5 秒）
+        duration_label = QLabel("5秒")
+        duration_label.setStyleSheet("color: #888888; font-size: 13px;")
+        mode_ratio_layout.addWidget(duration_label, 1)
 
         layout.addWidget(mode_ratio_widget)
 
@@ -2288,22 +2475,18 @@ class Sora2VideoGenerationWidget(QWidget, PlayVideoMixin):
         else:
             self.image_container.setVisible(False)
 
-    def set_aspect_ratio(self, ratio):
-        """Set aspect ratio"""
-        if ratio == "9:16":
-            self.aspect_ratio_9_16.setChecked(True)
-            self.aspect_ratio_16_9.setChecked(False)
+    def set_display(self, display):
+        """Set display mode"""
+        if display == "vertical":
+            self.display_vertical.setChecked(True)
+            self.display_horizontal.setChecked(False)
         else:
-            self.aspect_ratio_9_16.setChecked(False)
-            self.aspect_ratio_16_9.setChecked(True)
+            self.display_vertical.setChecked(False)
+            self.display_horizontal.setChecked(True)
 
-    def get_aspect_ratio(self):
-        """Get current aspect ratio"""
-        return "9:16" if self.aspect_ratio_9_16.isChecked() else "16:9"
-
-    def get_duration(self):
-        """Get current duration"""
-        return 10 if self.duration_combo.currentIndex() == 0 else 15
+    def get_display(self):
+        """Get current display mode"""
+        return "vertical" if self.display_vertical.isChecked() else "horizontal"
 
     def clear_image(self):
         """Clear uploaded image"""
@@ -2343,24 +2526,23 @@ class Sora2VideoGenerationWidget(QWidget, PlayVideoMixin):
 
         video_mode = "i2v" if self.video_mode_combo.currentIndex() == 1 else "t2v"
 
-        if video_mode == "i2v" and not self.image_drop_widget.current_image_data:
+        if video_mode == "i2v" and not self.image_drop_widget.current_image_path:
             QMessageBox.warning(self, "警告", "图生视频模式需要上传图片")
             return
 
-        aspect_ratio = self.get_aspect_ratio()
-        duration = self.get_duration()
+        display = self.get_display()
 
         task = {
-            'name': f'Sora2_{"图生视频" if video_mode == "i2v" else "文生视频"}_{datetime.now().strftime("%H%M%S")}',
+            'name': f'LTX2_{"图生视频" if video_mode == "i2v" else "文生视频"}_{datetime.now().strftime("%H%M%S")}',
             'prompt': prompt,
             'video_mode': video_mode,
-            'aspect_ratio': aspect_ratio,
-            'duration': duration
+            'display': display,
+            'duration': 5
         }
 
         if video_mode == "i2v":
-            task['image_input'] = self.image_drop_widget.current_image_data
-            task['image_path'] = self.image_drop_widget.current_image_path
+            # LTX2.3 I2V 需要文件路径或 URL，Worker 会自动上传本地文件
+            task['image_input'] = self.image_drop_widget.current_image_path
 
         task_map = {f"task_{int(time.time())}": task}
         self.start_generation(task_map)
@@ -2373,8 +2555,7 @@ class Sora2VideoGenerationWidget(QWidget, PlayVideoMixin):
             return
 
         video_mode = "i2v" if self.video_mode_combo.currentIndex() == 1 else "t2v"
-        aspect_ratio = self.get_aspect_ratio()
-        duration = self.get_duration()
+        display = self.get_display()
 
         lines = [line.strip() for line in batch_text.split('\n') if line.strip()]
         task_map = {}
@@ -2385,26 +2566,24 @@ class Sora2VideoGenerationWidget(QWidget, PlayVideoMixin):
                 if len(parts) == 2:
                     image_path, prompt = parts
                     task = {
-                        'name': f'Sora2 图生视频_{i+1:03d}',
+                        'name': f'LTX2 图生视频_{i+1:03d}',
                         'prompt': prompt.strip(),
                         'video_mode': 'i2v',
-                        'aspect_ratio': aspect_ratio,
-                        'duration': duration,
-                        'image_input': image_path.strip(),
-                        'image_path': image_path.strip()
+                        'display': display,
+                        'duration': 5,
+                        'image_input': image_path.strip()
                     }
             else:
                 task = {
-                    'name': f'Sora2_{"图生视频" if video_mode == "i2v" else "文生视频"}_{i+1:03d}',
+                    'name': f'LTX2_{"图生视频" if video_mode == "i2v" else "文生视频"}_{i+1:03d}',
                     'prompt': line,
                     'video_mode': video_mode,
-                    'aspect_ratio': aspect_ratio,
-                    'duration': duration
+                    'display': display,
+                    'duration': 5
                 }
 
                 if video_mode == "i2v":
-                    task['image_input'] = self.image_drop_widget.current_image_data
-                    task['image_path'] = self.image_drop_widget.current_image_path
+                    task['image_input'] = self.image_drop_widget.current_image_path
 
             task_map[f"task_{int(time.time())}_{i}"] = task
 
@@ -2431,9 +2610,9 @@ class Sora2VideoGenerationWidget(QWidget, PlayVideoMixin):
         """Add task status card"""
         task_params = {
             'video_mode': task.get('video_mode', 't2v'),
-            'aspect_ratio': task.get('aspect_ratio', '9:16'),
+            'display': task.get('display', 'vertical'),
             'prompt': task.get('prompt', ''),
-            'duration': task.get('duration', 10)
+            'duration': task.get('duration', 5)
         }
 
         card = Sora2TaskStatusCard(task_id, task.get('name', f'Task_{task_id}'), task_params, self)
@@ -2569,7 +2748,7 @@ class Sora2VideoGenerationWidget(QWidget, PlayVideoMixin):
                 'id': request_id,
                 'url': video_url,
                 'prompt': task.get('prompt', ''),
-                'aspect_ratio': task.get('aspect_ratio', '9:16'),
+                'display': task.get('display', 'vertical'),
                 'video_mode': task.get('video_mode', 't2v'),
                 'task_name': task_name,
                 'timestamp': datetime.now().isoformat(),
@@ -3007,20 +3186,11 @@ class Sora2VideoGenerationWidget(QWidget, PlayVideoMixin):
     def load_settings(self):
         """加载设置"""
         api_settings = self.settings_manager.get_api_settings()
-        self.api_manager.api_url = api_settings.get("api_url",
-            "https://api.bizyair.cn/w/v1/webapp/task/openapi/create")
-        self.api_manager.web_app_id_t2v = api_settings.get("web_app_id_t2v", 42921)
-        self.api_manager.web_app_id_i2v = api_settings.get("web_app_id_i2v", 42936)
 
         # 加载视频参数
         video_params = self.settings_manager.get_video_params()
-        aspect_ratio = video_params.get("aspect_ratio", "9:16")
-        self.set_aspect_ratio(aspect_ratio)
-
-        # 加载时长设置
-        duration = video_params.get("duration", 10)
-        self.duration_combo.setCurrentIndex(0 if duration == 10 else 1)
-        self.duration_combo.currentIndexChanged.connect(self.save_current_settings)
+        display = video_params.get("display", "vertical")
+        self.set_display(display)
 
         # 加载UI设置
         ui_settings = self.settings_manager.load_settings().get("ui_settings", {})
@@ -3054,7 +3224,7 @@ class Sora2VideoGenerationWidget(QWidget, PlayVideoMixin):
 
     def add_log(self, message):
         """Add log"""
-        print(f"[Sora2] {message}")
+        print(f"[LTX2] {message}")
         # 同时显示到界面上
         if hasattr(self, 'log_text'):
             # 获取当前时间
@@ -3120,12 +3290,9 @@ class Sora2VideoGenerationWidget(QWidget, PlayVideoMixin):
 
     def save_current_settings(self):
         """保存当前设置"""
-        current_duration = self.get_duration()
         self.settings_manager.set_video_params(
-            aspect_ratio=self.get_aspect_ratio(),
-            duration=current_duration,
-            duration_t2v=current_duration,
-            duration_i2v=current_duration
+            display=self.get_display(),
+            duration=5
         )
 
     def show_task_history(self):
@@ -3139,7 +3306,7 @@ class Sora2APISettingsDialog(QDialog):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Sora2 API Settings")
+        self.setWindowTitle("LTX2 API 设置")
         self.setMinimumSize(600, 500)
         self.settings_manager = Sora2SettingsManager()
         self.init_ui()
@@ -3237,20 +3404,20 @@ class Sora2APISettingsDialog(QDialog):
         api_group.setStyleSheet(source_group.styleSheet())
         api_layout = QVBoxLayout()
 
-        api_layout.addWidget(QLabel("文生视频 Web App ID："))
-        self.t2v_app_id_edit = LineEdit()
-        self.t2v_app_id_edit.setFixedHeight(35)
-        api_layout.addWidget(self.t2v_app_id_edit)
+        api_layout.addWidget(QLabel("文生视频 API URL："))
+        self.t2v_url_edit = LineEdit()
+        self.t2v_url_edit.setFixedHeight(35)
+        api_layout.addWidget(self.t2v_url_edit)
 
-        api_layout.addWidget(QLabel("图生视频 Web App ID："))
-        self.i2v_app_id_edit = LineEdit()
-        self.i2v_app_id_edit.setFixedHeight(35)
-        api_layout.addWidget(self.i2v_app_id_edit)
+        api_layout.addWidget(QLabel("图生视频 API URL："))
+        self.i2v_url_edit = LineEdit()
+        self.i2v_url_edit.setFixedHeight(35)
+        api_layout.addWidget(self.i2v_url_edit)
 
-        api_layout.addWidget(QLabel("API URL:"))
-        self.api_url_edit = LineEdit()
-        self.api_url_edit.setFixedHeight(35)
-        api_layout.addWidget(self.api_url_edit)
+        api_layout.addWidget(QLabel("查询接口 URL："))
+        self.query_url_edit_api = LineEdit()
+        self.query_url_edit_api.setFixedHeight(35)
+        api_layout.addWidget(self.query_url_edit_api)
 
         api_group.setLayout(api_layout)
         scroll_layout.addWidget(api_group)
@@ -3286,7 +3453,7 @@ class Sora2APISettingsDialog(QDialog):
         # 查询 URL
         webhook_layout.addWidget(QLabel("查询接口 URL:"))
         self.query_url_edit = LineEdit()
-        self.query_url_edit.setPlaceholderText("https://api.bizyair.cn/w/v1/webapp/task/openapi/outputs")
+        self.query_url_edit.setPlaceholderText("https://api.bizyair.cn/x/v1/modelzoo/tasks/openapi")
         self.query_url_edit.setFixedHeight(35)
         webhook_layout.addWidget(self.query_url_edit)
 
@@ -3369,10 +3536,12 @@ class Sora2APISettingsDialog(QDialog):
 
         self.key_file_edit.setText(api_settings.get("key_file", ""))
         self.key_text_edit.setPlainText(api_settings.get("key_text", ""))
-        self.t2v_app_id_edit.setText(str(api_settings.get("web_app_id_t2v", 42921)))
-        self.i2v_app_id_edit.setText(str(api_settings.get("web_app_id_i2v", 42936)))
-        self.api_url_edit.setText(api_settings.get("api_url",
-            "https://api.bizyair.cn/w/v1/webapp/task/openapi/create"))
+        self.t2v_url_edit.setText(api_settings.get("api_url_t2v",
+            "https://api.bizyair.cn/x/v1/modelzoo/tasks/openapi/ltx-2-3/text-to-video"))
+        self.i2v_url_edit.setText(api_settings.get("api_url_i2v",
+            "https://api.bizyair.cn/x/v1/modelzoo/tasks/openapi/ltx-2-3/image-to-video"))
+        self.query_url_edit_api.setText(api_settings.get("query_url",
+            "https://api.bizyair.cn/x/v1/modelzoo/tasks/openapi"))
 
         # 加载 WebHook 设置
         webhook_settings = self.settings_manager.get_webhook_settings()
@@ -3388,20 +3557,13 @@ class Sora2APISettingsDialog(QDialog):
         key_source_map = {0: "file", 1: "env", 2: "text"}
         key_source = key_source_map.get(self.key_source_combo.currentIndex(), "file")
 
-        try:
-            t2v_app_id = int(self.t2v_app_id_edit.text().strip())
-            i2v_app_id = int(self.i2v_app_id_edit.text().strip())
-        except ValueError:
-            QMessageBox.warning(self, "错误", "Web App ID 必须是数字")
-            return
-
         success = self.settings_manager.set_api_settings(
             key_file=self.key_file_edit.text().strip(),
-            web_app_id_t2v=t2v_app_id,
-            web_app_id_i2v=i2v_app_id,
-            api_url=self.api_url_edit.text().strip(),
             key_text=self.key_text_edit.toPlainText().strip(),
-            key_source=key_source
+            key_source=key_source,
+            api_url_t2v=self.t2v_url_edit.text().strip(),
+            api_url_i2v=self.i2v_url_edit.text().strip(),
+            query_url=self.query_url_edit_api.text().strip()
         )
 
         # 保存 WebHook 设置
@@ -3415,7 +3577,7 @@ class Sora2APISettingsDialog(QDialog):
         )
 
         if success and webhook_success:
-            QMessageBox.information(self, "成功", "Sora2 API设置已保存")
+            QMessageBox.information(self, "成功", "LTX2 API设置已保存")
             self.accept()
         else:
             QMessageBox.critical(self, "错误", "设置保存失败")
@@ -3480,7 +3642,7 @@ class Sora2TaskQueryScheduler(QObject):
         try:
             webhook_settings = self.settings_manager.get_webhook_settings()
             query_url = webhook_settings.get("query_url",
-                "https://api.bizyair.cn/w/v1/webapp/task/openapi/outputs")
+                "https://api.bizyair.cn/x/v1/modelzoo/tasks/openapi")
 
             # 从原始 API 密钥存储中获取完整密钥
             api_key = self._get_full_api_key(api_key_masked)
@@ -3494,7 +3656,7 @@ class Sora2TaskQueryScheduler(QObject):
             }
 
             response = requests.get(
-                f"{query_url}?requestId={request_id}",
+                f"{query_url}/{request_id}",
                 headers=headers,
                 timeout=30,
                 proxies={"http": None, "https": None}
@@ -3503,31 +3665,30 @@ class Sora2TaskQueryScheduler(QObject):
             response.raise_for_status()
             data = response.json()
 
-            # 解析响应
-            if data.get("code") == 20000:
-                task_data = data.get("data", {})
-                status = task_data.get("status", "")
+            # 解析 LTX2.3 响应
+            status = data.get("status", "")
 
-                if status == "Success":
-                    outputs = task_data.get("outputs", [])
-                    if outputs:
-                        video_url = outputs[0].get("object_url", "")
-                        self.history_manager.update_task_status(
-                            task_id, "success", video_url=video_url
-                        )
-                        self.task_status_updated.emit(task_id, "success", video_url)
-                        Utils.log_message(f"任务 {task_id} 完成: {video_url}", self.log_updated)
-
-                elif status == "Failed":
+            if status == "Success":
+                outputs = data.get("outputs", {})
+                videos = outputs.get("videos", [])
+                if videos:
+                    video_url = videos[0]
                     self.history_manager.update_task_status(
-                        task_id, "failed", error_message="任务执行失败"
+                        task_id, "success", video_url=video_url
                     )
-                    self.task_status_updated.emit(task_id, "failed", "")
-                    Utils.log_message(f"任务 {task_id} 失败", self.log_updated)
+                    self.task_status_updated.emit(task_id, "success", video_url)
+                    Utils.log_message(f"任务 {task_id} 完成: {video_url}", self.log_updated)
 
-                else:
-                    # 仍在运行中
-                    Utils.log_message(f"任务 {task_id} 仍在运行中 ({status})", self.log_updated)
+            elif status == "Failed":
+                self.history_manager.update_task_status(
+                    task_id, "failed", error_message="任务执行失败"
+                )
+                self.task_status_updated.emit(task_id, "failed", "")
+                Utils.log_message(f"任务 {task_id} 失败", self.log_updated)
+
+            else:
+                # 仍在运行中
+                Utils.log_message(f"任务 {task_id} 仍在运行中 ({status})", self.log_updated)
 
         except Exception as e:
             Utils.log_message(f"查询任务 {task_id} 失败: {str(e)}", self.log_updated)
@@ -3593,7 +3754,7 @@ class Sora2WebHookQueryScheduler(QObject):
         # 获取查询设置
         webhook_settings = self.settings_manager.get_webhook_settings()
         query_url = webhook_settings.get("query_url",
-            "https://api.bizyair.cn/w/v1/webapp/task/openapi/outputs")
+            "https://api.bizyair.cn/x/v1/modelzoo/tasks/openapi")
 
         api_key = self.api_manager.get_next_key()
         if not api_key:
@@ -3633,7 +3794,7 @@ class Sora2WebHookQueryScheduler(QObject):
 
         proxies = {"http": None, "https": None}
         response = requests.get(
-            f"{query_url}?requestId={request_id}",
+            f"{query_url}/{request_id}",
             headers=headers,
             timeout=30,
             proxies=proxies
@@ -3644,53 +3805,51 @@ class Sora2WebHookQueryScheduler(QObject):
 
         self.log_updated.emit(f"[调度器] 响应: {json.dumps(data, ensure_ascii=False, indent=2)}")
 
-        # 解析响应
-        if data.get('code') == 20000 and data.get('status'):
-            result_data = data.get('data', {})
-            status = result_data.get('status', '')
+        # 解析 LTX2.3 响应
+        status = data.get('status', '')
 
-            if status == 'Success':
-                # 任务成功完成 - 立即发送信号显示结果
-                outputs = result_data.get('outputs', [])
-                if outputs and len(outputs) > 0:
-                    video_url = outputs[0].get('object_url', '')
-                    if video_url:
-                        self.log_updated.emit(f"[调度器] ✓ 任务 {request_id[:48]} 完成！立即显示结果...")
+        if status == 'Success':
+            # 任务成功完成 - 立即发送信号显示结果
+            outputs = data.get('outputs', {})
+            videos = outputs.get('videos', [])
+            if videos:
+                video_url = videos[0]
+                self.log_updated.emit(f"[调度器] ✓ 任务 {request_id[:48]} 完成！立即显示结果...")
 
-                        # 立即发送成功信号，触发 UI 显示
-                        self.query_result.emit(True, video_url, request_id)
+                # 立即发送成功信号，触发 UI 显示
+                self.query_result.emit(True, video_url, request_id)
 
-                        # 强制处理 UI 事件，确保结果立即显示
-                        QCoreApplication.processEvents()
-
-                        # 更新任务历史
-                        task = self.history_manager.get_task_by_request_id(request_id)
-                        if task:
-                            self.history_manager.update_task_status(
-                                task['task_id'], 'success', video_url=video_url
-                            )
-
-                        # 停止监控此任务
-                        self.stop_monitoring(request_id)
-                        return 'completed'
-
-            elif status == 'Failed':
-                self.log_updated.emit(f"[调度器] ✗ 任务 {request_id[:48]} 失败")
+                # 强制处理 UI 事件，确保结果立即显示
+                QCoreApplication.processEvents()
 
                 # 更新任务历史
                 task = self.history_manager.get_task_by_request_id(request_id)
                 if task:
                     self.history_manager.update_task_status(
-                        task['task_id'], 'failed', error_message='任务执行失败'
+                        task['task_id'], 'success', video_url=video_url
                     )
 
                 # 停止监控此任务
                 self.stop_monitoring(request_id)
-                return 'failed'
-            else:
-                # 仍在运行中
-                self.log_updated.emit(f"[调度器] 任务 {request_id[:48]} 仍在运行中 ({status})")
-                return 'running'
+                return 'completed'
+
+        elif status == 'Failed':
+            self.log_updated.emit(f"[调度器] ✗ 任务 {request_id[:48]} 失败")
+
+            # 更新任务历史
+            task = self.history_manager.get_task_by_request_id(request_id)
+            if task:
+                self.history_manager.update_task_status(
+                    task['task_id'], 'failed', error_message='任务执行失败'
+                )
+
+            # 停止监控此任务
+            self.stop_monitoring(request_id)
+            return 'failed'
+        else:
+            # 仍在运行中
+            self.log_updated.emit(f"[调度器] 任务 {request_id[:48]} 仍在运行中 ({status})")
+            return 'running'
 
         return 'unknown'
 
@@ -3705,7 +3864,7 @@ class Sora2WebHookQueryScheduler(QObject):
 
         webhook_settings = self.settings_manager.get_webhook_settings()
         query_url = webhook_settings.get("query_url",
-            "https://api.bizyair.cn/w/v1/webapp/task/openapi/outputs")
+            "https://api.bizyair.cn/x/v1/modelzoo/tasks/openapi")
 
         try:
             headers = {
@@ -3715,7 +3874,7 @@ class Sora2WebHookQueryScheduler(QObject):
 
             proxies = {"http": None, "https": None}
             response = requests.get(
-                f"{query_url}?requestId={request_id}",
+                f"{query_url}/{request_id}",
                 headers=headers,
                 timeout=30,
                 proxies=proxies
@@ -3726,33 +3885,32 @@ class Sora2WebHookQueryScheduler(QObject):
 
             self.log_updated.emit(f"[调度器] 手动查询响应: {json.dumps(data, ensure_ascii=False, indent=2)}")
 
-            # 解析响应
-            if data.get('code') == 20000 and data.get('status'):
-                result_data = data.get('data', {})
-                status = result_data.get('status', '')
+            # 解析 LTX2.3 响应
+            status = data.get('status', '')
 
-                if status == 'Success':
-                    outputs = result_data.get('outputs', [])
-                    if outputs and len(outputs) > 0:
-                        video_url = outputs[0].get('object_url', '')
-                        if video_url:
-                            # 更新任务历史
-                            task = self.history_manager.get_task_by_request_id(request_id)
-                            if task:
-                                self.history_manager.update_task_status(
-                                    task['task_id'], 'success', video_url=video_url
-                                )
+            if status == 'Success':
+                outputs = data.get('outputs', {})
+                videos = outputs.get('videos', [])
+                if videos:
+                    video_url = videos[0]
+                    if video_url:
+                        # 更新任务历史
+                        task = self.history_manager.get_task_by_request_id(request_id)
+                        if task:
+                            self.history_manager.update_task_status(
+                                task['task_id'], 'success', video_url=video_url
+                            )
 
-                            return True, video_url, "查询成功"
+                        return True, video_url, "查询成功"
 
-                elif status == 'Failed':
-                    task = self.history_manager.get_task_by_request_id(request_id)
-                    if task:
-                        self.history_manager.update_task_status(
-                            task['task_id'], 'failed', error_message='任务执行失败'
-                        )
+            elif status == 'Failed':
+                task = self.history_manager.get_task_by_request_id(request_id)
+                if task:
+                    self.history_manager.update_task_status(
+                        task['task_id'], 'failed', error_message='任务执行失败'
+                    )
 
-                    return False, "", "任务执行失败"
+                return False, "", "任务执行失败"
 
             return False, "", f"任务状态: {status}"
 
@@ -4120,7 +4278,7 @@ if __name__ == "__main__":
     qf.setTheme(Theme.DARK)
 
     window = Sora2VideoGenerationWidget()
-    window.setWindowTitle("Sora2 AI 视频生成器")
+    window.setWindowTitle("LTX2 AI 视频生成器")
     window.resize(1200, 800)
     window.show()
 

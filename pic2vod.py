@@ -301,6 +301,18 @@ class VideoSettingsManager:
 class APIKeyManager:
     """API密钥管理器"""
 
+    # 单图片转视频 Web App ID 配置: (id, 显示名)
+    SINGLE_APP_CONFIGS = [
+        (41538, "Wan2.1 图生视频"),
+        (44773, "Wan2.1 图生视频-v2"),
+        (41863, "Wan2.1 图生视频(Clip)"),
+    ]
+    # 首尾帧转视频 Web App ID 配置: (id, 显示名)
+    FRAMES_APP_CONFIGS = [
+        (39388, "首尾帧生视频"),
+        (44750, "首尾帧生视频-v2"),
+    ]
+
     def __init__(self):
         self.api_keys = []
         self.key_file = ""
@@ -621,18 +633,33 @@ class SingleVideoGenerationWorker(QThread):
                         end_image_value = f"data:{end_image_type};base64,{end_base64_data}"
                         self.log_message(f"✅ 尾图已转换为data URL格式 ({end_image_type})")
 
-                bizyair_request_data = {
-                    "web_app_id": self.api_manager.web_app_id_frames,  # 使用首尾帧 Web App ID
-                    "suppress_preview_output": False,
-                    "input_values": {
-                        "67:LoadImage.image": image_value,  # 首图
-                        "99:LoadImage.image": end_image_value,  # 尾图
-                        "100:easy int.value": width,
-                        "101:easy int.value": height,
-                        "89:WanVideoImageToVideoEncode.num_frames": num_frames
+                web_app_id = self.api_manager.web_app_id_frames
+                if web_app_id == 44750:
+                    # 44750 使用不同的字段映射
+                    bizyair_request_data = {
+                        "web_app_id": web_app_id,
+                        "suppress_preview_output": False,
+                        "input_values": {
+                            "52:LoadImage.image": image_value,  # 首图
+                            "53:LoadImage.image": end_image_value,  # 尾图
+                            "26:JWInteger.value": num_frames,
+                            "30:WanVideoTextEncode.positive_prompt": prompt
+                        }
                     }
-                }
-                self.log_message(f"📋 使用首尾帧模式，Web App ID: {self.api_manager.web_app_id_frames}")
+                else:
+                    # 39388 使用原有字段映射
+                    bizyair_request_data = {
+                        "web_app_id": web_app_id,
+                        "suppress_preview_output": False,
+                        "input_values": {
+                            "67:LoadImage.image": image_value,  # 首图
+                            "99:LoadImage.image": end_image_value,  # 尾图
+                            "100:easy int.value": width,
+                            "101:easy int.value": height,
+                            "89:WanVideoImageToVideoEncode.num_frames": num_frames
+                        }
+                    }
+                self.log_message(f"📋 使用首尾帧模式，Web App ID: {web_app_id}")
             elif self.video_mode == "video":
                 # 视频换人物模式
                 video_input = self.task.get('video_input', '')
@@ -669,19 +696,35 @@ class SingleVideoGenerationWorker(QThread):
                 }
                 self.log_message(f"📋 使用视频换人物模式，Web App ID: {self.api_manager.web_app_id_video}")
             else:
-                # 单图片转视频模式（原有逻辑）
-                bizyair_request_data = {
-                    "web_app_id": self.api_manager.web_app_id_single,  # 使用单图片 Web App ID
-                    "suppress_preview_output": False,
-                    "input_values": {
-                        "67:LoadImage.image": image_value,  # data URL 或 URL 格式
-                        "68:ImageResizeKJv2.width": width,
-                        "68:ImageResizeKJv2.height": height,
-                        "16:WanVideoTextEncode.positive_prompt": prompt,
-                        "89:WanVideoImageToVideoEncode.num_frames": num_frames
+                # 单图片转视频模式 - 根据不同 Web App ID 构建不同字段
+                web_app_id = self.api_manager.web_app_id_single
+                if web_app_id == 41863:
+                    # 41863 使用不同的字段映射
+                    bizyair_request_data = {
+                        "web_app_id": web_app_id,
+                        "suppress_preview_output": False,
+                        "input_values": {
+                            "106:LoadImage.image": image_value,
+                            "6:CLIPTextEncode.text": prompt,
+                            "107:WanImageToVideo.width": width,
+                            "107:WanImageToVideo.height": height,
+                            "107:WanImageToVideo.length": num_frames
+                        }
                     }
-                }
-                self.log_message(f"📋 使用单图片模式，Web App ID: {self.api_manager.web_app_id_single}")
+                else:
+                    # 41538, 44773 使用相同的字段映射
+                    bizyair_request_data = {
+                        "web_app_id": web_app_id,
+                        "suppress_preview_output": False,
+                        "input_values": {
+                            "67:LoadImage.image": image_value,
+                            "68:ImageResizeKJv2.width": width,
+                            "68:ImageResizeKJv2.height": height,
+                            "16:WanVideoTextEncode.positive_prompt": prompt,
+                            "89:WanVideoImageToVideoEncode.num_frames": num_frames
+                        }
+                    }
+                self.log_message(f"📋 使用单图片模式，Web App ID: {web_app_id}")
 
             headers = {
                 "Content-Type": "application/json",
@@ -4426,22 +4469,36 @@ class APISettingsDialog(QDialog):
         self.load_current_settings()
         self.setStyleSheet("""
             QDialog { background-color: #1e1e1e; color: #ffffff; }
-            QSpinBox {
+            QComboBox {
                 background-color: #333333;
                 border: 1px solid #505050;
                 border-radius: 4px;
                 color: #ffffff;
-                padding: 4px;
+                padding: 4px 8px;
                 min-height: 30px;
                 font-size: 14px;
             }
-            QSpinBox:hover {
+            QComboBox:hover {
                 border: 1px solid #4a90e2;
             }
-            QSpinBox::up-button, QSpinBox::down-button {
-                width: 20px;
-                background-color: #404040;
+            QComboBox::drop-down {
                 border: none;
+                width: 24px;
+            }
+            QComboBox::down-arrow {
+                image: none;
+                border-left: 5px solid transparent;
+                border-right: 5px solid transparent;
+                border-top: 6px solid #aaaaaa;
+                margin-right: 6px;
+            }
+            QComboBox QAbstractItemView {
+                background-color: #2a2a2a;
+                border: 1px solid #505050;
+                color: #ffffff;
+                selection-background-color: #4a90e2;
+                selection-color: #ffffff;
+                outline: none;
             }
             QLineEdit {
                 background-color: #333333;
@@ -4460,25 +4517,25 @@ class APISettingsDialog(QDialog):
         webapp_group = QGroupBox("Web App ID 配置")
         webapp_layout = QVBoxLayout(webapp_group)
 
-        # 单图片转视频 Web App ID
+        # 单图片转视频 Web App ID（下拉菜单）
         single_layout = QHBoxLayout()
-        single_layout.addWidget(QLabel("单图片转视频 ID:"))
-        self.webapp_id_single_spin = QSpinBox()
-        self.webapp_id_single_spin.setRange(1, 99999)
-        self.webapp_id_single_spin.setValue(getattr(self.api_manager, 'web_app_id_single', 41538))
-        self.webapp_id_single_spin.setFixedWidth(150)
-        single_layout.addWidget(self.webapp_id_single_spin)
+        single_layout.addWidget(QLabel("单图片转视频:"))
+        self.webapp_id_single_combo = QComboBox()
+        self.webapp_id_single_combo.setFixedWidth(250)
+        for app_id, app_name in APIKeyManager.SINGLE_APP_CONFIGS:
+            self.webapp_id_single_combo.addItem(f"{app_id} - {app_name}", app_id)
+        single_layout.addWidget(self.webapp_id_single_combo)
         single_layout.addStretch()
         webapp_layout.addLayout(single_layout)
 
-        # 首尾帧图片转视频 Web App ID
+        # 首尾帧图片转视频 Web App ID（下拉菜单）
         frames_layout = QHBoxLayout()
-        frames_layout.addWidget(QLabel("首尾帧转视频 ID:"))
-        self.webapp_id_frames_spin = QSpinBox()
-        self.webapp_id_frames_spin.setRange(1, 99999)
-        self.webapp_id_frames_spin.setValue(getattr(self.api_manager, 'web_app_id_frames', 39388))
-        self.webapp_id_frames_spin.setFixedWidth(150)
-        frames_layout.addWidget(self.webapp_id_frames_spin)
+        frames_layout.addWidget(QLabel("首尾帧转视频:"))
+        self.webapp_id_frames_combo = QComboBox()
+        self.webapp_id_frames_combo.setFixedWidth(250)
+        for app_id, app_name in APIKeyManager.FRAMES_APP_CONFIGS:
+            self.webapp_id_frames_combo.addItem(f"{app_id} - {app_name}", app_id)
+        frames_layout.addWidget(self.webapp_id_frames_combo)
         frames_layout.addStretch()
         webapp_layout.addLayout(frames_layout)
 
@@ -4608,6 +4665,18 @@ class APISettingsDialog(QDialog):
 
         self.on_key_source_changed() # 初始状态更新
 
+    @staticmethod
+    def _select_combo_by_data(combo, target_data, default_data):
+        """根据 data 值选择 ComboBox 项"""
+        for i in range(combo.count()):
+            if combo.itemData(i) == target_data:
+                combo.setCurrentIndex(i)
+                return
+        for i in range(combo.count()):
+            if combo.itemData(i) == default_data:
+                combo.setCurrentIndex(i)
+                return
+
     def on_key_source_changed(self):
         """密钥源切换处理"""
         is_file = self.file_radio.isChecked()
@@ -4681,9 +4750,9 @@ class APISettingsDialog(QDialog):
 
     def save_settings(self):
         """保存设置"""
-        # 保存三个 Web App ID
-        webapp_id_single = self.webapp_id_single_spin.value()
-        webapp_id_frames = self.webapp_id_frames_spin.value()
+        # 保存三个 Web App ID（从下拉菜单获取）
+        webapp_id_single = self.webapp_id_single_combo.currentData()
+        webapp_id_frames = self.webapp_id_frames_combo.currentData()
         webapp_id_video = self.webapp_id_video_spin.value()
         api_url = self.api_url_edit.text().strip()
 
@@ -4789,9 +4858,9 @@ class APISettingsDialog(QDialog):
                 webapp_id_video = api_settings.get('web_app_id_video', 38808)
                 api_url = api_settings.get('api_url', 'https://api.bizyair.cn/w/v1/webapp/task/openapi/create')
 
-                # 设置 Web App ID
-                self.webapp_id_single_spin.setValue(webapp_id_single)
-                self.webapp_id_frames_spin.setValue(webapp_id_frames)
+                # 设置 Web App ID（下拉菜单按数据匹配）
+                self._select_combo_by_data(self.webapp_id_single_combo, webapp_id_single, 41538)
+                self._select_combo_by_data(self.webapp_id_frames_combo, webapp_id_frames, 39388)
                 self.webapp_id_video_spin.setValue(webapp_id_video)
                 self.api_url_edit.setText(api_url)
 

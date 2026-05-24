@@ -18,7 +18,7 @@ from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
                             QTextEdit, QSpinBox, QMessageBox, QFileDialog,
                             QGroupBox, QSplitter, QFrame,
                             QScrollArea, QDialog, QGridLayout, QTabWidget,
-                            QTableWidgetItem, QTableWidget)
+                            QTableWidgetItem, QTableWidget, QSizePolicy)
 from PyQt5.QtGui import QDesktopServices
 from qfluentwidgets import (FluentIcon, PrimaryPushButton, PushButton,
                           LineEdit, ComboBox, ProgressBar, TableWidget, InfoBar, InfoBarPosition)
@@ -622,23 +622,23 @@ class AsyncVideoGenerationWorker(QThread):
         # 第一次查询前的等待时间（5分钟 = 300秒）
         initial_wait = 300
         self.log(f"任务已提交，等待 {initial_wait//60} 分钟后开始查询...")
-        self.progress_updated.emit(30, f"等待 {initial_wait//60} 分钟后开始查询...")
+        self.progress_updated.emit(60, f"等待 {initial_wait//60} 分钟后开始查询...")
 
-        # 分段等待，每30秒报告一次进度
-        wait_steps = initial_wait // 30
+        # 分段等待，每60秒报告一次进度
+        wait_steps = initial_wait // 60
         for i in range(wait_steps):
             if self.is_cancelled:
                 self.log("任务已取消")
                 return None
-            time.sleep(30)
-            remaining = (wait_steps - i - 1) * 30
+            time.sleep(60)
+            remaining = (wait_steps - i - 1) * 60
             if remaining > 0:
                 self.log(f"等待中... 还需 {remaining//60} 分 {(remaining%60)//10}0 秒")
-                self.progress_updated.emit(30 + int((i+1)/wait_steps*20), f"等待中... {remaining//60}:{remaining%60:02d}")
+                self.progress_updated.emit(60 + int((i+1)/wait_steps*20), f"等待中... {remaining//60}:{remaining%60:02d}")
 
         # 开始轮询查询（每1分钟一次）
-        max_attempts = 30  # 最多30次（15分钟）
-        check_interval = 30  # V2.2.0: 每30秒查询一次
+        max_attempts = 60  # 最多60次（60分钟）
+        check_interval = 60  # V2.2.0: 每60秒查询一次
 
         self.log("开始查询任务状态...")
         self.progress_updated.emit(50, "查询任务状态...")
@@ -821,9 +821,9 @@ class DynamicParameterInput(QWidget):
 
         # 参数名标签
         label = QLabel(self._get_display_name())
-        label.setMinimumWidth(70)
-        label.setMaximumWidth(100)
-        label.setStyleSheet("color: #888888; font-size: 12px;")
+        label.setMinimumWidth(60)
+        label.setMaximumWidth(90)
+        label.setStyleSheet("color: #999999; font-size: 12px;")
         layout.addWidget(label)
 
         # 根据参数类型创建输入控件
@@ -875,14 +875,28 @@ class DynamicParameterInput(QWidget):
         widget = QWidget()
         layout = QHBoxLayout(widget)
         layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(6)
 
         self.path_edit = LineEdit()
         self.path_edit.setPlaceholderText("输入图片URL或点击选择文件")
         self.path_edit.setFixedHeight(32)
+        self.path_edit.setStyleSheet("""
+            LineEdit {
+                background-color: #252525;
+                color: #cccccc;
+                border: 1px solid #3a3a3a;
+                border-radius: 4px;
+                padding: 4px 8px;
+                font-size: 13px;
+            }
+            LineEdit:focus {
+                border: 1px solid #4a90e2;
+            }
+        """)
         layout.addWidget(self.path_edit, 1)
 
-        btn = PushButton(FluentIcon.FOLDER, "")
-        btn.setFixedSize(40, 32)
+        btn = PushButton(FluentIcon.FOLDER, "选择")
+        btn.setFixedSize(128, 32)
         btn.clicked.connect(self._select_image_file)
         layout.addWidget(btn)
 
@@ -897,14 +911,28 @@ class DynamicParameterInput(QWidget):
         widget = QWidget()
         layout = QHBoxLayout(widget)
         layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(6)
 
         self.path_edit = LineEdit()
         self.path_edit.setPlaceholderText("输入音频URL或点击选择文件")
         self.path_edit.setFixedHeight(32)
+        self.path_edit.setStyleSheet("""
+            LineEdit {
+                background-color: #252525;
+                color: #cccccc;
+                border: 1px solid #3a3a3a;
+                border-radius: 4px;
+                padding: 4px 8px;
+                font-size: 13px;
+            }
+            LineEdit:focus {
+                border: 1px solid #4a90e2;
+            }
+        """)
         layout.addWidget(self.path_edit, 1)
 
-        btn = PushButton(FluentIcon.FOLDER, "")
-        btn.setFixedSize(40, 32)
+        btn = PushButton(FluentIcon.FOLDER, "选择")
+        btn.setFixedSize(128, 32)
         btn.clicked.connect(self._select_audio_file)
         layout.addWidget(btn)
 
@@ -919,14 +947,28 @@ class DynamicParameterInput(QWidget):
         widget = QWidget()
         layout = QHBoxLayout(widget)
         layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(6)
 
         self.path_edit = LineEdit()
         self.path_edit.setPlaceholderText("输入视频URL或点击选择文件")
         self.path_edit.setFixedHeight(32)
+        self.path_edit.setStyleSheet("""
+            LineEdit {
+                background-color: #252525;
+                color: #cccccc;
+                border: 1px solid #3a3a3a;
+                border-radius: 4px;
+                padding: 4px 8px;
+                font-size: 13px;
+            }
+            LineEdit:focus {
+                border: 1px solid #4a90e2;
+            }
+        """)
         layout.addWidget(self.path_edit, 1)
 
-        btn = PushButton(FluentIcon.FOLDER, "")
-        btn.setFixedSize(40, 32)
+        btn = PushButton(FluentIcon.FOLDER, "选择")
+        btn.setFixedSize(128, 32)
         btn.clicked.connect(self._select_video_file)
         layout.addWidget(btn)
 
@@ -940,21 +982,21 @@ class DynamicParameterInput(QWidget):
         """创建提示词输入控件"""
         edit = QTextEdit()
         edit.setPlaceholderText("输入提示词...")
-        edit.setMinimumHeight(60)
-        edit.setMaximumHeight(120)
+        edit.setMinimumHeight(120)
+        edit.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         edit.setStyleSheet("""
             QTextEdit {
-                background-color: #1e1e1e;
+                background-color: #252525;
                 color: #cccccc;
-                border: 1px solid #333333;
-                border-radius: 6px;
-                padding: 8px;
-                font-size: 13px;
-                font-family: 'SF Pro Text', 'PingFang SC', 'Microsoft YaHei', sans-serif;
-                line-height: 1.5;
+                border: 1px solid #3a3a3a;
+                border-radius: 4px;
+                padding: 6px 8px;
+                font-size: 24px;
+                line-height: 1.4;
             }
             QTextEdit:focus {
                 border: 1px solid #4a90e2;
+                background-color: #282828;
             }
         """)
         edit.textChanged.connect(
@@ -1053,14 +1095,14 @@ class DynamicParameterInput(QWidget):
         """创建文本输入控件"""
         edit = LineEdit()
         edit.setPlaceholderText(f"输入{self._get_display_name()}...")
-        edit.setFixedHeight(34)
+        edit.setFixedHeight(32)
         edit.setStyleSheet("""
             LineEdit {
-                background-color: #1e1e1e;
+                background-color: #252525;
                 color: #cccccc;
-                border: 1px solid #333333;
-                border-radius: 6px;
-                padding: 6px 10px;
+                border: 1px solid #3a3a3a;
+                border-radius: 4px;
+                padding: 4px 8px;
                 font-size: 13px;
             }
             LineEdit:focus {
@@ -1179,8 +1221,8 @@ class TemplateVideoGenerationWidget(QWidget):
     def init_ui(self):
         """初始化界面"""
         layout = QVBoxLayout(self)
-        layout.setSpacing(12)
-        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(8)
+        layout.setContentsMargins(12, 8, 12, 8)
 
         # 标题栏
         title_bar = self._create_title_bar()
@@ -1188,6 +1230,7 @@ class TemplateVideoGenerationWidget(QWidget):
 
         # 主分割器
         splitter = QSplitter(Qt.Horizontal)
+        splitter.setStyleSheet("QSplitter::handle { background-color: #2a2a2a; width: 1px; }")
         layout.addWidget(splitter)
 
         # 左侧：模型选择和参数输入
@@ -1198,36 +1241,28 @@ class TemplateVideoGenerationWidget(QWidget):
         right_panel = self._create_right_panel()
         splitter.addWidget(right_panel)
 
-        splitter.setSizes([500, 500])
+        splitter.setSizes([480, 480])
 
     def _create_title_bar(self) -> QFrame:
         """创建标题栏"""
         bar = QFrame()
-        bar.setFixedHeight(45)
-        bar.setStyleSheet("""
-            QFrame {
-                background-color: transparent;
-                border: none;
-            }
-        """)
+        bar.setFixedHeight(40)
         layout = QHBoxLayout(bar)
-        layout.setContentsMargins(5, 5, 5, 5)
+        layout.setContentsMargins(0, 0, 0, 0)
 
         title = QLabel("模板化视频生成")
-        title.setStyleSheet("font-size: 16px; font-weight: 500; color: #e0e0e0;")
+        title.setStyleSheet("font-size: 15px; font-weight: 600; color: #e0e0e0;")
         layout.addWidget(title)
 
         layout.addStretch()
 
-        # API 设置按钮
-        api_btn = PushButton(FluentIcon.SETTING, "API设置")
-        api_btn.setFixedSize(200, 36)
+        api_btn = PushButton(FluentIcon.SETTING, "API 密钥")
+        api_btn.setFixedHeight(32)
         api_btn.clicked.connect(self.show_api_settings)
         layout.addWidget(api_btn)
 
-        # 历史记录按钮
         history_btn = PushButton(FluentIcon.HISTORY, "历史记录")
-        history_btn.setFixedSize(200, 36)
+        history_btn.setFixedHeight(32)
         history_btn.clicked.connect(self.export_history)
         layout.addWidget(history_btn)
 
@@ -1236,10 +1271,9 @@ class TemplateVideoGenerationWidget(QWidget):
     def _create_left_panel(self) -> QFrame:
         """创建左侧面板"""
         panel = QFrame()
-        panel.setStyleSheet("QFrame { background-color: transparent; border: none; }")
         layout = QVBoxLayout(panel)
-        layout.setSpacing(12)
-        layout.setContentsMargins(5, 5, 5, 5)
+        layout.setSpacing(8)
+        layout.setContentsMargins(8, 8, 8, 8)
 
         # 模式选择标签页
         self.mode_tab_widget = QTabWidget()
@@ -1247,20 +1281,22 @@ class TemplateVideoGenerationWidget(QWidget):
             QTabWidget::pane {
                 border: none;
                 background-color: transparent;
+                top: -1px;
             }
             QTabBar::tab {
                 background-color: transparent;
-                color: #888888;
-                padding: 10px 20px;
+                color: #777777;
+                padding: 8px 18px;
                 border: none;
+                border-bottom: 2px solid transparent;
                 font-size: 13px;
             }
             QTabBar::tab:selected {
                 color: #4a90e2;
-                font-weight: 500;
+                border-bottom: 2px solid #4a90e2;
             }
             QTabBar::tab:hover:!selected {
-                color: #aaaaaa;
+                color: #bbbbbb;
             }
         """)
 
@@ -1281,46 +1317,42 @@ class TemplateVideoGenerationWidget(QWidget):
         """创建单个生成模式组件"""
         widget = QWidget()
         layout = QVBoxLayout(widget)
-        layout.setSpacing(12)
-        layout.setContentsMargins(5, 5, 5, 5)
+        layout.setSpacing(10)
+        layout.setContentsMargins(8, 12, 8, 8)
 
         # 模型选择
+        model_row = QHBoxLayout()
         model_label = QLabel("模型")
-        model_label.setStyleSheet("color: #888888; font-size: 12px;")
-        layout.addWidget(model_label)
+        model_label.setFixedWidth(40)
+        model_label.setStyleSheet("color: #999999; font-size: 12px;")
+        model_row.addWidget(model_label)
 
         self.model_combo = ComboBox()
-        self.model_combo.setFixedHeight(36)
+        self.model_combo.setFixedHeight(34)
         self.model_combo.currentTextChanged.connect(self.on_model_changed)
-        layout.addWidget(self.model_combo)
+        model_row.addWidget(self.model_combo, 1)
+        layout.addLayout(model_row)
 
         # 模型信息
         self.model_info_label = QLabel("")
-        self.model_info_label.setStyleSheet("color: #666666; font-size: 11px;")
+        self.model_info_label.setStyleSheet("color: #666666; font-size: 11px; padding-left: 48px;")
         self.model_info_label.setWordWrap(True)
         layout.addWidget(self.model_info_label)
 
-        # 分隔线
-        line = QFrame()
-        line.setFrameShape(QFrame.HLine)
-        line.setFrameShadow(QFrame.Sunken)
-        line.setStyleSheet("background-color: #2a2a2a; border: none; max-height: 1px;")
-        layout.addWidget(line)
-
         # 参数输入区域
-        param_label = QLabel("参数")
-        param_label.setStyleSheet("color: #888888; font-size: 12px;")
+        param_label = QLabel("参数配置")
+        param_label.setStyleSheet("color: #999999; font-size: 12px; margin-top: 4px;")
         layout.addWidget(param_label)
 
-        # 参数输入容器（滚动区域）
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.NoFrame)
-        scroll.setStyleSheet("QScrollArea { border: none; background-color: transparent; }")
+        scroll.setStyleSheet("QScrollArea { border: none; background: transparent; }")
+        scroll.viewport().setStyleSheet("background: transparent;")
 
         self.param_container = QWidget()
         self.param_layout = QVBoxLayout(self.param_container)
-        self.param_layout.setSpacing(8)
+        self.param_layout.setSpacing(6)
         self.param_layout.setContentsMargins(0, 0, 0, 0)
         self.param_layout.addStretch()
         scroll.setWidget(self.param_container)
@@ -1332,12 +1364,12 @@ class TemplateVideoGenerationWidget(QWidget):
         button_layout.setSpacing(8)
 
         self.generate_btn = PrimaryPushButton(FluentIcon.PLAY, "开始生成")
-        self.generate_btn.setFixedHeight(38)
+        self.generate_btn.setFixedHeight(36)
         self.generate_btn.clicked.connect(self.start_generation)
         button_layout.addWidget(self.generate_btn)
 
-        self.cancel_btn = PushButton(FluentIcon.CANCEL, "取消")
-        self.cancel_btn.setFixedHeight(38)
+        self.cancel_btn = PushButton(FluentIcon.CANCEL, "取消任务")
+        self.cancel_btn.setFixedHeight(36)
         self.cancel_btn.setEnabled(False)
         self.cancel_btn.clicked.connect(self.cancel_generation)
         button_layout.addWidget(self.cancel_btn)
@@ -1347,46 +1379,42 @@ class TemplateVideoGenerationWidget(QWidget):
         return widget
 
     def _create_batch_mode_widget(self) -> QWidget:
-        """创建批量生成模式组件 - V2.2.0 带任务管理"""
+        """创建批量生成模式组件"""
         widget = QWidget()
         layout = QVBoxLayout(widget)
-        layout.setSpacing(12)
-        layout.setContentsMargins(5, 5, 5, 5)
+        layout.setSpacing(10)
+        layout.setContentsMargins(8, 12, 8, 8)
 
         # 模型选择
+        model_row = QHBoxLayout()
         model_label = QLabel("模型")
-        model_label.setStyleSheet("color: #888888; font-size: 12px;")
-        layout.addWidget(model_label)
+        model_label.setFixedWidth(40)
+        model_label.setStyleSheet("color: #999999; font-size: 12px;")
+        model_row.addWidget(model_label)
 
         self.batch_model_combo = ComboBox()
-        self.batch_model_combo.setFixedHeight(36)
+        self.batch_model_combo.setFixedHeight(34)
         self.batch_model_combo.currentTextChanged.connect(self.on_batch_model_changed)
-        layout.addWidget(self.batch_model_combo)
+        model_row.addWidget(self.batch_model_combo, 1)
+        layout.addLayout(model_row)
 
-        # 分隔线
-        line1 = QFrame()
-        line1.setFrameShape(QFrame.HLine)
-        line1.setFrameShadow(QFrame.Sunken)
-        line1.setStyleSheet("background-color: #2a2a2a; border: none; max-height: 1px;")
-        layout.addWidget(line1)
-
-        # V2.2.0: 任务列表管理区域
+        # 任务列表
         task_list_label = QLabel("任务列表")
-        task_list_label.setStyleSheet("color: #888888; font-size: 12px;")
+        task_list_label.setStyleSheet("color: #999999; font-size: 12px; margin-top: 4px;")
         layout.addWidget(task_list_label)
 
-        # 任务输入区域（添加新任务）
+        # 任务输入区域
         task_input_layout = QHBoxLayout()
-        task_input_layout.setSpacing(8)
+        task_input_layout.setSpacing(6)
 
         self.batch_task_input = LineEdit()
         self.batch_task_input.setPlaceholderText("输入提示词，按回车添加...")
-        self.batch_task_input.setFixedHeight(36)
+        self.batch_task_input.setFixedHeight(34)
         self.batch_task_input.returnPressed.connect(self.add_batch_task)
         task_input_layout.addWidget(self.batch_task_input, 1)
 
         add_task_btn = PushButton(FluentIcon.ADD, "添加")
-        add_task_btn.setFixedHeight(36)
+        add_task_btn.setFixedSize(80, 34)
         add_task_btn.clicked.connect(self.add_batch_task)
         task_input_layout.addWidget(add_task_btn)
 
@@ -1395,76 +1423,67 @@ class TemplateVideoGenerationWidget(QWidget):
         # 任务列表表格
         self.batch_task_table = TableWidget()
         self.batch_task_table.setColumnCount(4)
-        self.batch_task_table.setHorizontalHeaderLabels(["序号", "提示词", "状态", "操作"])
+        self.batch_task_table.setHorizontalHeaderLabels(["#", "提示词", "状态", "操作"])
         self.batch_task_table.setStyleSheet("""
             QTableWidget {
-                background-color: #1e1e1e;
+                background-color: transparent;
+                alternate-background-color: #1e1e1e;
                 color: #cccccc;
-                border: 1px solid #333333;
-                border-radius: 6px;
-                gridline-color: #2a2a2a;
+                border: none;
+                border-top: 1px solid #2a2a2a;
+                border-bottom: 1px solid #2a2a2a;
+                gridline-color: #222222;
                 font-size: 11px;
             }
             QTableWidget::item {
-                padding: 5px;
+                padding: 4px;
             }
             QHeaderView::section {
-                background-color: #2a2a2a;
-                color: #e0e0e0;
-                padding: 8px;
+                background-color: transparent;
+                color: #888888;
+                padding: 6px 4px;
                 border: none;
-                border-right: 1px solid #333333;
+                border-bottom: 1px solid #2a2a2a;
                 font-weight: 500;
+                font-size: 11px;
             }
         """)
-        self.batch_task_table.setMaximumHeight(200)
-        self.batch_task_table.horizontalHeader().setSectionResizeMode(0, 0)  # 序号固定
-        self.batch_task_table.setColumnWidth(0, 50)
-        self.batch_task_table.horizontalHeader().setSectionResizeMode(1, 3)  # 提示词拉伸
-        self.batch_task_table.horizontalHeader().setSectionResizeMode(2, 1)  # 状态固定
-        self.batch_task_table.setColumnWidth(2, 80)
-        self.batch_task_table.horizontalHeader().setSectionResizeMode(3, 0)  # 操作固定
-        self.batch_task_table.setColumnWidth(3, 60)
-        layout.addWidget(self.batch_task_table)
+        self.batch_task_table.setAlternatingRowColors(True)
+        self.batch_task_table.setMinimumHeight(200)
+        self.batch_task_table.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.batch_task_table.horizontalHeader().setSectionResizeMode(0, 0)
+        self.batch_task_table.setColumnWidth(0, 36)
+        self.batch_task_table.horizontalHeader().setSectionResizeMode(1, 3)
+        self.batch_task_table.horizontalHeader().setSectionResizeMode(2, 1)
+        self.batch_task_table.setColumnWidth(2, 72)
+        self.batch_task_table.horizontalHeader().setSectionResizeMode(3, 0)
+        self.batch_task_table.setColumnWidth(3, 56)
+        layout.addWidget(self.batch_task_table, 1)
 
-        # 批量操作按钮
-        batch_button_layout = QHBoxLayout()
-        batch_button_layout.setSpacing(8)
-
-        clear_tasks_btn = PushButton(FluentIcon.DELETE, "清空任务")
-        clear_tasks_btn.setFixedHeight(32)
-        clear_tasks_btn.clicked.connect(self.clear_batch_tasks)
-        batch_button_layout.addWidget(clear_tasks_btn)
-
-        batch_button_layout.addStretch()
-
-        # 任务计数标签
+        # 任务计数与清空
+        task_bar = QHBoxLayout()
         self.batch_task_count_label = QLabel("任务数: 0")
-        self.batch_task_count_label.setStyleSheet("color: #888888; font-size: 11px;")
-        batch_button_layout.addWidget(self.batch_task_count_label)
+        self.batch_task_count_label.setStyleSheet("color: #777777; font-size: 11px;")
+        task_bar.addWidget(self.batch_task_count_label)
+        task_bar.addStretch()
+        clear_tasks_btn = PushButton(FluentIcon.DELETE, "清空")
+        clear_tasks_btn.setFixedHeight(28)
+        clear_tasks_btn.clicked.connect(self.clear_batch_tasks)
+        task_bar.addWidget(clear_tasks_btn)
+        layout.addLayout(task_bar)
 
-        layout.addLayout(batch_button_layout)
-
-        # 分隔线
-        line2 = QFrame()
-        line2.setFrameShape(QFrame.HLine)
-        line2.setFrameShadow(QFrame.Sunken)
-        line2.setStyleSheet("background-color: #2a2a2a; border: none; max-height: 1px;")
-        layout.addWidget(line2)
-
-        # 模板参数区域（基于选择的模型显示）
+        # 模板参数区域
         self.batch_param_label = QLabel("模板参数")
-        self.batch_param_label.setStyleSheet("color: #888888; font-size: 12px;")
+        self.batch_param_label.setStyleSheet("color: #999999; font-size: 12px; margin-top: 2px;")
         layout.addWidget(self.batch_param_label)
 
-        # 批量参数输入容器
         self.batch_param_container = QWidget()
         self.batch_param_layout = QVBoxLayout(self.batch_param_container)
-        self.batch_param_layout.setSpacing(8)
+        self.batch_param_layout.setSpacing(6)
         self.batch_param_layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(self.batch_param_container)
 
-        # API 密钥状态提示（简化版）
+        # API 密钥状态
         self.api_key_status_label = QLabel("")
         self.api_key_status_label.setStyleSheet("color: #666666; font-size: 11px;")
         layout.addWidget(self.api_key_status_label)
@@ -1473,13 +1492,13 @@ class TemplateVideoGenerationWidget(QWidget):
         button_layout = QHBoxLayout()
         button_layout.setSpacing(8)
 
-        self.batch_generate_btn = PrimaryPushButton(FluentIcon.PLAY, "批量生成")
-        self.batch_generate_btn.setFixedHeight(38)
+        self.batch_generate_btn = PrimaryPushButton(FluentIcon.PLAY, "开始批量生成")
+        self.batch_generate_btn.setFixedHeight(36)
         self.batch_generate_btn.clicked.connect(self.start_batch_generation)
         button_layout.addWidget(self.batch_generate_btn)
 
-        self.batch_cancel_btn = PushButton(FluentIcon.CANCEL, "取消")
-        self.batch_cancel_btn.setFixedHeight(38)
+        self.batch_cancel_btn = PushButton(FluentIcon.CANCEL, "取消全部")
+        self.batch_cancel_btn.setFixedHeight(36)
         self.batch_cancel_btn.setEnabled(False)
         self.batch_cancel_btn.clicked.connect(self.cancel_batch_generation)
         button_layout.addWidget(self.batch_cancel_btn)
@@ -1491,34 +1510,27 @@ class TemplateVideoGenerationWidget(QWidget):
     def _create_right_panel(self) -> QFrame:
         """创建右侧面板"""
         panel = QFrame()
-        panel.setStyleSheet("QFrame { background-color: transparent; border: none; }")
         layout = QVBoxLayout(panel)
-        layout.setSpacing(12)
-        layout.setContentsMargins(5, 5, 5, 5)
+        layout.setSpacing(8)
+        layout.setContentsMargins(8, 8, 8, 8)
 
-        # 任务状态标签
+        # 状态行（标签+内容一行）
+        status_row = QHBoxLayout()
         status_label = QLabel("状态")
-        status_label.setStyleSheet("color: #888888; font-size: 12px;")
-        layout.addWidget(status_label)
-
+        status_label.setStyleSheet("color: #999999; font-size: 12px;")
+        status_row.addWidget(status_label)
         self.status_label = QLabel("等待开始...")
-        self.status_label.setStyleSheet("color: #888888; font-size: 13px;")
-        layout.addWidget(self.status_label)
+        self.status_label.setStyleSheet("color: #aaaaaa; font-size: 12px;")
+        status_row.addWidget(self.status_label, 1)
+        layout.addLayout(status_row)
 
         self.progress_bar = ProgressBar()
-        self.progress_bar.setFixedHeight(4)
+        self.progress_bar.setFixedHeight(3)
         layout.addWidget(self.progress_bar)
 
-        # 分隔线
-        line1 = QFrame()
-        line1.setFrameShape(QFrame.HLine)
-        line1.setFrameShadow(QFrame.Sunken)
-        line1.setStyleSheet("background-color: #2a2a2a; border: none; max-height: 1px;")
-        layout.addWidget(line1)
-
-        # 日志标签
-        log_label = QLabel("日志")
-        log_label.setStyleSheet("color: #888888; font-size: 12px;")
+        # 日志区域
+        log_label = QLabel("运行日志")
+        log_label.setStyleSheet("color: #999999; font-size: 12px; margin-top: 2px;")
         layout.addWidget(log_label)
 
         self.log_edit = QTextEdit()
@@ -1530,42 +1542,38 @@ class TemplateVideoGenerationWidget(QWidget):
                 font-family: 'SF Mono', 'Menlo', 'Monaco', monospace;
                 font-size: 11px;
                 border: none;
-                border-radius: 6px;
-                padding: 8px;
+                border-radius: 4px;
+                padding: 8px 6px;
             }
         """)
         layout.addWidget(self.log_edit, 1)
 
-        # 分隔线
-        line2 = QFrame()
-        line2.setFrameShape(QFrame.HLine)
-        line2.setFrameShadow(QFrame.Sunken)
-        line2.setStyleSheet("background-color: #2a2a2a; border: none; max-height: 1px;")
-        layout.addWidget(line2)
+        # 结果区域
+        result_header = QHBoxLayout()
+        result_label = QLabel("生成结果")
+        result_label.setStyleSheet("color: #999999; font-size: 12px;")
+        result_header.addWidget(result_label)
+        result_header.addStretch()
+        layout.addLayout(result_header)
 
-        # 结果标签
-        result_label = QLabel("结果")
-        result_label.setStyleSheet("color: #888888; font-size: 12px;")
-        layout.addWidget(result_label)
-
-        self.result_url_label = QLabel("未生成")
-        self.result_url_label.setStyleSheet("color: #666666; font-size: 11px;")
+        self.result_url_label = QLabel("暂无结果")
+        self.result_url_label.setStyleSheet("color: #666666; font-size: 11px; padding: 4px;")
         self.result_url_label.setWordWrap(True)
         self.result_url_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
         layout.addWidget(self.result_url_label)
 
-        # 按钮区域
+        # 操作按钮
         result_button_layout = QHBoxLayout()
         result_button_layout.setSpacing(8)
 
-        self.play_btn = PushButton(FluentIcon.PLAY, "播放")
-        self.play_btn.setFixedHeight(34)
+        self.play_btn = PushButton(FluentIcon.PLAY, "播放视频")
+        self.play_btn.setFixedHeight(32)
         self.play_btn.setEnabled(False)
         self.play_btn.clicked.connect(self.play_video)
         result_button_layout.addWidget(self.play_btn)
 
-        self.poll_btn = PushButton(FluentIcon.SYNC, "异步轮询")
-        self.poll_btn.setFixedHeight(34)
+        self.poll_btn = PushButton(FluentIcon.SYNC, "查询任务状态")
+        self.poll_btn.setFixedHeight(32)
         self.poll_btn.setEnabled(False)
         self.poll_btn.clicked.connect(self.manual_poll_task)
         result_button_layout.addWidget(self.poll_btn)
@@ -1676,7 +1684,9 @@ class TemplateVideoGenerationWidget(QWidget):
             if param_type:
                 # 创建参数输入组件
                 param_input = DynamicParameterInput(key, param_type, value)
-                self.param_layout.insertWidget(self.param_layout.count() - 1, param_input)
+                # 提示词类型给予 stretch=1 撑满剩余空间
+                stretch = 1 if param_type == ParameterType.PROMPT else 0
+                self.param_layout.insertWidget(self.param_layout.count() - 1, param_input, stretch)
                 self.parameter_inputs[key] = param_input
 
     def start_generation(self):
@@ -2342,13 +2352,16 @@ class TemplateVideoGenerationWidget(QWidget):
         text_edit.setPlaceholderText("sk-xxxxxxxxxxxx\nsk-yyyyyyyyyyyyy\nsk-zzzzzzzzzzzz")
         text_edit.setStyleSheet("""
             QTextEdit {
-                background-color: #1e1e1e;
+                background-color: #252525;
                 color: #cccccc;
-                border: 1px solid #333333;
-                border-radius: 6px;
+                border: 1px solid #3a3a3a;
+                border-radius: 4px;
                 padding: 8px;
                 font-size: 12px;
                 font-family: 'SF Mono', 'Menlo', monospace;
+            }
+            QTextEdit:focus {
+                border: 1px solid #4a90e2;
             }
         """)
         text_layout.addWidget(text_edit)
@@ -2455,32 +2468,35 @@ class TemplateVideoGenerationWidget(QWidget):
         table.setColumnCount(6)
         table.setHorizontalHeaderLabels(["时间", "类型", "模型", "状态", "视频 URL", "详情"])
 
-        # 设置表格样式
         table.setStyleSheet("""
             QTableWidget {
-                background-color: #1e1e1e;
+                background-color: transparent;
+                alternate-background-color: #1e1e1e;
                 color: #cccccc;
-                border: 1px solid #333333;
-                border-radius: 6px;
-                gridline-color: #2a2a2a;
+                border: none;
+                border-top: 1px solid #2a2a2a;
+                border-bottom: 1px solid #2a2a2a;
+                gridline-color: #222222;
                 font-size: 11px;
             }
             QTableWidget::item {
-                padding: 5px;
+                padding: 4px;
             }
             QTableWidget::item:selected {
                 background-color: #4a90e2;
                 color: #ffffff;
             }
             QHeaderView::section {
-                background-color: #2a2a2a;
-                color: #e0e0e0;
-                padding: 8px;
+                background-color: transparent;
+                color: #888888;
+                padding: 6px 4px;
                 border: none;
-                border-right: 1px solid #333333;
+                border-bottom: 1px solid #2a2a2a;
                 font-weight: 500;
+                font-size: 11px;
             }
         """)
+        table.setAlternatingRowColors(True)
 
         # 填充数据
         table.setRowCount(len(history))
@@ -2559,10 +2575,10 @@ class TemplateVideoGenerationWidget(QWidget):
         text_edit.setReadOnly(True)
         text_edit.setStyleSheet("""
             QTextEdit {
-                background-color: #1e1e1e;
+                background-color: #1a1a1a;
                 color: #cccccc;
-                border: 1px solid #333333;
-                border-radius: 6px;
+                border: none;
+                border-radius: 4px;
                 padding: 10px;
                 font-family: 'SF Mono', 'Menlo', monospace;
                 font-size: 11px;
