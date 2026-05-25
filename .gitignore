@@ -25,6 +25,7 @@ vlm_prompt_templates.json
 vlm_history.json
 vods_log.json
 api_voice_history.json
+vods_settings.json
 
 # C extensions
 *.so
