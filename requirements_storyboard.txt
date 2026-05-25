@@ -1,4 +1,4 @@
-# BOZO-MCN 分镜脚本与图片生成器依赖包
+ # BOZO-MCN 分镜脚本与图片生成器依赖包
 # PyQt5相关
 PyQt5>=5.15.0
 PyQt5-tools>=5.15.0
