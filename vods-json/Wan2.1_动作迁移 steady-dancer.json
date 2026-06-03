@@ -1,0 +1,12 @@
+{
+  "id": 41709,
+  "name": "动作迁移 steady-dancer",
+  "suppress_preview_output": true,
+  "web_app_id": 42936,
+  "url_images": "https://bizyair-prod.oss-cn-shanghai.aliyuncs.com/inputs/20260113/RzMP21kCQ3e3uj1loIbWMMpCf5Re6uIw.png",
+  "input_values": {
+    "45:LoadImage.image": "https://bizyair-prod.oss-cn-shanghai.aliyuncs.com/inputs/20260113/RzMP21kCQ3e3uj1loIbWMMpCf5Re6uIw.png",
+    "46:VHS_LoadVideo.video": "https://storage.bizyair.cn/inputs/20260113/TDlyEpcnS29JUCvDbrQi9fJJ4QKfqCnx.mp4"
+  },
+  "info": ""
+}

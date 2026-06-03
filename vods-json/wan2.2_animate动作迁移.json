@@ -1,0 +1,12 @@
+{
+  "id": 41694,
+  "name": "wan2.2 animate动作迁移",
+  "suppress_preview_output": true,
+  "web_app_id": 42921,
+  "url_images": "https://bizyair-prod.oss-cn-shanghai.aliyuncs.com/inputs/20260602/gvwt7sWbjlEVAQpIuFJIBFvjpQOVgxMy.jpg",
+  "input_values": {
+    "651:LoadImage.image": "https://bizyair-prod.oss-cn-shanghai.aliyuncs.com/inputs/20260602/gvwt7sWbjlEVAQpIuFJIBFvjpQOVgxMy.jpg",
+    "63:VHS_LoadVideo.video": "https://bizyair-prod.oss-cn-shanghai.aliyuncs.com/inputs/20260602/VQSSOh3j8IwBC1vNHXiRA47vXvQ7cR2Y.mp4"
+  },
+  "info": ""
+}
