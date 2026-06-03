@@ -303,9 +303,9 @@ class APIKeyManager:
 
     # 单图片转视频 Web App ID 配置: (id, 显示名)
     SINGLE_APP_CONFIGS = [
-        (41538, "Wan2.1 图生视频"),
-        (44773, "Wan2.1 图生视频-v2"),
-        (41863, "Wan2.1 图生视频(Clip)"),
+        (41538, "图生视频"),
+        (44773, "图生视频-v2"),
+        (41863, "图生视频(Clip)"),
     ]
     # 首尾帧转视频 Web App ID 配置: (id, 显示名)
     FRAMES_APP_CONFIGS = [
@@ -2762,20 +2762,49 @@ class VideoGenerationWidget(QWidget):
         scroll_layout = QVBoxLayout(scroll_widget)
         scroll_layout.setSpacing(6)
 
+        # 图片文件夹选择区域
+        folder_layout = QHBoxLayout()
+        folder_label = QLabel("图片文件夹:")
+        folder_label.setStyleSheet("color: #ffffff; font-size: 13px; font-weight: bold;")
+        folder_label.setFixedWidth(75)
+        folder_layout.addWidget(folder_label)
+
+        self.folder_path_edit = LineEdit()
+        self.folder_path_edit.setFixedHeight(32)
+        self.folder_path_edit.setPlaceholderText("选择或输入图片文件夹路径...")
+        self.folder_path_edit.setStyleSheet("""
+            QLineEdit {
+                background-color: #333333;
+                border: 1px solid #505050;
+                border-radius: 4px;
+                color: #ffffff;
+                padding: 4px 10px;
+            }
+        """)
+        folder_layout.addWidget(self.folder_path_edit)
+
+        self.folder_browse_btn = PushButton("浏览")
+        self.folder_browse_btn.setFixedSize(60, 32)
+        self.folder_browse_btn.clicked.connect(self.browse_image_folder)
+        folder_layout.addWidget(self.folder_browse_btn)
+
+        scroll_layout.addLayout(folder_layout)
+
         # 图片输入组
         image_group = self.create_image_input_group()
         scroll_layout.addWidget(image_group)
-        
-        # 提示词输入组
+
+        scroll.setWidget(scroll_widget)
+        # 滚动区域占据固定内容部分，不拉伸
+        layout.addWidget(scroll, 0)
+
+        # 提示词输入组（放在滚动区域外部，自适应剩余高度）
         prompt_group = self.create_prompt_group()
-        scroll_layout.addWidget(prompt_group)
+        layout.addWidget(prompt_group, 1)
 
         # 批量任务组
         batch_group = self.create_batch_group()
-        scroll_layout.addWidget(batch_group)
-
-        scroll.setWidget(scroll_widget)
-        layout.addWidget(scroll)
+        layout.addWidget(batch_group, 0)
 
         return tab
 
@@ -3108,14 +3137,19 @@ class VideoGenerationWidget(QWidget):
         layout.addWidget(self.task_scroll)
 
         add_task_layout = QHBoxLayout()
-        self.add_task_btn = PushButton("+ 添加到任务列表 +")
-        self.add_task_btn.setFixedSize(240, 36)
+        self.add_task_btn = PushButton("添加到任务列表")
+        self.add_task_btn.setFixedSize(180, 36)
         # ... (QPushButton 样式代码) ...
         self.add_task_btn.clicked.connect(self.add_to_batch_tasks)
         add_task_layout.addWidget(self.add_task_btn)
 
-        self.clear_tasks_btn = PushButton("X 清空任务 X")
-        self.clear_tasks_btn.setFixedSize(240, 36)
+        self.load_folder_tasks_btn = PushButton("📁 加载文件夹任务列表")
+        self.load_folder_tasks_btn.setFixedSize(180, 36)
+        self.load_folder_tasks_btn.clicked.connect(self.load_folder_tasks)
+        add_task_layout.addWidget(self.load_folder_tasks_btn)
+
+        self.clear_tasks_btn = PushButton("清空任务")
+        self.clear_tasks_btn.setFixedSize(180, 36)
         # ... (QPushButton 样式代码) ...
         self.clear_tasks_btn.clicked.connect(self.clear_batch_tasks)
         add_task_layout.addWidget(self.clear_tasks_btn)
@@ -3125,13 +3159,12 @@ class VideoGenerationWidget(QWidget):
         return group
 
     def create_prompt_group(self):
-        """创建提示词输入组（无标题无边框）"""
+        """创建提示词输入组（无标题无边框，高度自适应）"""
         prompt_edit = QTextEdit()
         prompt_edit.setPlaceholderText("输入视频生成的提示词，例如：美女跳舞、风景变化等...")
-        prompt_edit.setMinimumHeight(40)
-        prompt_edit.setMaximumHeight(200)
+        prompt_edit.setMinimumHeight(60)
         prompt_edit.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        prompt_edit.setStyleSheet("padding: 10px; background: #202020; border-radius: 4px;font-size:18px; margin-right:10px; margin-top:-60px;")
+        prompt_edit.setStyleSheet("padding: 10px; background: #202020; border-radius: 4px; font-size: 18px; margin-right: 10px;")
 
         # 根据调用位置返回不同的引用
         # 如果 self.prompt_edit 还不存在,说明是第一次调用(单图片选项卡)
@@ -3339,6 +3372,92 @@ class VideoGenerationWidget(QWidget):
         self.update_task_list_display()
         self.clear_task_status_cards()
         self.add_log("🗑️ 已清空所有任务")
+
+    def browse_image_folder(self):
+        """浏览并选择图片文件夹"""
+        folder_path = QFileDialog.getExistingDirectory(
+            self,
+            "选择图片文件夹",
+            "",
+            QFileDialog.ShowDirsOnly
+        )
+        if folder_path:
+            self.folder_path_edit.setText(folder_path)
+            # 统计文件夹中的图片数量
+            image_extensions = ('.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp')
+            image_count = 0
+            for filename in os.listdir(folder_path):
+                if filename.lower().endswith(image_extensions):
+                    image_count += 1
+            self.add_log(f"📁 已选择文件夹: {folder_path}，共 {image_count} 张图片")
+
+    def load_folder_tasks(self):
+        """从文件夹加载所有图片到任务列表"""
+        folder_path = self.folder_path_edit.text().strip()
+
+        if not folder_path or not os.path.isdir(folder_path):
+            QMessageBox.warning(self, "警告", "请先选择有效的图片文件夹")
+            return
+
+        prompt = self.prompt_edit.toPlainText().strip()
+        if not prompt:
+            QMessageBox.warning(self, "警告", "请输入视频提示词")
+            return
+
+        # 支持的图片格式
+        image_extensions = ('.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp')
+
+        # 获取文件夹中所有图片文件，按文件名排序
+        image_files = []
+        for filename in sorted(os.listdir(folder_path)):
+            if filename.lower().endswith(image_extensions):
+                image_files.append(os.path.join(folder_path, filename))
+
+        if not image_files:
+            QMessageBox.warning(self, "警告", "所选文件夹中没有找到图片文件")
+            return
+
+        # 逐个加载图片并创建任务
+        added_count = 0
+        for image_path in image_files:
+            try:
+                # 读取图片并转换为 base64
+                with open(image_path, 'rb') as f:
+                    image_data = f.read()
+
+                # 压缩图片
+                compressed_data = Utils.compress_image(image_data)
+                base64_data = base64.b64encode(compressed_data).decode('utf-8')
+
+                # 创建任务
+                task_name = os.path.basename(image_path)
+                task = {
+                    'name': task_name,
+                    'image_input': base64_data,
+                    'image_path': image_path,
+                    'prompt': prompt,
+                    'width': self.width_spin.value(),
+                    'height': self.height_spin.value(),
+                    'num_frames': self.duration_spin.value() * 16 + 1,
+                    'timestamp': datetime.now().isoformat()
+                }
+
+                self.batch_tasks.append(task)
+                added_count += 1
+
+            except Exception as e:
+                self.add_log(f"⚠️ 加载失败: {os.path.basename(image_path)} - {str(e)}")
+                continue
+
+        # 更新任务列表显示
+        self.update_task_list_display()
+        self.add_log(f"✅ 已从文件夹加载 {added_count} 个任务")
+
+        # 滚动到任务列表底部
+        if hasattr(self, 'task_scroll'):
+            QTimer.singleShot(100, lambda: self.task_scroll.verticalScrollBar().setValue(
+                self.task_scroll.verticalScrollBar().maximum()
+            ))
 
     # 首尾帧模式的任务管理方法
     def add_to_batch_tasks_frames(self):
