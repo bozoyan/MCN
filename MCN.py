@@ -439,6 +439,156 @@ class VideoFrameExtractThread(WorkerThread):
         except Exception as e:
             self.finished.emit(False, f"帧提取异常: {str(e)}")
 
+
+class SceneFramesExtractThread(WorkerThread):
+    """分镜首尾帧提取线程
+
+    基于 PySceneDetect 检测视频的分镜（场景切换），然后为每个分镜分别提取
+    首帧和尾帧。日志中会输出每个分镜的时间段区间，便于后期在'视频帧提取'
+    中按 HH:MM:SS.mmm 自定义精确提取。
+    """
+
+    def __init__(self, video_path, output_folder, threshold=27.0,
+                 min_scene_len_sec=0.6, tail_offset=0.05):
+        super().__init__()
+        self.video_path = video_path
+        self.output_folder = output_folder
+        self.threshold = float(threshold)             # ContentDetector 阈值，越小越敏感
+        self.min_scene_len_sec = float(min_scene_len_sec)  # 最短分镜时长（秒），过滤抖动
+        self.tail_offset = float(tail_offset)         # 尾帧提前偏移（秒），避免取到下一分镜首帧
+
+    @staticmethod
+    def _fmt_time(seconds: float) -> str:
+        """格式化为 HH:MM:SS.mmm，便于日志展示和 ffmpeg -ss 复用"""
+        if seconds < 0:
+            seconds = 0.0
+        whole = int(seconds)
+        hours = whole // 3600
+        minutes = (whole % 3600) // 60
+        secs = whole % 60
+        ms = int(round((seconds - whole) * 1000))
+        return f"{hours:02d}:{minutes:02d}:{secs:02d}.{ms:03d}"
+
+    def _probe_duration(self) -> float:
+        """通过 ffprobe 获取视频总时长（秒）"""
+        cmd = [
+            "ffprobe", "-v", "error", "-show_entries", "format=duration",
+            "-of", "default=noprint_wrappers=1:nokey=1", self.video_path
+        ]
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            return float(result.stdout.strip() or 0.0)
+        except ValueError:
+            return 0.0
+
+    def _detect_scenes(self):
+        """检测分镜，返回 [(start_sec, end_sec), ...] 列表"""
+        try:
+            from scenedetect import open_video, SceneManager, ContentDetector
+        except ImportError as e:
+            raise RuntimeError(f"未安装 scenedetect ({e})，请执行 pip install scenedetect")
+
+        video = open_video(self.video_path)
+        manager = SceneManager()
+        # 最短分镜长度转 frame 估算（基于视频帧率）
+        min_scene_len_frames = max(1, int(self.min_scene_len_sec * (video.frame_rate or 25)))
+        manager.add_detector(ContentDetector(
+            threshold=self.threshold, min_scene_len=min_scene_len_frames
+        ))
+        manager.detect_scenes(video)
+        raw_scenes = manager.get_scene_list()
+
+        scenes = []
+        for start_tc, end_tc in raw_scenes:
+            start_sec = start_tc.seconds
+            end_sec = end_tc.seconds
+            # 过滤过短分镜
+            if end_sec - start_sec >= self.min_scene_len_sec:
+                scenes.append((start_sec, end_sec))
+
+        # 兜底：检测不到分镜时，整段视为一个分镜，确保至少能产出首尾帧
+        if not scenes:
+            try:
+                duration = video.duration.seconds
+            except Exception:
+                duration = self._probe_duration()
+            scenes = [(0.0, max(duration - self.tail_offset, 0.0))]
+        return scenes
+
+    def _extract_frame(self, timestamp_sec: float, output_path: str) -> bool:
+        """使用 ffmpeg 提取指定时间点的单帧"""
+        cmd = [
+            "ffmpeg", "-y", "-ss", self._fmt_time(timestamp_sec),
+            "-i", self.video_path, "-vframes", "1", "-q:v", "2", output_path
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        return result.returncode == 0 and os.path.exists(output_path)
+
+    def run(self):
+        try:
+            base_name = os.path.splitext(os.path.basename(self.video_path))[0]
+            self.progress_updated.emit(5)
+            self.log_updated.emit(f"开始分析分镜: {os.path.basename(self.video_path)}")
+            print("\n" + "=" * 50)
+            print(f"[分镜首尾帧] 视频: {self.video_path}")
+
+            # 1) 检测分镜
+            try:
+                scenes = self._detect_scenes()
+            except Exception as e:
+                print(f"[分镜首尾帧] 分镜检测失败: {e}")
+                self.finished.emit(False, f"分镜检测失败: {e}")
+                return
+
+            self.progress_updated.emit(30)
+            print(f"[分镜首尾帧] 检测到 {len(scenes)} 个分镜:")
+            self.log_updated.emit(f"检测到 {len(scenes)} 个分镜，开始提取首尾帧")
+
+            os.makedirs(self.output_folder, exist_ok=True)
+            total_frames = len(scenes) * 2
+            extracted = 0
+
+            # 2) 逐分镜提取首尾帧
+            for idx, (start_sec, end_sec) in enumerate(scenes, start=1):
+                # 尾帧提前 tail_offset 取，避免落在下一分镜首帧
+                tail_sec = max(start_sec + 0.05, end_sec - self.tail_offset)
+                first_path = os.path.join(
+                    self.output_folder, f"{base_name}_scene{idx:02d}_首帧.jpg"
+                )
+                last_path = os.path.join(
+                    self.output_folder, f"{base_name}_scene{idx:02d}_尾帧.jpg"
+                )
+
+                start_str = self._fmt_time(start_sec)
+                end_str = self._fmt_time(end_sec)
+                print(f"  分镜 {idx}/{len(scenes)}: {start_str} ~ {end_str}")
+
+                self.log_updated.emit(
+                    f"分镜 {idx}/{len(scenes)} 区间: {start_str} ~ {end_str}"
+                )
+
+                if self._extract_frame(start_sec, first_path):
+                    extracted += 1
+                if self._extract_frame(tail_sec, last_path):
+                    extracted += 1
+
+                # 进度推进（30% ~ 95%）
+                progress = 30 + int((idx / len(scenes)) * 65)
+                self.progress_updated.emit(min(progress, 95))
+
+            self.progress_updated.emit(100)
+            msg = f"完成 {len(scenes)} 个分镜，提取 {extracted}/{total_frames} 张首尾帧"
+            print(f"[分镜首尾帧] {msg}")
+            print(f"[分镜首尾帧] 输出目录: {self.output_folder}")
+            print("=" * 50 + "\n")
+            self.log_updated.emit(msg)
+            self.finished.emit(True, msg)
+
+        except Exception as e:
+            print(f"[分镜首尾帧] 异常: {e}")
+            self.finished.emit(False, f"分镜首尾帧提取异常: {str(e)}")
+
+
 # 功能页面类
 class BasePage(QWidget):
     """页面基类"""
@@ -1460,7 +1610,16 @@ class APIVoiceApiWidget(BasePage):
     """API声音生成界面 - 支持密钥文件和批量处理"""
 
     HISTORY_FILE = Path("api_voice_history.json")
-    DEFAULT_KEY_FILE = "/Volumes/BO/AI/custom_nodes/comfyui_bozo/key/siliconflow_API_key.txt"
+    # 密钥文件候选列表：按顺序检测，使用第一个存在的文件
+    DEFAULT_KEY_FILES = [
+        "/Volumes/BO/AI/custom_nodes/comfyui_bozo/key/siliconflow_API_key.txt",
+        os.path.expanduser("~/AI/comfyui_bozo/key/siliconflow_API_key.txt"),
+    ]
+    # 自动从候选列表中挑选第一个存在的文件作为当前默认密钥文件
+    DEFAULT_KEY_FILE = next(
+        (f for f in DEFAULT_KEY_FILES if os.path.exists(f)),
+        DEFAULT_KEY_FILES[0],  # 全部不存在时回退到第一个，后续加载会给出提示
+    )
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -2036,39 +2195,66 @@ class VideoConvertPage(BasePage):
         split_group.setLayout(split_layout)
         layout.addWidget(split_group)
 
-        # 视频分辨率转换组
+        # 视频分镜导出组（基于 scenedetect 自动检测分镜，逐段导出独立片段）
+        scenes_group = QGroupBox("视频分镜导出")
+        scenes_layout = QGridLayout()
+
+        scenes_layout.addWidget(QLabel("片段名称:"), 0, 0)
+        self.scene_segment_name_edit = LineEdit()
+        self.scene_segment_name_edit.setPlaceholderText("输入分镜片段名称（自动追加 _01/_02 ...）...")
+        self.scene_segment_name_edit.setFixedHeight(35)
+        scenes_layout.addWidget(self.scene_segment_name_edit, 0, 1)
+
+        scenes_btn = PrimaryPushButton(FluentIcon.CUT, "分镜导出")
+        scenes_btn.setFixedWidth(150)
+        scenes_btn.clicked.connect(self.export_scenes)
+        scenes_layout.addWidget(scenes_btn, 0, 2)
+
+        scenes_group.setLayout(scenes_layout)
+        layout.addWidget(scenes_group)
+
+        # 视频分辨率转换组（缩放模式/宽度/高度 在左侧同一行，转换按钮在最右边）
         resize_group = QGroupBox("视频分辨率转换")
-        resize_layout = QGridLayout()
+        resize_layout = QHBoxLayout()
+        resize_layout.setSpacing(10)
 
         # 缩放模式选择
-        resize_layout.addWidget(QLabel("缩放模式:"), 0, 0)
+        resize_layout.addWidget(QLabel("缩放模式:"))
         self.scale_mode_combo = ComboBox()
         self.scale_mode_combo.addItems(["按宽度等比例缩放", "按高度等比例缩放", "自定义宽高"])
         self.scale_mode_combo.setFixedHeight(35)
+        self.scale_mode_combo.setMinimumWidth(160)
         self.scale_mode_combo.currentTextChanged.connect(self.on_scale_mode_changed)
-        resize_layout.addWidget(self.scale_mode_combo, 0, 1)
+        resize_layout.addWidget(self.scale_mode_combo)
 
-        # 宽度输入
-        resize_layout.addWidget(QLabel("宽度:"), 1, 0)
+        # 宽度输入（数字输入，留足宽度）
+        resize_layout.addWidget(QLabel("宽度:"))
         self.width_spin = SpinBox()
         self.width_spin.setRange(100, 7680)
         self.width_spin.setValue(1920)
         self.width_spin.setFixedHeight(35)
-        resize_layout.addWidget(self.width_spin, 1, 1)
+        self.width_spin.setMinimumWidth(120)
+        resize_layout.addWidget(self.width_spin)
 
         # 高度输入
-        resize_layout.addWidget(QLabel("高度:"), 2, 0)
+        resize_layout.addWidget(QLabel("高度:"))
         self.height_spin = SpinBox()
         self.height_spin.setRange(100, 4320)
         self.height_spin.setValue(1080)
         self.height_spin.setFixedHeight(35)
+        self.height_spin.setMinimumWidth(120)
         self.height_spin.setEnabled(False)  # 默认按宽度等比例，高度禁用
-        resize_layout.addWidget(self.height_spin, 2, 1)
+        resize_layout.addWidget(self.height_spin)
 
+        # 中间拉伸，把转换按钮推到最右边
+        resize_layout.addStretch()
+
+        # 转换按钮（最右侧）
         resize_btn = PrimaryPushButton(FluentIcon.ZOOM, "转换分辨率")
         resize_btn.setFixedWidth(150)
+        resize_btn.setFixedHeight(35)
         resize_btn.clicked.connect(self.resize_video)
-        resize_layout.addWidget(resize_btn, 2, 2)
+        resize_layout.addWidget(resize_btn)
 
         resize_group.setLayout(resize_layout)
         layout.addWidget(resize_group)
@@ -2296,6 +2482,125 @@ class VideoConvertPage(BasePage):
 
         except Exception as e:
             self.show_error("错误", f"视频分割异常: {str(e)}")
+        finally:
+            self.progress_bar.setValue(0)
+
+    def export_scenes(self):
+        """视频分镜导出
+
+        使用 scenedetect 自动分析视频中的分镜切换点，然后对每个分镜分别
+        调用 ffmpeg 导出独立的片段视频。终端日志会打印每个分镜的区间，
+        便于核对。
+        """
+        video_path = self.video_path_edit.text().strip()
+        segment_name = self.scene_segment_name_edit.text().strip() or "scene"
+
+        if not video_path or not os.path.exists(video_path):
+            self.show_error("错误", "请选择有效的视频文件")
+            return
+
+        try:
+            from scenedetect import open_video, SceneManager, ContentDetector
+        except ImportError:
+            self.show_error("错误", "未安装 scenedetect，请执行 pip install scenedetect")
+            return
+
+        # 内部辅助：把秒格式化为 HH:MM:SS.mmm（与日志格式统一）
+        def fmt(seconds: float) -> str:
+            if seconds < 0:
+                seconds = 0.0
+            whole = int(seconds)
+            h = whole // 3600
+            m = (whole % 3600) // 60
+            s = whole % 60
+            ms = int(round((seconds - whole) * 1000))
+            return f"{h:02d}:{m:02d}:{s:02d}.{ms:03d}"
+
+        try:
+            temp_dir = os.path.join(os.getcwd(), 'temp')
+            ts = datetime.now().strftime("%Y%m%d%H%M")
+            out_dir = os.path.join(temp_dir, f"{segment_name}-{ts}")
+            os.makedirs(out_dir, exist_ok=True)
+
+            self.show_info("开始分析", f"正在分析分镜: {os.path.basename(video_path)}")
+            print("\n" + "=" * 50)
+            print(f"[视频分镜导出] {video_path}")
+
+            # 检测分镜
+            video = open_video(video_path)
+            scene_manager = SceneManager()
+            min_scene_len_frames = max(1, int(0.6 * (video.frame_rate or 25)))
+            scene_manager.add_detector(ContentDetector(
+                threshold=27.0, min_scene_len=min_scene_len_frames
+            ))
+            scene_manager.detect_scenes(video)
+            raw_scenes = scene_manager.get_scene_list()
+
+            # 过滤掉过短的分镜（小于 0.6 秒），避免误判
+            min_scene_len_sec = 0.6
+            scenes = [(s.seconds, e.seconds) for s, e in raw_scenes
+                      if e.seconds - s.seconds >= min_scene_len_sec]
+
+            # 兜底：检测不到分镜时把整段当成一个分镜
+            if not scenes:
+                try:
+                    duration = video.duration.seconds
+                except Exception:
+                    cmd_probe = [
+                        "ffprobe", "-v", "error", "-show_entries", "format=duration",
+                        "-of", "default=noprint_wrappers=1:nokey=1", video_path
+                    ]
+                    r = subprocess.run(cmd_probe, capture_output=True, text=True)
+                    try:
+                        duration = float(r.stdout.strip() or 0.0)
+                    except ValueError:
+                        duration = 0.0
+                scenes = [(0.0, max(duration, 0.0))]
+
+            print(f"[视频分镜导出] 检测到 {len(scenes)} 个分镜:")
+            self.show_info("分析完成", f"检测到 {len(scenes)} 个分镜，开始导出...")
+
+            # 关键：PySceneDetect 中 end_sec 是"下一分镜首帧"的时间戳（半开区间）。
+            # 若直接用 -t (end-start) 切，ffmpeg 会把 end 处那一帧（即下一分镜首帧）
+            # 也包进当前片段。这里减去 1 帧时长，使片段最后帧正好停在本分镜的真实末帧，
+            # 避免出现"上一片段尾帧 = 下一片段首帧"的问题。
+            # 注意：video.frame_rate 是 Fraction 对象，需要显式转 float
+            fps = float(video.frame_rate or 30.0)
+            frame_dur = 1.0 / fps
+
+            # 逐段导出（重编码保证精确切分；音频用 aac 重编码避免时间戳错位）
+            for i, (start_sec, end_sec) in enumerate(scenes, 1):
+                # 实际切分区间：[start_sec, end_sec - 1帧)
+                trim_end = end_sec - frame_dur
+                seg_duration = max(0.1, trim_end - start_sec)
+                out_path = os.path.join(out_dir, f"{segment_name}_{i:02d}.mp4")
+                print(f"  分镜 {i}/{len(scenes)}: {fmt(start_sec)} ~ {fmt(end_sec)}  "
+                      f"切分时长={seg_duration:.3f}s (fps={fps:.2f}) -> {os.path.basename(out_path)}")
+
+                cmd = [
+                    "ffmpeg", "-y",
+                    "-ss", fmt(start_sec),
+                    "-i", video_path,
+                    "-t", f"{seg_duration:.3f}",
+                    "-c:v", "libx264", "-preset", "fast", "-crf", "18",
+                    "-c:a", "aac",
+                    out_path
+                ]
+                r = subprocess.run(cmd, capture_output=True, text=True)
+                if not (r.returncode == 0 and os.path.exists(out_path)):
+                    err_tail = (r.stderr or "未知错误")[-300:]
+                    self.show_error("错误", f"分镜 {i} 导出失败: {err_tail}")
+                    return
+
+                self.progress_bar.setValue(int(i / len(scenes) * 100))
+
+            print(f"[视频分镜导出] 完成，共 {len(scenes)} 个片段，输出目录: {out_dir}")
+            print("=" * 50 + "\n")
+            self.show_success("完成", f"分镜导出完成，共{len(scenes)}个片段: {out_dir}")
+
+        except Exception as e:
+            print(f"[视频分镜导出] 异常: {e}")
+            self.show_error("错误", f"分镜导出异常: {str(e)}")
         finally:
             self.progress_bar.setValue(0)
 
@@ -3458,6 +3763,7 @@ class ImageExtractPage(BasePage):
         self.pivot = Pivot(self)
         self.pivot.addItem(routeKey="audio_extract", text="音频封面提取")
         self.pivot.addItem(routeKey="video_extract", text="视频帧提取")
+        self.pivot.addItem(routeKey="scene_frames", text="首尾多帧提取")
         layout.addWidget(self.pivot)
 
         # 堆叠窗口
@@ -3467,11 +3773,12 @@ class ImageExtractPage(BasePage):
         # 添加子页面
         self.stackedWidget.addWidget(self.create_audio_extract_tab())
         self.stackedWidget.addWidget(self.create_video_extract_tab())
+        self.stackedWidget.addWidget(self.create_scene_frames_tab())
 
         # 连接信号
         self.pivot.currentItemChanged.connect(
             lambda k: self.stackedWidget.setCurrentIndex(
-                ["audio_extract", "video_extract"].index(k)
+                ["audio_extract", "video_extract", "scene_frames"].index(k)
             )
         )
 
@@ -3634,6 +3941,107 @@ class ImageExtractPage(BasePage):
         layout.addStretch()
         return widget
 
+    def create_scene_frames_tab(self):
+        """创建首尾多帧提取标签页
+
+        参考视频帧提取页面的结构，加入分镜检测参数：
+        - 灵敏度阈值：ContentDetector threshold，越小越敏感（默认 27.0）
+        - 最短分镜时长：过滤过短的抖动切换（默认 0.6 秒）
+        检测到 N 个分镜后，每个分镜分别提取首帧和尾帧。
+        """
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+        layout.setContentsMargins(0, 20, 0, 0)
+        layout.setSpacing(15)
+
+        # 视频文件选择组
+        video_group = QGroupBox("视频文件选择")
+        video_layout = QGridLayout()
+
+        video_layout.addWidget(QLabel("添加视频文件:"), 0, 0)
+        self.scenes_video_file_edit = DraggableLineEdit(self, "video")
+        self.scenes_video_file_edit.setPlaceholderText("选择或拖拽视频文件到此处...")
+        self.scenes_video_file_edit.setFixedHeight(35)
+        video_layout.addWidget(self.scenes_video_file_edit, 0, 1)
+
+        video_browse_btn = PushButton(FluentIcon.FOLDER, "浏览")
+        video_browse_btn.setFixedWidth(80)
+        video_browse_btn.clicked.connect(self.browse_scenes_video_files)
+        video_layout.addWidget(video_browse_btn, 0, 2)
+
+        # 批量视频文件夹
+        video_layout.addWidget(QLabel("批量文件夹:"), 1, 0)
+        self.scenes_video_folder_edit = DraggableLineEdit(self, "video_folder")
+        self.scenes_video_folder_edit.setPlaceholderText("选择包含视频的文件夹...")
+        self.scenes_video_folder_edit.setFixedHeight(35)
+        video_layout.addWidget(self.scenes_video_folder_edit, 1, 1)
+
+        video_folder_btn = PushButton(FluentIcon.FOLDER, "选择")
+        video_folder_btn.setFixedWidth(80)
+        video_folder_btn.clicked.connect(self.browse_scenes_video_folder)
+        video_layout.addWidget(video_folder_btn, 1, 2)
+
+        video_group.setLayout(video_layout)
+        layout.addWidget(video_group)
+
+        # 提取设置组（分镜检测参数）
+        extract_group = QGroupBox("提取设置（分镜检测）")
+        extract_layout = QGridLayout()
+
+        extract_layout.addWidget(QLabel("灵敏度阈值:"), 0, 0)
+        self.scene_threshold_spin = QDoubleSpinBox()
+        self.scene_threshold_spin.setRange(1.0, 100.0)
+        self.scene_threshold_spin.setSingleStep(0.5)
+        self.scene_threshold_spin.setValue(27.0)  # ContentDetector 默认阈值
+        self.scene_threshold_spin.setFixedHeight(35)
+        self.scene_threshold_spin.setToolTip(
+            "ContentDetector 阈值，越小越敏感（检出更多分镜），越大越宽松。\n"
+            "典型范围 20~35，默认 27.0。"
+        )
+        extract_layout.addWidget(self.scene_threshold_spin, 0, 1)
+
+        extract_layout.addWidget(QLabel("最短分镜时长(秒):"), 1, 0)
+        self.scene_min_len_spin = QDoubleSpinBox()
+        self.scene_min_len_spin.setRange(0.1, 30.0)
+        self.scene_min_len_spin.setSingleStep(0.1)
+        self.scene_min_len_spin.setValue(0.6)
+        self.scene_min_len_spin.setFixedHeight(35)
+        self.scene_min_len_spin.setToolTip(
+            "小于此时长的分镜会被合并/过滤，避免画面抖动误判。"
+        )
+        extract_layout.addWidget(self.scene_min_len_spin, 1, 1)
+
+        extract_group.setLayout(extract_layout)
+        layout.addWidget(extract_group)
+
+        # 输出设置组
+        output_group = QGroupBox("输出设置")
+        output_layout = QGridLayout()
+
+        output_layout.addWidget(QLabel("保存文件夹:"), 0, 0)
+        self.scenes_output_edit = LineEdit()
+        self.scenes_output_edit.setText("media/scene_frames")
+        self.scenes_output_edit.setPlaceholderText("选择保存文件夹...")
+        self.scenes_output_edit.setFixedHeight(35)
+        output_layout.addWidget(self.scenes_output_edit, 0, 1)
+
+        output_folder_btn = PushButton(FluentIcon.FOLDER, "选择")
+        output_folder_btn.setFixedWidth(80)
+        output_folder_btn.clicked.connect(self.browse_scenes_output_folder)
+        output_layout.addWidget(output_folder_btn, 0, 2)
+
+        output_group.setLayout(output_layout)
+        layout.addWidget(output_group)
+
+        # 操作按钮
+        extract_btn = PrimaryPushButton(FluentIcon.DOWNLOAD, "批量提取分镜首尾帧")
+        extract_btn.setFixedHeight(45)
+        extract_btn.clicked.connect(self.extract_scene_frames)
+        layout.addWidget(extract_btn)
+
+        layout.addStretch()
+        return widget
+
     def on_frame_type_changed(self, text):
         """帧类型变化时的处理"""
         self.custom_time_edit.setEnabled(text == "自定义时间")
@@ -3764,6 +4172,86 @@ class ImageExtractPage(BasePage):
         """视频提取完成回调"""
         if success:
             self.show_success("完成", f"帧提取成功: {os.path.basename(path)}")
+        else:
+            self.show_error("错误", f"{os.path.basename(path)}: {message}")
+
+    # ============== 首尾多帧提取（分镜检测） ==============
+    def browse_scenes_video_files(self):
+        file_path = self.get_file_path(
+            "选择视频文件",
+            "视频文件 (*.mp4 *.mov *.avi *.mkv *.flv *.wmv);;所有文件 (*)"
+        )
+        if file_path:
+            self.scenes_video_file_edit.setText(file_path)
+
+    def browse_scenes_video_folder(self):
+        folder_path = self.get_folder_path("选择视频文件夹")
+        if folder_path:
+            self.scenes_video_folder_edit.setText(folder_path)
+
+    def browse_scenes_output_folder(self):
+        folder_path = self.get_folder_path("选择保存文件夹")
+        if folder_path:
+            self.scenes_output_edit.setText(folder_path)
+
+    def extract_scene_frames(self):
+        """批量提取多个视频的分镜首尾帧
+
+        会先扫描单个文件 + 文件夹中的所有视频，然后为每个视频依次启动
+        SceneFramesExtractThread：先检测分镜，再对每个分镜分别提取首尾帧。
+        """
+        files_to_process = []
+
+        single_file = self.scenes_video_file_edit.text().strip()
+        if single_file and os.path.exists(single_file):
+            files_to_process.append(single_file)
+
+        folder_path = self.scenes_video_folder_edit.text().strip()
+        if folder_path and os.path.exists(folder_path):
+            for filename in os.listdir(folder_path):
+                if filename.lower().endswith(('.mp4', '.mov', '.avi', '.mkv', '.flv', '.wmv')):
+                    files_to_process.append(os.path.join(folder_path, filename))
+
+        if not files_to_process:
+            self.show_error("错误", "请选择视频文件或文件夹")
+            return
+
+        output_folder = self.scenes_output_edit.text().strip() or "media/scene_frames"
+        os.makedirs(output_folder, exist_ok=True)
+
+        threshold = self.scene_threshold_spin.value()
+        min_scene_len = self.scene_min_len_spin.value()
+
+        self.show_info("开始处理", f"正在处理 {len(files_to_process)} 个视频的分镜首尾帧...")
+
+        completed = 0
+        for video_path in files_to_process:
+            # 每个视频单独建子目录，避免不同视频的首尾帧文件混在一起
+            base_name = os.path.splitext(os.path.basename(video_path))[0]
+            video_output_folder = os.path.join(output_folder, base_name)
+
+            worker = SceneFramesExtractThread(
+                video_path, video_output_folder,
+                threshold=threshold, min_scene_len_sec=min_scene_len
+            )
+            # completed 在启动时累加，用于估算整体进度（每个视频贡献 1/total 的份额）
+            worker.progress_updated.connect(
+                lambda v, c=completed, total=len(files_to_process):
+                    self.progress_bar.setValue(int((c + v / 100) / total * 100))
+            )
+            worker.log_updated.connect(lambda msg: self.show_info("处理中", msg))
+            worker.finished.connect(
+                lambda success, msg, path=video_path: self.on_scene_frames_finished(success, msg, path)
+            )
+            worker.start()
+
+            self.worker_threads.append(worker)
+            completed += 1
+
+    def on_scene_frames_finished(self, success, message, path):
+        """分镜首尾帧提取完成回调"""
+        if success:
+            self.show_success("完成", f"{os.path.basename(path)}: {message}")
         else:
             self.show_error("错误", f"{os.path.basename(path)}: {message}")
 
