@@ -13,6 +13,7 @@ from datetime import datetime
 from pathlib import Path
 from PIL import Image
 import chardet
+import ffmpeg
 from concurrent.futures import ThreadPoolExecutor
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                             QHBoxLayout, QGridLayout, QLabel, QLineEdit,
@@ -80,54 +81,142 @@ class VideoConversionThread(WorkerThread):
             self.finished.emit(False, f"处理异常: {str(e)}")
 
 class ImageToVideoThread(WorkerThread):
-    """图片转视频线程"""
+    """图片转视频线程
 
-    def __init__(self, image_path, output_path, size, duration):
+    effect 取值：
+        - static_fade   静止 + 淡入淡出（默认，等同改造前行为）
+        - static_plain  静止无特效（模糊背景 + 居中前景，无 fade）
+        - ken_burns     Ken Burns 缓慢推拉（zoompan 让前景缓慢放大）
+        - fade_black    淡黑过渡（淡入到画面，画面淡出到黑场）
+    fade_duration 仅对 static_fade / fade_black 生效，单位秒。
+    """
+
+    def __init__(self, image_path, output_path, size, duration,
+                 effect="static_fade", fade_duration=1.0,
+                 ken_burns_direction="center_in"):
         super().__init__()
         self.image_path = image_path
         self.output_path = output_path
         self.size = size
         self.duration = duration
+        self.effect = effect
+        # 淡入淡出时长需要小于视频时长的一半，否则会出现两段 fade 重叠
+        self.fade_duration = min(float(fade_duration), max(duration - 0.2, 0.2))
+        self.ken_burns_direction = ken_burns_direction
 
     def run(self):
         try:
             width, height = self.size.split('x')
+            width, height = int(width), int(height)
             fps = 30
             img_name = os.path.splitext(os.path.basename(self.image_path))[0]
             temp_dir = os.path.join(os.getcwd(), 'temp')
+            os.makedirs(temp_dir, exist_ok=True)
             bg_img = os.path.join(temp_dir, f"{img_name}-bg.jpg")
 
             self.progress_updated.emit(10)
 
-            # 生成模糊背景
+            # 第一步：生成模糊背景（保留原有命令，仍走 subprocess 更直观）
+            # -update 1 让 image2 muxer 用单文件覆盖模式（兼容 ffmpeg 7+，
+            # 否则 -loop 1 + -t N 输出 N*fps 帧到单 .jpg 会触发 muxing 错误）
             cmd_bg = [
                 "ffmpeg", "-y", "-loop", "1", "-framerate", str(fps), "-t", str(self.duration),
                 "-i", self.image_path,
                 "-vf", f"scale=2*{width}:2*{height},boxblur=20:1,crop={width}:{height}",
-                "-q:v", "3", bg_img
+                "-frames:v", "1", "-q:v", "3", "-update", "1", bg_img
             ]
-            subprocess.run(cmd_bg)
+            subprocess.run(cmd_bg, capture_output=True, text=True)
+            if not os.path.exists(bg_img):
+                self.finished.emit(False, "模糊背景生成失败：未输出文件")
+                return
 
             self.progress_updated.emit(50)
 
-            # 合成前景+背景
-            filter_complex = (
-                f"[0:v]scale={width}:{height}:force_original_aspect_ratio=decrease,pad={width}:{height}:(ow-iw)/2:(oh-ih)/2,setsar=1,format=rgba[fg];"
-                f"[1:v]scale={width}:{height}[bg];"
-                f"[bg][fg]overlay=(W-w)/2:(H-h)/2,fade=t=in:st=0:d=1,fade=t=out:st={self.duration-1}:d=1"
-            )
-            cmd = [
-                "ffmpeg", "-y",
-                "-loop", "1", "-framerate", str(fps), "-t", str(self.duration), "-i", self.image_path,
-                "-i", bg_img,
-                "-filter_complex", filter_complex,
-                "-c:v", "libx264",
-                "-pix_fmt", "yuv420p",
-                "-r", str(fps),
-                self.output_path
-            ]
+            # 第二步：用 ffmpeg-python 组装最终视频
+            # 输入 0 = 原图(循环)，输入 1 = 模糊背景
+            fg_input = ffmpeg.input(self.image_path, loop=1, framerate=fps, t=self.duration)
+            bg_input = ffmpeg.input(bg_img, loop=1, framerate=fps, t=self.duration)
 
-            subprocess.run(cmd)
+            # 前景：等比缩放到目标尺寸并居中填充透明边距
+            fg = fg_input.filter(
+                'scale', width, height, force_original_aspect_ratio='decrease'
+            ).filter(
+                'pad', width, height, '(ow-iw)/2', '(oh-ih)/2'
+            ).filter('setsar', 1).filter('format', 'rgba')
+
+            # 背景：直接缩放到目标尺寸
+            bg = bg_input.filter('scale', width, height)
+
+            # 叠加前景到背景，得到带模糊衬底的画面
+            composited = bg.overlay(fg, x='(W-w)/2', y='(H-h)/2')
+
+            # 根据特效模式追加不同滤镜
+            d = self.duration
+            fd = self.fade_duration
+            if self.effect == "static_fade":
+                # 前 fd 秒淡入，最后 fd 秒淡出
+                out = composited.filter('fade', t='in', st=0, d=fd) \
+                                .filter('fade', t='out', st=max(d - fd, 0), d=fd)
+            elif self.effect == "fade_black":
+                # 淡入到画面（默认即从黑场），画面淡出到黑场
+                out = composited.filter('fade', t='in', st=0, d=fd, color='black') \
+                                .filter('fade', t='out', st=max(d - fd, 0), d=fd, color='black')
+            elif self.effect == "ken_burns":
+                # zoompan 在 d 秒内根据方向做缓慢推/拉/平移；frames_count 为总帧数
+                # on 是 zoompan 输出帧索引 (1..frames_count)，zoom 是上一帧的缩放系数
+                frames_count = max(int(d * fps), 1)
+                # 不同方向的 x/y/z 表达式（x/y 为可见区域左上角坐标）
+                # 1.10 为最大放大倍率；0.0008 ≈ (1.10-1.0)/frames_count 的步进估算
+                zoom_step = 0.1 / max(frames_count, 1)
+                cx = 'iw/2-(iw/zoom/2)'   # 水平居中
+                cy = 'ih/2-(ih/zoom/2)'   # 垂直居中
+                zin = f'min(zoom+{zoom_step:.6f},1.10)'                  # 持续放大
+                zout = f'if(eq(on,1),1.10,max(1.0,zoom-{zoom_step:.6f}))'  # 持续缩小（首帧初始化为 1.10）
+                zfix = '1.10'                                              # 固定倍率平移
+                prog = f'on/{frames_count}'                               # 0..1 进度
+                dir_map = {
+                    "center_in":   (cx, cy, zin),                                  # 居中放大（默认）
+                    "center_out":  (cx, cy, zout),                                 # 居中缩小
+                    "topleft":     ('0', '0', zin),                                # 左上角固定放大（原行为）
+                    "bottomright": ('iw-iw/zoom', 'ih-ih/zoom', zin),              # 右下角固定放大
+                    "pan_right":   (f'(iw-iw/zoom)*{prog}', cy, zfix),             # 向右平移
+                    "pan_left":    (f'(iw-iw/zoom)*(1-{prog})', cy, zfix),         # 向左平移
+                    "pan_down":    (cx, f'(ih-ih/zoom)*{prog}', zfix),             # 向下平移
+                    "pan_up":      (cx, f'(ih-ih/zoom)*(1-{prog})', zfix),         # 向上平移
+                }
+                x_expr, y_expr, z_expr = dir_map.get(
+                    self.ken_burns_direction, dir_map["center_in"])
+                out = composited.filter(
+                    'zoompan',
+                    z=z_expr, x=x_expr, y=y_expr,
+                    d=frames_count,
+                    s=f'{width}x{height}',
+                    fps=fps
+                )
+            else:  # static_plain 或未知值
+                out = composited
+
+            # 输出为 H.264 / yuv420p，确保兼容性
+            out = out.output(
+                self.output_path,
+                vcodec='libx264',
+                pix_fmt='yuv420p',
+                r=fps,
+                t=d
+            )
+
+            # 调用 ffmpeg；capture_output 便于抛出友好错误
+            try:
+                ffmpeg.run(out, cmd='ffmpeg', overwrite_output=True,
+                           capture_stdout=True, capture_stderr=True)
+            except ffmpeg.Error as e:
+                err_msg = e.stderr.decode(errors='ignore')[-800:] if e.stderr else str(e)
+                self.finished.emit(False, f"ffmpeg 处理失败: {err_msg}")
+                return
+
+            if not os.path.exists(self.output_path):
+                self.finished.emit(False, "ffmpeg 未生成输出文件")
+                return
 
             self.progress_updated.emit(100)
             self.log_updated.emit(f"生成完成: {os.path.basename(self.output_path)}")
@@ -135,6 +224,100 @@ class ImageToVideoThread(WorkerThread):
 
         except Exception as e:
             self.finished.emit(False, f"转换异常: {str(e)}")
+
+
+class XFadeMergeThread(WorkerThread):
+    """将多个视频用 xfade 转场拼接到一起
+
+    video_paths         输入视频路径列表（按顺序拼接），需 >= 2
+    output_path         输出 mp4 路径
+    transition          xfade 转场类型英文标识（fade/wipeleft/circleopen/...）
+    transition_duration 单次转场时长（秒），需小于最短视频时长
+    """
+
+    def __init__(self, video_paths, output_path,
+                 transition="fade", transition_duration=0.5):
+        super().__init__()
+        self.video_paths = video_paths
+        self.output_path = output_path
+        self.transition = transition
+        self.transition_duration = float(transition_duration)
+
+    def _probe_duration(self, path):
+        """使用 ffprobe 读取视频时长，失败返回 0"""
+        try:
+            r = subprocess.run(
+                ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+                 "-of", "default=noprint_wrappers=1:nokey=1", path],
+                capture_output=True, text=True
+            )
+            return float(r.stdout.strip() or 0.0)
+        except Exception:
+            return 0.0
+
+    def run(self):
+        try:
+            if len(self.video_paths) < 2:
+                self.finished.emit(False, "xfade 合并至少需要 2 个视频")
+                return
+
+            self.progress_updated.emit(10)
+            self.log_updated.emit(f"开始 xfade 合并: {len(self.video_paths)} 段, 转场={self.transition}")
+
+            # 读时长
+            durations = [self._probe_duration(p) for p in self.video_paths]
+            if any(d <= 0 for d in durations):
+                self.finished.emit(False, "无法读取输入视频时长，可能文件损坏")
+                return
+
+            td = self.transition_duration
+            # 累计 offset：每段 i (i>=1) 的 xfade 起始时间 = 之前所有段时长之和 - 已发生 i 次重叠
+            inputs = [ffmpeg.input(p) for p in self.video_paths]
+
+            # 第一段拼接
+            # offset_i = sum(durations[0..i]) - i * td
+            acc = durations[0]
+            current = inputs[0]
+            for i in range(1, len(inputs)):
+                offset = acc - i * td
+                if offset < 0:
+                    # 转场时长太长，超出累积时长，自动收紧
+                    offset = max(acc * 0.5, 0.0)
+                current = ffmpeg.filter(
+                    [current, inputs[i]], 'xfade',
+                    transition=self.transition,
+                    duration=td,
+                    offset=offset
+                )
+                acc += durations[i]
+
+            self.progress_updated.emit(50)
+
+            out = current.output(
+                self.output_path,
+                vcodec='libx264',
+                pix_fmt='yuv420p',
+                r=30
+            )
+
+            try:
+                ffmpeg.run(out, cmd='ffmpeg', overwrite_output=True,
+                           capture_stdout=True, capture_stderr=True)
+            except ffmpeg.Error as e:
+                err_msg = e.stderr.decode(errors='ignore')[-800:] if e.stderr else str(e)
+                self.finished.emit(False, f"xfade 合并失败: {err_msg}")
+                return
+
+            if not os.path.exists(self.output_path):
+                self.finished.emit(False, "xfade 未生成输出文件")
+                return
+
+            self.progress_updated.emit(100)
+            self.log_updated.emit(f"xfade 合并完成: {os.path.basename(self.output_path)}")
+            self.finished.emit(True, self.output_path)
+
+        except Exception as e:
+            self.finished.emit(False, f"xfade 合并异常: {str(e)}")
 
 class SRTGenerationThread(WorkerThread):
     """字幕生成线程"""
@@ -2689,6 +2872,80 @@ class ImageToVideoPage(BasePage):
         self.duration_spin.setFixedHeight(35)
         video_layout.addWidget(self.duration_spin, 2, 1)
 
+        # 特效模式（4 选 1，默认静止+淡入淡出，等同改造前行为）
+        video_layout.addWidget(QLabel("特效模式:"), 3, 0)
+        self.effect_combo = ComboBox()
+        # 顺序就是下拉显示顺序；第一项为默认
+        self._effect_items = [
+            "静止 + 淡入淡出",
+            "静止无特效",
+            "Ken Burns 缓慢推拉",
+            "淡黑过渡",
+        ]
+        self.effect_combo.addItems(self._effect_items)
+        self.effect_combo.setCurrentIndex(0)
+        self.effect_combo.setFixedHeight(35)
+        video_layout.addWidget(self.effect_combo, 3, 1)
+
+        # 淡入淡出时长（仅对"静止 + 淡入淡出"与"淡黑过渡"生效）
+        video_layout.addWidget(QLabel("淡入淡出时长(秒):"), 4, 0)
+        self.fade_duration_spin = QDoubleSpinBox()
+        self.fade_duration_spin.setRange(0.5, 3.0)
+        self.fade_duration_spin.setSingleStep(0.1)
+        self.fade_duration_spin.setValue(1.0)
+        self.fade_duration_spin.setFixedHeight(35)
+        video_layout.addWidget(self.fade_duration_spin, 4, 1)
+
+        # Ken Burns 方向（仅当特效模式 = Ken Burns 缓慢推拉 时可选）
+        video_layout.addWidget(QLabel("Ken Burns 方向:"), 5, 0)
+        self.ken_burns_dir_combo = ComboBox()
+        # 显示"中文(英文关键码)"，运行时用正则解析
+        self._ken_burns_items = [
+            "居中放大(center_in)",
+            "居中缩小(center_out)",
+            "左上角固定放大(topleft)",
+            "右下角固定放大(bottomright)",
+            "向右平移(pan_right)",
+            "向左平移(pan_left)",
+            "向下平移(pan_down)",
+            "向上平移(pan_up)",
+        ]
+        self.ken_burns_dir_combo.addItems(self._ken_burns_items)
+        self.ken_burns_dir_combo.setCurrentIndex(0)
+        self.ken_burns_dir_combo.setFixedHeight(35)
+        self.ken_burns_dir_combo.setEnabled(False)  # 仅 Ken Burns 特效下启用
+        video_layout.addWidget(self.ken_burns_dir_combo, 5, 1)
+        # 特效模式切换时联动 Ken Burns 方向的可用状态
+        self.effect_combo.currentTextChanged.connect(self._on_effect_changed)
+        # 初始同步一次
+        self._on_effect_changed(self.effect_combo.currentText())
+
+        # xfade 转场样式（仅批量模式勾选 xfade 合并时生效）
+        video_layout.addWidget(QLabel("xfade 转场样式:"), 6, 0)
+        self.xfade_style_combo = ComboBox()
+        # 显示为"中文(英文关键码)"，运行时用正则解析括号内的关键码
+        self._xfade_items = [
+            "溶解(fade)",
+            "左擦(wipeleft)",
+            "右擦(wiperight)",
+            "上滑(slideup)",
+            "下滑(slidedown)",
+            "圆形展开(circleopen)",
+            "圆形闭合(circleclose)",
+            "像素溶解(dissolve)",
+            "淡黑(fadeblack)",
+            "淡白(fadewhite)",
+        ]
+        self.xfade_style_combo.addItems(self._xfade_items)
+        self.xfade_style_combo.setCurrentIndex(0)
+        self.xfade_style_combo.setFixedHeight(35)
+        video_layout.addWidget(self.xfade_style_combo, 6, 1)
+
+        # 批量时是否额外合成 xfade 合并视频
+        self.xfade_merge_checkbox = CheckBox("批量时额外合成 xfade 合并视频")
+        self.xfade_merge_checkbox.setEnabled(False)  # 仅批量模式可选
+        video_layout.addWidget(self.xfade_merge_checkbox, 7, 0, 1, 2)
+
         video_group.setLayout(video_layout)
         layout.addWidget(video_group)
 
@@ -2721,6 +2978,36 @@ class ImageToVideoPage(BasePage):
         self.image_path_edit.setEnabled(not is_checked)
         self.batch_folder_edit.setEnabled(is_checked)
         self.batch_folder_btn.setEnabled(is_checked)
+        # xfade 合并勾选框仅在批量模式下可用
+        self.xfade_merge_checkbox.setEnabled(is_checked)
+        if not is_checked:
+            self.xfade_merge_checkbox.setChecked(False)
+
+    def _current_effect_key(self):
+        """把"特效模式"下拉框的中文 label 转成线程使用的英文关键码"""
+        mapping = {
+            "静止 + 淡入淡出": "static_fade",
+            "静止无特效": "static_plain",
+            "Ken Burns 缓慢推拉": "ken_burns",
+            "淡黑过渡": "fade_black",
+        }
+        return mapping.get(self.effect_combo.currentText(), "static_fade")
+
+    def _on_effect_changed(self, text):
+        """特效模式切换时联动 Ken Burns 方向下拉的可用状态"""
+        self.ken_burns_dir_combo.setEnabled(text == "Ken Burns 缓慢推拉")
+
+    def _current_ken_burns_direction(self):
+        """从"Ken Burns 方向"下拉框的 label 中解析出英文关键码"""
+        text = self.ken_burns_dir_combo.currentText()
+        m = re.search(r'\(([a-zA-Z_]+)\)', text)
+        return m.group(1) if m else "center_in"
+
+    def _current_xfade_transition(self):
+        """从"xfade 转场样式"下拉框的 label 中解析出英文关键码"""
+        text = self.xfade_style_combo.currentText()
+        m = re.search(r'\(([a-zA-Z]+)\)', text)
+        return m.group(1) if m else "fade"
 
     def on_size_changed(self, text):
         if text == "自定义":
@@ -2742,7 +3029,7 @@ class ImageToVideoPage(BasePage):
 
             self.generate_single_video(image_path)
 
-    def generate_single_video(self, image_path):
+    def generate_single_video(self, image_path, batch_index=None, batch_total=None):
         size = self.size_edit.text().strip()
         duration = self.duration_spin.value()
 
@@ -2756,12 +3043,25 @@ class ImageToVideoPage(BasePage):
         img_name = os.path.splitext(os.path.basename(image_path))[0]
         output_path = os.path.join(temp_dir, f"{img_name}.mp4")
 
-        worker = ImageToVideoThread(image_path, output_path, size, duration)
+        effect_key = self._current_effect_key()
+        fade_dur = float(self.fade_duration_spin.value())
+        kb_dir = self._current_ken_burns_direction()
+        worker = ImageToVideoThread(image_path, output_path, size, duration,
+                                    effect=effect_key, fade_duration=fade_dur,
+                                    ken_burns_direction=kb_dir)
         worker.progress_updated.connect(self.progress_bar.setValue)
         worker.log_updated.connect(lambda msg: self.show_info("处理中", msg))
-        worker.finished.connect(self.on_generation_finished)
-        worker.start()
 
+        if batch_index is not None and batch_total is not None:
+            # 批量模式：用专用的 batch 计数 handler
+            worker.finished.connect(
+                lambda ok, msg, out=output_path:
+                    self._on_batch_one_finished(ok, msg, out)
+            )
+        else:
+            worker.finished.connect(self.on_generation_finished)
+
+        worker.start()
         self.worker_threads.append(worker)
         self.show_info("开始生成", f"正在生成视频: {os.path.basename(image_path)}")
 
@@ -2771,18 +3071,77 @@ class ImageToVideoPage(BasePage):
             self.show_error("错误", "请选择有效的图片文件夹")
             return
 
-        image_files = [f for f in os.listdir(folder_path)
-                      if f.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp'))]
+        image_files = sorted([f for f in os.listdir(folder_path)
+                      if f.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp'))])
 
         if not image_files:
             self.show_error("错误", "文件夹中没有找到图片文件")
             return
 
+        # 初始化批量记账状态
+        self._batch_total = len(image_files)
+        self._batch_done = 0
+        self._batch_outputs = []  # 成功生成的 mp4 路径列表（顺序与 image_files 一致）
+        self._batch_image_files = image_files
+        self._batch_folder_path = folder_path
+        self._batch_xfade_wanted = self.xfade_merge_checkbox.isChecked()
+
         self.show_info("批量处理", f"找到 {len(image_files)} 个图片文件，开始处理...")
 
-        for image_file in image_files:
+        for i, image_file in enumerate(image_files):
             image_path = os.path.join(folder_path, image_file)
-            self.generate_single_video(image_path)
+            self.generate_single_video(image_path,
+                                       batch_index=i, batch_total=self._batch_total)
+
+    def _on_batch_one_finished(self, success, message, output_path):
+        """批量模式下，每个单图线程完成时回调；用于记账并在全部完成后启动 xfade 合并"""
+        self._batch_done += 1
+        if success:
+            self._batch_outputs.append(output_path)
+            print(f"[{self._batch_done}/{self._batch_total}] 完成: {os.path.basename(output_path)}")
+        else:
+            self.show_error("错误", f"某张图处理失败: {message}")
+
+        # 全部完成
+        if self._batch_done >= self._batch_total:
+            if self._batch_xfade_wanted and len(self._batch_outputs) >= 2:
+                # 启动 xfade 合并线程
+                self._start_xfade_merge()
+            else:
+                self.show_success("批量完成",
+                    f"共生成 {len(self._batch_outputs)} 个视频（未启用 xfade 合并）")
+                self.progress_bar.setValue(0)
+
+    def _start_xfade_merge(self):
+        """所有单图视频生成完成后，启动 xfade 合并线程"""
+        folder_name = os.path.basename(self._batch_folder_path.rstrip('/\\'))
+        ts = datetime.now().strftime("%Y%m%d%H%M")
+        temp_dir = os.path.join(os.getcwd(), 'temp')
+        # 合并文件按 image_files 顺序而非完成顺序
+        # _batch_outputs 是按完成顺序，需要按文件名重排
+        outputs_by_name = {os.path.splitext(os.path.basename(p))[0]: p
+                          for p in self._batch_outputs}
+        ordered = []
+        for fn in self._batch_image_files:
+            key = os.path.splitext(fn)[0]
+            if key in outputs_by_name:
+                ordered.append(outputs_by_name[key])
+
+        if len(ordered) < 2:
+            self.show_error("错误", "有效视频不足 2 个，无法 xfade 合并")
+            self.progress_bar.setValue(0)
+            return
+
+        output_path = os.path.join(temp_dir, f"{folder_name}_xfade_{ts}.mp4")
+        transition = self._current_xfade_transition()
+        worker = XFadeMergeThread(ordered, output_path,
+                                  transition=transition, transition_duration=0.5)
+        worker.progress_updated.connect(self.progress_bar.setValue)
+        worker.log_updated.connect(lambda msg: self.show_info("合并中", msg))
+        worker.finished.connect(self.on_generation_finished)
+        worker.start()
+        self.worker_threads.append(worker)
+        self.show_info("xfade 合并", f"开始合成: {len(ordered)} 段, 转场={transition}")
 
     def on_generation_finished(self, success, message):
         if success:

@@ -14,3 +14,6 @@ chardet>=5.0.0  # 用于字符编码检测
 # 视频分镜检测（首尾多帧提取功能使用，依赖 OpenCV 后端）
 scenedetect>=0.7
 opencv-python>=4.5.0
+
+# 视频滤镜图组装与 xfade 转场（图片转视频模块使用）
+ffmpeg-python>=0.2.0
