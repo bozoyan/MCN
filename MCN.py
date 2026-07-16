@@ -1186,7 +1186,7 @@ class VoiceManagerPage(BasePage):
         layout.setSpacing(15)
 
         self.uv_model = ComboBox()
-        model_options = ["FunAudioLLM/CosyVoice2-0.5B", "IndexTeam/IndexTTS-2", "fnlp/MOSS-TTSD-v0.5"]
+        model_options = ["FunAudioLLM/CosyVoice2-0.5B", "TeleAI/TeleSpeechASR", "fnlp/MOSS-TTSD-v0.5", "FunAudioLLM/SenseVoiceSmall"]
         self.uv_model.addItems(model_options)
         self.uv_model.setCurrentText("FunAudioLLM/CosyVoice2-0.5B")
         layout.addLayout(self.create_form_row("模型名称:", self.uv_model))
@@ -1235,7 +1235,7 @@ class VoiceManagerPage(BasePage):
         layout.setSpacing(15)
 
         self.sv_model = ComboBox()
-        model_options = ["FunAudioLLM/CosyVoice2-0.5B", "IndexTeam/IndexTTS-2", "fnlp/MOSS-TTSD-v0.5"]
+        model_options = ["FunAudioLLM/CosyVoice2-0.5B", "TeleAI/TeleSpeechASR", "fnlp/MOSS-TTSD-v0.5", "FunAudioLLM/SenseVoiceSmall"]
         self.sv_model.addItems(model_options)
         self.sv_model.setCurrentText("FunAudioLLM/CosyVoice2-0.5B")
         layout.addLayout(self.create_form_row("模型名称:", self.sv_model))
@@ -1334,7 +1334,7 @@ class VoiceManagerPage(BasePage):
         layout.setSpacing(15)
 
         self.b64_model = ComboBox()
-        model_options = ["FunAudioLLM/CosyVoice2-0.5B", "IndexTeam/IndexTTS-2", "fnlp/MOSS-TTSD-v0.5"]
+        model_options = ["FunAudioLLM/CosyVoice2-0.5B", "TeleAI/TeleSpeechASR", "fnlp/MOSS-TTSD-v0.5", "FunAudioLLM/SenseVoiceSmall"]
         self.b64_model.addItems(model_options)
         self.b64_model.setCurrentText("FunAudioLLM/CosyVoice2-0.5B")
         layout.addLayout(self.create_form_row("模型名称:", self.b64_model))
@@ -1394,7 +1394,7 @@ class VoiceManagerPage(BasePage):
         layout.setSpacing(15)
 
         self.fu_model = ComboBox()
-        model_options = ["FunAudioLLM/CosyVoice2-0.5B", "IndexTeam/IndexTTS-2", "fnlp/MOSS-TTSD-v0.5"]
+        model_options = ["FunAudioLLM/CosyVoice2-0.5B", "TeleAI/TeleSpeechASR", "fnlp/MOSS-TTSD-v0.5", "FunAudioLLM/SenseVoiceSmall"]
         self.fu_model.addItems(model_options)
         self.fu_model.setCurrentText("FunAudioLLM/CosyVoice2-0.5B")
         layout.addLayout(self.create_form_row("模型名称:", self.fu_model))
