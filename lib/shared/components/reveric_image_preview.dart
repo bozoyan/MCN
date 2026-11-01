@@ -11,14 +11,19 @@ import 'package:flutter/material.dart';
 import '../localization/locale_keys.dart';
 import '../localization/app_localization.dart';
 import '../theme/theme.dart';
+import '../utils/storage_paths.dart';
 import 'reveric_dialog.dart';
 
 /// 以全屏弹层打开本地图片;双指缩放、拖动查看细节。
+///
+/// [imagePath] 接受绝对路径或 file_workspaces 下的存储相对路径,
+/// 内部统一解析成绝对路径再打开。
 Future<void> showRevericImagePreview(
   BuildContext context, {
   required String imagePath,
   String? name,
 }) {
+  final resolved = RevericPaths.resolveStored(imagePath) ?? imagePath;
   return showRevericDialog<void>(
     context: context,
     barrierColor: Colors.black87,
@@ -35,7 +40,7 @@ Future<void> showRevericImagePreview(
                 borderRadius: BorderRadius.circular(RevericRadius.xl),
                 child: InteractiveViewer(
                   child: Image.file(
-                    File(imagePath),
+                    File(resolved),
                     fit: BoxFit.contain,
                     errorBuilder: (_, _, _) => Center(
                       child: Column(
@@ -90,8 +95,17 @@ Future<void> showRevericImagePreview(
               right: 0,
               child: IconButton(
                 onPressed: () => Navigator.of(context).pop(),
-                icon: const Icon(Icons.close, color: Colors.white, size: 26),
                 tooltip: context.t(LocaleKeys.commonClose),
+                // 用项目 SVG 图标体系;Material 字体图标在此弹层渲染异常。
+                icon: RevericIcon(
+                  RevericIcons.close,
+                  size: 18,
+                  color: Colors.white,
+                ),
+                style: IconButton.styleFrom(
+                  backgroundColor: Colors.black38,
+                  shape: const CircleBorder(),
+                ),
               ),
             ),
           ],

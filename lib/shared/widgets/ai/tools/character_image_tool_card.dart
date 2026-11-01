@@ -9,6 +9,7 @@
 //   assets/translations/zh-CN/ai.json
 //   assets/translations/en/workspace.json
 //   assets/translations/zh-CN/workspace.json
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -47,6 +48,8 @@ class _AiCharacterImageToolCardState extends State<AiCharacterImageToolCard> {
   bool _applying = false;
   bool? _expandedOverride;
   File? _localImageFile;
+  Timer? _elapsedTimer;
+  int _elapsedSeconds = 0;
 
   AiImageBlock get block => widget.block;
 
@@ -76,6 +79,7 @@ class _AiCharacterImageToolCardState extends State<AiCharacterImageToolCard> {
   void initState() {
     super.initState();
     _localImageFile = _resolveLocalImageFile(block.localFilePath);
+    _syncElapsedTimer();
   }
 
   @override
@@ -83,6 +87,33 @@ class _AiCharacterImageToolCardState extends State<AiCharacterImageToolCard> {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.block.localFilePath != block.localFilePath) {
       _localImageFile = _resolveLocalImageFile(block.localFilePath);
+    }
+    if (oldWidget.block.status != block.status) {
+      _syncElapsedTimer();
+    }
+  }
+
+  @override
+  void dispose() {
+    _elapsedTimer?.cancel();
+    super.dispose();
+  }
+
+  /// 生成中启动滚动秒数计时(让等待时长可感知);进入终态即停表。
+  void _syncElapsedTimer() {
+    if (block.status == AiImageStatus.generating) {
+      if (_elapsedTimer != null) {
+        return;
+      }
+      _elapsedSeconds = 0;
+      _elapsedTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+        if (mounted) {
+          setState(() => _elapsedSeconds += 1);
+        }
+      });
+    } else {
+      _elapsedTimer?.cancel();
+      _elapsedTimer = null;
     }
   }
 
@@ -300,7 +331,10 @@ class _AiCharacterImageToolCardState extends State<AiCharacterImageToolCard> {
         borderRadius: BorderRadius.circular(RevericRadius.pill),
       ),
       child: Text(
-        label,
+        // 生成中缀上滚动秒数,让 API 等待时长可感知。
+        status == AiImageStatus.generating
+            ? '$label · ${_elapsedSeconds}s'
+            : label,
         style: typo.uiSmall.copyWith(color: color, fontSize: 10),
       ),
     );

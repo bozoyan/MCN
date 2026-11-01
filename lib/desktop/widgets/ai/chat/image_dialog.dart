@@ -124,10 +124,17 @@ class _ChatImageDialog extends HookConsumerWidget {
     final colors = RevericTheme.colorsOf(context);
     final typo = RevericTheme.typographyOf(context);
     final settings = ref.watch(aiSettingsProvider);
-    final options = settings.availableModelOptionsForKind(AiModelKind.image);
-    final currentOption = ref.watch(
-      resolvedAiModelOptionForKindProvider(kind: AiModelKind.image),
+    // 缓存选项列表:AiModelOption 未重写 ==,下拉按实例比较选中态;
+    // 每次重建生成新列表会让已选模型失配消失,输入文字即触发。
+    final options = useMemoized(
+      () => settings.availableModelOptionsForKind(AiModelKind.image),
+      [settings],
     );
+    // 当前默认模型也归一化为 options 列表内的实例,保证选中态 identity 稳定。
+    final currentOptionId = settings.defaultOptionIdForKind(AiModelKind.image);
+    final currentOption = options
+        .where((option) => option.id == currentOptionId)
+        .firstOrNull;
     // 优先恢复上次使用的模型;没有记忆或已失效时回落默认底座
     // Qwen/Qwen-Image-2.1-Turbo,再回落当前默认与第一个。
     final rememberedOption = options
@@ -495,6 +502,9 @@ Future<void> runChatImageCommand({
 }) async {
   final settings = ref.read(aiSettingsProvider);
   final memory = await _readChatImageMemory(ref);
+  if (!context.mounted) {
+    return;
+  }
   final option = resolveChatImageModel(settings, memory);
   if (option == null) {
     if (context.mounted) {
