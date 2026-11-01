@@ -1,3 +1,8 @@
+> **修改来源说明**
+>
+> 本系统基于开源项目 [looplj/reveric](https://github.com/looplj/reveric) 修改，自 V5.0.0 起进行分支开发。
+> 主要改动：新增 ModelScope（魔搭社区）与 MOSS 官网出图，扩展画布出图能力；本版本聚焦 AIGC 出图方向的整合。
+
 <div align="center">
 
 # Reveric | 幻界MCN
