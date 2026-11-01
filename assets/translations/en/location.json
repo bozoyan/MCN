@@ -1,0 +1,22 @@
+{
+  "location.type.generic": "Generic",
+  "location.type.world": "World",
+  "location.type.continent": "Continent",
+  "location.type.country": "Country",
+  "location.type.region": "Region",
+  "location.type.mountain": "Mountain",
+  "location.type.plain": "Plain",
+  "location.type.forest": "Forest",
+  "location.type.river": "River",
+  "location.type.lake": "Lake",
+  "location.type.sea": "Sea",
+  "location.type.island": "Island",
+  "location.type.city": "City",
+  "location.type.district": "District",
+  "location.type.village": "Village",
+  "location.type.building": "Building",
+  "location.type.room": "Room",
+  "location.type.landmark": "Landmark",
+  "location.type.custom": "Custom",
+  "location.type.natural": "Natural"
+}

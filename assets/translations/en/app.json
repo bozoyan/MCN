@@ -1,0 +1,7 @@
+{
+  "app.title": "Reveric",
+  "app.activation_unconfirmed_title": "Startup failed",
+  "app.activation_unconfirmed_message": "Quit Reveric from the system tray or end its process in Task Manager, then open it again.\n\nIf Reveric still won't start, click Open logs folder and send the latest log to support.",
+  "app.open_logs": "Open logs folder",
+  "app.logs_open_failed": "Could not open the logs folder. Send a screenshot of this message to support."
+}

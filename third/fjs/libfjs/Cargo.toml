@@ -1,0 +1,51 @@
+[package]
+name = "fjs"
+version = "3.3.1"
+edition = "2024"
+rust-version = "1.95"
+license = "MIT"
+repository = "https://github.com/fluttercandies/fjs"
+homepage = "https://github.com/fluttercandies/fjs"
+description = "QuickJS-based JavaScript runtime for Flutter applications"
+readme = "../README.md"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "staticlib"]
+
+[dependencies]
+anyhow = "1"
+flutter_rust_bridge = "=2.12.0"
+futures = "0.3"
+rquickjs = { git = "https://github.com/DelSkayn/rquickjs.git", rev = "3d5ecfc94e3f9ea3a9769422ca718a7dd063e00f", version = "0.14", features = ["full-async", "bindgen", "loader", "dyn-load", "parallel", "macro", "futures"] }
+tokio = { version = "1", features = ["full"] }
+
+# Reveric: only the LLRT crates the engine core and the timers builtin need.
+# Other optional builtins are removed; see ../REVERIC_PATCH.md.
+llrt_context = { git = "https://github.com/awslabs/llrt", rev = "89941ae1f4e07dbfe2c09bf89e5f6261906202d3" }
+llrt_timers = { git = "https://github.com/awslabs/llrt", rev = "89941ae1f4e07dbfe2c09bf89e5f6261906202d3" }
+llrt_utils = { git = "https://github.com/awslabs/llrt", rev = "89941ae1f4e07dbfe2c09bf89e5f6261906202d3" }
+
+[features]
+default = []
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(frb_expand)'] }
+
+[patch.crates-io]
+# Force llrt modules to use the same rquickjs version as libfjs
+rquickjs = { git = "https://github.com/DelSkayn/rquickjs.git", rev = "3d5ecfc94e3f9ea3a9769422ca718a7dd063e00f", version = "0.14" }
+# dlopen2 0.9.0 references once_cell without declaring it, which breaks
+# android builds; drop this once upstream releases the fix
+# (https://github.com/OpenByteDev/dlopen2/pull/29)
+dlopen2 = { git = "https://github.com/iota9star/dlopen2.git", rev = "092357c55555a4f4bdf0ccfbdaf4f95eb2fddfd8" }
+
+[profile.release]
+# rustc's internal Mach-O rewriter emits a mis-aligned LINKEDIT string pool,
+# which macOS 26+ dyld rejects on dlopen (rust-lang/rust#157750); keep the
+# binary unstripped so the host loader can map it.
+strip = false
+opt-level = "z"  # Optimize for size.
+lto = true  # Enable link time optimization
+codegen-units = 1  # Reduce parallel code generation units
+#panic = "abort"

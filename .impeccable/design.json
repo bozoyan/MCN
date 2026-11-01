@@ -1,0 +1,94 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-05-16T00:00:00+08:00",
+  "title": "Design System: Reveric",
+  "extensions": {
+    "colorMeta": {
+      "canvas": {
+        "role": "neutral",
+        "displayName": "Parchment Canvas",
+        "canonical": "#FFFBF5",
+        "tonalRamp": ["#FFFBF5", "#FCFAF6", "#F5F0E8"]
+      },
+      "surface": {
+        "role": "neutral",
+        "displayName": "Manuscript Surface",
+        "canonical": "#FCFAF6",
+        "tonalRamp": ["#FCFAF6", "#FAF6F0", "#F5F1EB"]
+      },
+      "accent": {
+        "role": "primary",
+        "displayName": "Aged Brass Accent",
+        "canonical": "#8B7355",
+        "tonalRamp": ["#C4956A", "#8B7355", "#4A3F35"]
+      },
+      "warning-text": {
+        "role": "semantic",
+        "displayName": "Warning Amber",
+        "canonical": "#D97706",
+        "tonalRamp": ["#FEF3C7", "#F6AD55", "#D97706"]
+      },
+      "deletion-border": {
+        "role": "semantic",
+        "displayName": "Deletion Red",
+        "canonical": "#C53030",
+        "tonalRamp": ["#FDE8E8", "#C53030"]
+      },
+      "addition-border": {
+        "role": "semantic",
+        "displayName": "Addition Green",
+        "canonical": "#2F855A",
+        "tonalRamp": ["#E8FDE8", "#2F855A"]
+      }
+    },
+    "typographyMeta": {
+      "display": {
+        "displayName": "Display",
+        "purpose": "Page titles and primary panel headings."
+      },
+      "body": {
+        "displayName": "Manuscript Body",
+        "purpose": "Long-form authored text and story-facing prose."
+      },
+      "ui": {
+        "displayName": "Product UI",
+        "purpose": "Controls, labels, navigation, menus, and panel chrome."
+      }
+    },
+    "elevation": {
+      "strategy": "tonal-layering",
+      "rules": [
+        "Use surface tokens and 1px borders before shadows.",
+        "Dialogs may use platform Material elevation, but custom panels are flat at rest.",
+        "Hover and selected states use token colors rather than lift."
+      ]
+    },
+    "motion": {
+      "duration": "150ms to 250ms",
+      "easing": "ease-out",
+      "rules": [
+        "Motion conveys state only.",
+        "Avoid decorative page-load sequences.",
+        "Respect reduced-motion expectations."
+      ]
+    },
+    "breakpoints": {
+      "desktop": "Primary app shell with DesktopWindowFrame.",
+      "mobile": "Preserve token semantics and collapse structure instead of shrinking type."
+    },
+    "rules": {
+      "do": [
+        "Use RevericTheme colors and typography in widgets.",
+        "Use RevericSpacing, RevericRadius, and RevericSizes.",
+        "Keep manuscript content visually dominant.",
+        "Use revericInputDecoration for text fields and dropdown-like fields."
+      ],
+      "dont": [
+        "Do not hardcode widget colors when a theme token exists.",
+        "Do not use purple-blue gradients, neon AI effects, or glassmorphism.",
+        "Do not use Material Icons for UI glyphs.",
+        "Do not make AI controls visually louder than the manuscript."
+      ]
+    }
+  }
+}

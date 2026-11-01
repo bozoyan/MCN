@@ -1,0 +1,8 @@
+{
+  "chapter.stat_draft": "草稿",
+  "chapter.stat_published": "已发布",
+  "chapter.publish": "发布",
+  "chapter.unpublish": "撤回为草稿",
+  "chapter.publish_chronicler_prompt": "本章已发布。请委派内部编年史者整理本章：读取当前章节正文和相关资料，提取明确发生的硬事实、角色状态变化、人物/实体关系变化、地点/物品/势力变化和连续性状态，并使用可用工具保存；不要改写章节正文。",
+  "chapter.run_chronicler": "更新人物关系图"
+}

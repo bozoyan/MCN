@@ -1,0 +1,7 @@
+{
+  "app.title": "幻界",
+  "app.activation_unconfirmed_title": "启动失败",
+  "app.activation_unconfirmed_message": "请先从系统托盘或任务管理器退出幻界，再重新打开。\n\n若仍无法启动，请点击“打开日志文件夹”，将最新日志发给客服。",
+  "app.open_logs": "打开日志文件夹",
+  "app.logs_open_failed": "日志文件夹未能打开，请将此页面截图发给客服。"
+}

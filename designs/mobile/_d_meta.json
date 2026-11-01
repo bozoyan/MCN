@@ -1,0 +1,55 @@
+{
+  "type": "design",
+  "designSystems": [],
+  "primaryDesignSystem": null,
+  "assets": {
+    "m_ai.jsx": {
+      "versions": [
+        {
+          "path": "m_ai.jsx",
+          "createdAt": "2026-07-05T15:01:32.677Z",
+          "status": "needs-review"
+        }
+      ]
+    },
+    "Mobile AgentSkill Setup": {
+      "versions": [
+        {
+          "path": "m_agent_skills.jsx",
+          "createdAt": "2026-07-18T12:42:50.227Z",
+          "status": "needs-review"
+        }
+      ]
+    },
+    "UI Kit · Mobile App": {
+      "versions": [
+        {
+          "path": "index.html",
+          "createdAt": "2026-08-14T15:46:54.187Z",
+          "status": "needs-review",
+          "subtitle": "作品工作区将势力 / 生物 / 物品 / 技能合并为图鉴 tab；含搜索、类型筛选、分组折叠与技能详情",
+          "viewport": {
+            "width": 390,
+            "height": 844
+          }
+        }
+      ]
+    },
+    "地图 · Mobile": {
+      "versions": [
+        {
+          "path": "m_map.jsx",
+          "createdAt": "2026-09-29T13:14:49.389Z",
+          "status": "needs-review",
+          "subtitle": "地图 tab 世界卡片 + 地图工作台（画布浮卡 / 参数抽屉 / 历史 / 地点树 / 生成中 / review）；对齐封面工作台骨架",
+          "viewport": {
+            "width": 390,
+            "height": 844
+          }
+        }
+      ]
+    }
+  },
+  "createdAt": "2026-07-05T15:01:32.679Z",
+  "updatedAt": "2026-09-29T13:14:49.396Z"
+}

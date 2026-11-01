@@ -1,0 +1,8 @@
+{
+  "name_assistant.title": "{type}起名",
+  "name_assistant.random": "随机起名",
+  "name_assistant.ai": "AI 起名",
+  "name_assistant.generating": "AI 生成中...",
+  "name_assistant.use_name": "使用此名字",
+  "name_assistant.ai_error": "AI 起名失败，请重试"
+}

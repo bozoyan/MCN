@@ -1,0 +1,18 @@
+targets:
+  drift:
+    auto_apply_builders: false
+    builders:
+      drift_dev:analyzer:
+        enabled: true
+        options: &options
+          has_separate_analyzer: true
+      drift_dev:not_shared:
+        enabled: true
+        options: *options
+
+  $default:
+    dependencies:
+      - ":drift"
+    builders:
+      drift_dev:
+        enabled: false

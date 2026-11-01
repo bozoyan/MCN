@@ -1,0 +1,20 @@
+<!doctype html>
+<!-- @dsCard group="Spacing" -->
+<html lang="en"><head><meta charset="utf-8"><title>Elevation philosophy</title>
+<script src="../../theme.js"></script>
+
+<link rel="stylesheet" href="../colors_and_type.css">
+<link rel="stylesheet" href="_card.css">
+
+</head><body><div class="card-pad">
+<div class="row" style="gap:16px;align-items:stretch">
+  <div style="flex:1;background:var(--surface);border:1px solid var(--card-border);border-radius:var(--radius-2xl);box-shadow:var(--shadow-card);padding:16px">
+    <div class="m-ui-tiny-section" style="margin-bottom:6px">Canonical card</div>
+    <div class="spec" style="color:var(--text-secondary)">surface + card-border + 18r + --shadow-card</div>
+  </div>
+  <div style="flex:1;background:var(--surface);border:1px solid var(--card-border);border-radius:var(--radius-2xl);padding:16px;box-shadow:var(--shadow-dialog)">
+    <div class="m-ui-tiny-section" style="margin-bottom:6px">Dialog / popover</div>
+    <div class="spec" style="color:var(--text-secondary)">--shadow-dialog. Chrome (sidebars, toolbars, inputs, rows) stays flat.</div>
+  </div>
+</div>
+</div></body></html>

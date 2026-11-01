@@ -1,0 +1,1075 @@
+import 'content.dart';
+import 'json_value.dart';
+import 'json_rpc.dart';
+import 'tasks.dart';
+import 'tools.dart';
+import 'validation.dart';
+
+Map<String, dynamic>? _asJsonObjectOrNull(
+  dynamic value, [
+  String field = 'object',
+]) {
+  if (value == null) {
+    return null;
+  }
+  return readJsonObject(value, field);
+}
+
+Map<String, dynamic> _asJsonObject(
+  dynamic value, [
+  String field = 'object',
+]) {
+  final map = _asJsonObjectOrNull(value, field);
+  if (map == null) {
+    throw FormatException('$field must be a JSON object');
+  }
+  return map;
+}
+
+void _expectJsonRpcMethod(
+  Map<String, dynamic> json,
+  String expected,
+  String context,
+) {
+  expectJsonRpcMethod(json, expected, context);
+}
+
+String _base64ForJson(String value, String field) {
+  validateBase64String(value, field);
+  return value;
+}
+
+Map<String, dynamic> _annotationsForJson(
+  Map<String, dynamic> value,
+  String field,
+) {
+  final result = readJsonObject(value, field);
+  validateAnnotationsObject(result, field);
+  return result;
+}
+
+void _expectType(
+  Map<String, dynamic> json,
+  String expected,
+  String field,
+) {
+  final value = readRequiredString(json['type'], field);
+  if (value != expected) {
+    throw FormatException('$field must be "$expected"');
+  }
+}
+
+Object _parseSamplingMessageContent(dynamic value) {
+  if (value is List) {
+    return value
+        .map((item) => SamplingContent.fromJson(_asJsonObject(item)))
+        .toList();
+  }
+
+  return SamplingContent.fromJson(_asJsonObject(value));
+}
+
+List<SamplingContent> _asSamplingContentBlocks(
+  dynamic value, {
+  required String context,
+}) {
+  if (value is SamplingContent) {
+    return [value];
+  }
+
+  if (value is List<SamplingContent>) {
+    return value;
+  }
+
+  if (value is List) {
+    return value.map((item) {
+      if (item is SamplingContent) {
+        return item;
+      }
+      if (item is Map) {
+        return SamplingContent.fromJson(
+          readJsonObject(item, '$context items'),
+        );
+      }
+      throw FormatException(
+        'Expected $context items to be SamplingContent or object, got ${item.runtimeType}',
+      );
+    }).toList();
+  }
+
+  if (value is Map) {
+    return [SamplingContent.fromJson(readJsonObject(value, context))];
+  }
+
+  throw FormatException(
+    'Expected $context to be SamplingContent or list, got ${value.runtimeType}',
+  );
+}
+
+void _validateSamplingMessageSequence(
+  List<SamplingMessage> messages, {
+  required bool decoding,
+}) {
+  Never fail(String message) {
+    if (decoding) {
+      throw FormatException('CreateMessageRequest.messages: $message');
+    }
+    throw ArgumentError.value(
+      messages,
+      'messages',
+      'CreateMessageRequest.messages: $message',
+    );
+  }
+
+  List<SamplingContent> blocksAt(int index) {
+    try {
+      return messages[index].contentBlocks;
+    } on FormatException catch (error) {
+      fail('message $index has invalid content: ${error.message}');
+    }
+  }
+
+  for (var index = 0; index < messages.length; index++) {
+    final message = messages[index];
+    final blocks = blocksAt(index);
+    final toolUses = blocks.whereType<SamplingToolUseContent>().toList();
+    final toolResults = blocks.whereType<SamplingToolResultContent>().toList();
+
+    if (toolUses.isNotEmpty && message.role != SamplingMessageRole.assistant) {
+      fail('tool_use content at message $index must have the assistant role');
+    }
+    if (toolResults.isNotEmpty) {
+      if (message.role != SamplingMessageRole.user) {
+        fail('tool_result content at message $index must have the user role');
+      }
+      if (toolResults.length != blocks.length) {
+        fail(
+          'a user message containing tool_result content must contain only '
+          'tool results (message $index)',
+        );
+      }
+    }
+
+    if (toolUses.isEmpty) {
+      if (toolResults.isNotEmpty) {
+        if (index == 0) {
+          fail('tool results at message $index have no preceding tool uses');
+        }
+        final precedingBlocks = blocksAt(index - 1);
+        if (messages[index - 1].role != SamplingMessageRole.assistant ||
+            !precedingBlocks.any((block) => block is SamplingToolUseContent)) {
+          fail('tool results at message $index have no preceding tool uses');
+        }
+      }
+      continue;
+    }
+
+    if (index + 1 >= messages.length) {
+      fail('tool uses at message $index are missing their result message');
+    }
+
+    final resultMessage = messages[index + 1];
+    final resultBlocks = blocksAt(index + 1);
+    final results =
+        resultBlocks.whereType<SamplingToolResultContent>().toList();
+    if (resultMessage.role != SamplingMessageRole.user ||
+        results.isEmpty ||
+        results.length != resultBlocks.length) {
+      fail(
+        'tool uses at message $index must be followed immediately by a user '
+        'message containing only tool results',
+      );
+    }
+
+    final useIds = toolUses.map((toolUse) => toolUse.id).toList();
+    final resultIds = results.map((result) => result.toolUseId).toList();
+    if (useIds.toSet().length != useIds.length) {
+      fail('tool uses at message $index contain duplicate IDs');
+    }
+    if (resultIds.toSet().length != resultIds.length) {
+      fail('tool results at message ${index + 1} contain duplicate IDs');
+    }
+
+    final missing = useIds.toSet().difference(resultIds.toSet()).toList()
+      ..sort();
+    final unexpected = resultIds.toSet().difference(useIds.toSet()).toList()
+      ..sort();
+    if (missing.isNotEmpty || unexpected.isNotEmpty) {
+      fail(
+        'tool results at message ${index + 1} must match the preceding tool '
+        'use IDs exactly (missing: $missing, unexpected: $unexpected)',
+      );
+    }
+  }
+}
+
+dynamic _samplingMessageContentToJson(Object value) {
+  if (value is List) {
+    return _asSamplingContentBlocks(
+      value,
+      context: 'sampling message content',
+    ).map((item) => item.toJson()).toList();
+  }
+
+  return _asSamplingContentBlocks(
+    value,
+    context: 'sampling message content',
+  ).first.toJson();
+}
+
+ToolChoice? _parseToolChoice(dynamic value) {
+  if (value == null) {
+    return null;
+  }
+
+  if (value is ToolChoice) {
+    return value;
+  }
+
+  if (value is Map<String, dynamic>) {
+    return ToolChoice.fromJson(value);
+  }
+
+  if (value is Map) {
+    return ToolChoice.fromJson(readJsonObject(value, 'toolChoice'));
+  }
+
+  throw FormatException(
+    'Expected toolChoice to be an object, got ${value.runtimeType}',
+  );
+}
+
+Map<String, dynamic>? _toolChoiceToLegacyMap(dynamic value) {
+  if (value == null) {
+    return null;
+  }
+
+  if (value is Map<String, dynamic>) {
+    return value;
+  }
+
+  if (value is Map) {
+    return readJsonObject(value, 'toolChoice');
+  }
+
+  if (value is ToolChoice) {
+    return {'type': value.mode.name};
+  }
+
+  throw FormatException(
+    'Expected toolChoice to be an object, got ${value.runtimeType}',
+  );
+}
+
+List<Content> _parseToolResultContent(dynamic rawContent) {
+  if (rawContent == null) {
+    return <Content>[];
+  }
+
+  if (rawContent is Content) {
+    return [rawContent];
+  }
+
+  if (rawContent is List<Content>) {
+    return rawContent;
+  }
+
+  if (rawContent is List) {
+    return rawContent.map((item) {
+      if (item is Content) {
+        return item;
+      }
+
+      if (item is Map) {
+        return Content.fromJson(
+          readJsonObject(item, 'SamplingToolResultContent.content[]'),
+        );
+      }
+
+      return TextContent(text: item.toString());
+    }).toList();
+  }
+
+  if (rawContent is Map) {
+    final map = readJsonObject(rawContent, 'SamplingToolResultContent.content');
+    if (map.containsKey('type')) {
+      return [Content.fromJson(map)];
+    }
+    return [TextContent(text: map.toString())];
+  }
+
+  return [TextContent(text: rawContent.toString())];
+}
+
+List<Content> _parseToolResultWireContent(dynamic rawContent) {
+  if (rawContent is! List) {
+    throw const FormatException(
+      'SamplingToolResultContent.content must be a ContentBlock array',
+    );
+  }
+  return rawContent
+      .map((item) => Content.fromJson(_asJsonObject(item)))
+      .toList();
+}
+
+List<Tool>? _parseSamplingTools(Object? value) {
+  if (value == null) {
+    return null;
+  }
+  if (value is! List) {
+    throw const FormatException('CreateMessageRequest.tools must be a list');
+  }
+  return value.indexed
+      .map(
+        (entry) => Tool.fromJson(
+          _asJsonObject(entry.$2, 'CreateMessageRequest.tools[${entry.$1}]'),
+        ),
+      )
+      .toList();
+}
+
+/// Hints for model selection during sampling.
+class ModelHint {
+  /// Hint for a model name.
+  final String? name;
+
+  const ModelHint({this.name});
+
+  factory ModelHint.fromJson(Map<String, dynamic> json) {
+    return ModelHint(
+      name: readOptionalString(json['name'], 'ModelHint.name'),
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+        if (name != null) 'name': name,
+      };
+}
+
+/// Server's preferences for model selection requested during sampling.
+class ModelPreferences {
+  /// Optional hints for model selection.
+  final List<ModelHint>? hints;
+
+  /// How much to prioritize cost (0-1).
+  final double? costPriority;
+
+  /// How much to prioritize sampling speed/latency (0-1).
+  final double? speedPriority;
+
+  /// How much to prioritize intelligence/capabilities (0-1).
+  final double? intelligencePriority;
+
+  const ModelPreferences({
+    this.hints,
+    this.costPriority,
+    this.speedPriority,
+    this.intelligencePriority,
+  })  : assert(
+          costPriority == null || (costPriority >= 0 && costPriority <= 1),
+        ),
+        assert(
+          speedPriority == null || (speedPriority >= 0 && speedPriority <= 1),
+        ),
+        assert(
+          intelligencePriority == null ||
+              (intelligencePriority >= 0 && intelligencePriority <= 1),
+        );
+
+  factory ModelPreferences.fromJson(Map<String, dynamic> json) {
+    final hints = json['hints'];
+    if (hints != null && hints is! List) {
+      throw const FormatException('ModelPreferences.hints must be a list');
+    }
+    return ModelPreferences(
+      hints: hints
+          ?.map<ModelHint>((h) => ModelHint.fromJson(_asJsonObject(h)))
+          .toList(),
+      costPriority: readUnitDouble(
+        json['costPriority'],
+        'ModelPreferences.costPriority',
+      ),
+      speedPriority: readUnitDouble(
+        json['speedPriority'],
+        'ModelPreferences.speedPriority',
+      ),
+      intelligencePriority: readUnitDouble(
+        json['intelligencePriority'],
+        'ModelPreferences.intelligencePriority',
+      ),
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    validateUnitDouble(costPriority, 'ModelPreferences.costPriority');
+    validateUnitDouble(speedPriority, 'ModelPreferences.speedPriority');
+    validateUnitDouble(
+      intelligencePriority,
+      'ModelPreferences.intelligencePriority',
+    );
+    return {
+      if (hints != null) 'hints': hints!.map((h) => h.toJson()).toList(),
+      if (costPriority != null) 'costPriority': costPriority,
+      if (speedPriority != null) 'speedPriority': speedPriority,
+      if (intelligencePriority != null)
+        'intelligencePriority': intelligencePriority,
+    };
+  }
+}
+
+/// Represents content parts within sampling messages.
+sealed class SamplingContent {
+  /// The type of the content block.
+  final String type;
+
+  const SamplingContent({required this.type});
+
+  /// Creates specific subclass from JSON.
+  factory SamplingContent.fromJson(Map<String, dynamic> json) {
+    final type = readRequiredString(json['type'], 'SamplingContent.type');
+    return switch (type) {
+      'text' => SamplingTextContent.fromJson(json),
+      'image' => SamplingImageContent.fromJson(json),
+      'audio' => SamplingAudioContent.fromJson(json),
+      'tool_use' => SamplingToolUseContent.fromJson(json),
+      'tool_result' => SamplingToolResultContent.fromJson(json),
+      _ => throw FormatException("Invalid sampling content type: $type"),
+    };
+  }
+
+  /// Converts to JSON.
+  Map<String, dynamic> toJson() => {
+        'type': type,
+        ...switch (this) {
+          final SamplingTextContent c => {
+              'text': c.text,
+              if (c.annotations != null)
+                'annotations': _annotationsForJson(
+                  c.annotations!,
+                  'SamplingTextContent.annotations',
+                ),
+              if (c.meta != null)
+                '_meta': readJsonObject(c.meta, 'SamplingTextContent._meta'),
+            },
+          final SamplingImageContent c => {
+              'data': _base64ForJson(c.data, 'SamplingImageContent.data'),
+              'mimeType': c.mimeType,
+              if (c.annotations != null)
+                'annotations': _annotationsForJson(
+                  c.annotations!,
+                  'SamplingImageContent.annotations',
+                ),
+              if (c.meta != null)
+                '_meta': readJsonObject(c.meta, 'SamplingImageContent._meta'),
+            },
+          final SamplingAudioContent c => {
+              'data': _base64ForJson(c.data, 'SamplingAudioContent.data'),
+              'mimeType': c.mimeType,
+              if (c.annotations != null)
+                'annotations': _annotationsForJson(
+                  c.annotations!,
+                  'SamplingAudioContent.annotations',
+                ),
+              if (c.meta != null)
+                '_meta': readJsonObject(c.meta, 'SamplingAudioContent._meta'),
+            },
+          final SamplingToolUseContent c => {
+              'id': c.id,
+              'name': c.name,
+              'input': readJsonObject(
+                c.input,
+                'SamplingToolUseContent.input',
+              ),
+              if (c.meta != null)
+                '_meta': readJsonObject(c.meta, 'SamplingToolUseContent._meta'),
+            },
+          final SamplingToolResultContent c => {
+              'toolUseId': c.toolUseId,
+              'content': c.contentBlocks.map((item) => item.toJson()).toList(),
+              if (c.hasStructuredContent)
+                'structuredContent': readJsonValue(
+                  c.structuredContentJson?.toJson(),
+                  'SamplingToolResultContent.structuredContent',
+                ),
+              if (c.isError != null) 'isError': c.isError,
+              if (c.meta != null)
+                '_meta': readJsonObject(
+                  c.meta,
+                  'SamplingToolResultContent._meta',
+                ),
+            },
+        },
+      };
+}
+
+/// Text content for sampling messages.
+class SamplingTextContent extends SamplingContent {
+  /// The text content.
+  final String text;
+
+  /// Optional annotations for the content block.
+  final Map<String, dynamic>? annotations;
+
+  /// Optional metadata.
+  final Map<String, dynamic>? meta;
+
+  const SamplingTextContent({
+    required this.text,
+    this.annotations,
+    this.meta,
+  }) : super(type: 'text');
+
+  factory SamplingTextContent.fromJson(Map<String, dynamic> json) {
+    _expectType(json, 'text', 'SamplingTextContent.type');
+    return SamplingTextContent(
+      text: readRequiredString(json['text'], 'SamplingTextContent.text'),
+      annotations: readOptionalAnnotationsObject(
+        json['annotations'],
+        'SamplingTextContent.annotations',
+      ),
+      meta: _asJsonObjectOrNull(json['_meta'], 'SamplingTextContent._meta'),
+    );
+  }
+}
+
+/// Image content for sampling messages.
+class SamplingImageContent extends SamplingContent {
+  /// Base64 encoded image data.
+  final String data;
+
+  /// MIME type of the image (e.g., "image/png").
+  final String mimeType;
+
+  /// Optional annotations for the content block.
+  final Map<String, dynamic>? annotations;
+
+  /// Optional metadata.
+  final Map<String, dynamic>? meta;
+
+  const SamplingImageContent({
+    required this.data,
+    required this.mimeType,
+    this.annotations,
+    this.meta,
+  }) : super(type: 'image');
+
+  factory SamplingImageContent.fromJson(Map<String, dynamic> json) {
+    _expectType(json, 'image', 'SamplingImageContent.type');
+    return SamplingImageContent(
+      data: readRequiredBase64String(
+        json['data'],
+        'SamplingImageContent.data',
+      ),
+      mimeType: readRequiredString(
+        json['mimeType'],
+        'SamplingImageContent.mimeType',
+      ),
+      annotations: readOptionalAnnotationsObject(
+        json['annotations'],
+        'SamplingImageContent.annotations',
+      ),
+      meta: _asJsonObjectOrNull(json['_meta'], 'SamplingImageContent._meta'),
+    );
+  }
+}
+
+/// Audio content for sampling messages.
+class SamplingAudioContent extends SamplingContent {
+  /// Base64 encoded audio data.
+  final String data;
+
+  /// MIME type of the audio (e.g., "audio/wav").
+  final String mimeType;
+
+  /// Optional annotations for the content block.
+  final Map<String, dynamic>? annotations;
+
+  /// Optional metadata.
+  final Map<String, dynamic>? meta;
+
+  const SamplingAudioContent({
+    required this.data,
+    required this.mimeType,
+    this.annotations,
+    this.meta,
+  }) : super(type: 'audio');
+
+  factory SamplingAudioContent.fromJson(Map<String, dynamic> json) {
+    _expectType(json, 'audio', 'SamplingAudioContent.type');
+    return SamplingAudioContent(
+      data: readRequiredBase64String(
+        json['data'],
+        'SamplingAudioContent.data',
+      ),
+      mimeType: readRequiredString(
+        json['mimeType'],
+        'SamplingAudioContent.mimeType',
+      ),
+      annotations: readOptionalAnnotationsObject(
+        json['annotations'],
+        'SamplingAudioContent.annotations',
+      ),
+      meta: _asJsonObjectOrNull(json['_meta'], 'SamplingAudioContent._meta'),
+    );
+  }
+}
+
+/// Tool use content for sampling messages.
+class SamplingToolUseContent extends SamplingContent {
+  final String id;
+  final String name;
+  final Map<String, dynamic> input;
+  final Map<String, dynamic>? meta;
+
+  const SamplingToolUseContent({
+    required this.id,
+    required this.name,
+    required this.input,
+    this.meta,
+  }) : super(type: 'tool_use');
+
+  factory SamplingToolUseContent.fromJson(Map<String, dynamic> json) {
+    _expectType(json, 'tool_use', 'SamplingToolUseContent.type');
+    return SamplingToolUseContent(
+      id: readRequiredString(json['id'], 'SamplingToolUseContent.id'),
+      name: readRequiredString(json['name'], 'SamplingToolUseContent.name'),
+      input: _asJsonObject(json['input'], 'SamplingToolUseContent.input'),
+      meta: _asJsonObjectOrNull(json['_meta'], 'SamplingToolUseContent._meta'),
+    );
+  }
+}
+
+/// Tool result content for sampling messages.
+class SamplingToolResultContent extends SamplingContent {
+  final String toolUseId;
+  final dynamic content;
+  final Map<String, dynamic>? _structuredContent;
+  final JsonValue? _structuredContentValue;
+
+  /// Object-root structured content returned by the tool.
+  ///
+  /// Stable MCP `2025-11-25` tool results use an object here. When working
+  /// with MCP `2026-07-28` peers, use [structuredContentJson] to read
+  /// non-object JSON values such as arrays, strings, numbers, booleans, or an
+  /// explicit JSON `null`.
+  Map<String, dynamic>? get structuredContent {
+    return _structuredContentValue?.asObject ?? _structuredContent;
+  }
+
+  /// Structured content returned by an MCP `2026-07-28` tool result.
+  ///
+  /// This exposes the wire-level JSON value and may be an object, array,
+  /// string, number, boolean, or null. Use [hasStructuredContent] to distinguish
+  /// an omitted field from an explicit JSON `null`.
+  JsonValue? get structuredContentJson {
+    if (!hasStructuredContent) {
+      return null;
+    }
+    return _structuredContentValue ??
+        (structuredContent == null
+            ? JsonValue.nullValue
+            : JsonValue.object(structuredContent!));
+  }
+
+  final bool hasStructuredContent;
+  final bool? isError;
+  final Map<String, dynamic>? meta;
+
+  const SamplingToolResultContent({
+    required this.toolUseId,
+    required this.content,
+    Map<String, dynamic>? structuredContent,
+    JsonValue? structuredContentJson,
+    bool? hasStructuredContent,
+    this.isError,
+    this.meta,
+  })  : hasStructuredContent = structuredContentJson != null ||
+            structuredContent != null ||
+            (hasStructuredContent ?? false),
+        _structuredContent =
+            structuredContentJson == null ? structuredContent : null,
+        _structuredContentValue = structuredContentJson,
+        super(type: 'tool_result');
+
+  /// Normalized content blocks for tool results.
+  List<Content> get contentBlocks => _parseToolResultContent(content);
+
+  /// Legacy shape compatibility map form.
+  @Deprecated('Use contentBlocks')
+  dynamic get legacyContent => content;
+
+  factory SamplingToolResultContent.fromJson(Map<String, dynamic> json) {
+    _expectType(json, 'tool_result', 'SamplingToolResultContent.type');
+    return SamplingToolResultContent(
+      toolUseId: readRequiredString(
+        json['toolUseId'],
+        'SamplingToolResultContent.toolUseId',
+      ),
+      content: _parseToolResultWireContent(json['content']),
+      structuredContentJson: json.containsKey('structuredContent')
+          ? JsonValue.fromJson(json['structuredContent'])
+          : null,
+      hasStructuredContent: json.containsKey('structuredContent'),
+      isError: readOptionalBool(
+        json['isError'],
+        'SamplingToolResultContent.isError',
+      ),
+      meta:
+          _asJsonObjectOrNull(json['_meta'], 'SamplingToolResultContent._meta'),
+    );
+  }
+}
+
+/// Role in a sampling message exchange.
+enum SamplingMessageRole { user, assistant }
+
+/// Describes a message issued to or received from an LLM API during sampling.
+class SamplingMessage {
+  /// The role of the message sender.
+  final SamplingMessageRole role;
+
+  /// The content of the message.
+  ///
+  /// Legacy APIs may use a single block while newer APIs may use a list.
+  final dynamic content;
+
+  /// Optional metadata.
+  final Map<String, dynamic>? meta;
+
+  const SamplingMessage({
+    required this.role,
+    required this.content,
+    this.meta,
+  });
+
+  /// Normalized content blocks representation.
+  List<SamplingContent> get contentBlocks {
+    return _asSamplingContentBlocks(
+      content,
+      context: 'sampling message content',
+    );
+  }
+
+  factory SamplingMessage.fromJson(Map<String, dynamic> json) {
+    return SamplingMessage(
+      role: SamplingMessageRole.values.byName(
+        readRequiredRoleString(json['role'], 'SamplingMessage.role'),
+      ),
+      content: _parseSamplingMessageContent(json['content']),
+      meta: _asJsonObjectOrNull(json['_meta'], 'SamplingMessage._meta'),
+    );
+  }
+
+  /// Converts to JSON.
+  Map<String, dynamic> toJson() => {
+        'role': role.name,
+        'content': _samplingMessageContentToJson(content),
+        if (meta != null)
+          '_meta': readJsonObject(meta, 'SamplingMessage._meta'),
+      };
+}
+
+/// Context inclusion options for sampling requests.
+enum IncludeContext { none, thisServer, allServers }
+
+/// Tool selection mode for sampling requests.
+enum ToolChoiceMode { auto, required, none }
+
+/// Controls how the model uses tools during sampling.
+class ToolChoice {
+  /// Tool selection mode.
+  final ToolChoiceMode mode;
+
+  const ToolChoice({this.mode = ToolChoiceMode.auto});
+
+  factory ToolChoice.fromJson(Map<String, dynamic> json) {
+    final rawMode = json['mode'] ?? json['type'];
+    if (rawMode == null) {
+      return const ToolChoice();
+    }
+
+    return ToolChoice(
+      mode: readRequiredEnumValue(
+        rawMode,
+        ToolChoiceMode.values,
+        'ToolChoice.mode',
+      ),
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+        'mode': mode.name,
+      };
+}
+
+/// Parameters for the `sampling/createMessage` request.
+class CreateMessageRequest {
+  /// The sequence of messages for the LLM prompt.
+  final List<SamplingMessage> messages;
+
+  /// Task metadata for task-augmented execution.
+  final TaskCreation? task;
+
+  /// Optional system prompt.
+  final String? systemPrompt;
+
+  /// Request to include context from MCP servers.
+  final IncludeContext? includeContext;
+
+  /// Sampling temperature.
+  final double? temperature;
+
+  /// Maximum number of tokens to sample.
+  final int maxTokens;
+
+  /// Sequences to stop sampling at.
+  final List<String>? stopSequences;
+
+  /// Optional provider-specific metadata.
+  final Map<String, dynamic>? metadata;
+
+  /// Server's preferences for model selection.
+  final ModelPreferences? modelPreferences;
+
+  /// Optional tools to provide to the model during sampling.
+  final List<Tool>? tools;
+
+  /// Optional tool choice configuration.
+  ///
+  /// For compatibility this can be either a raw map (legacy) or [ToolChoice].
+  final dynamic toolChoice;
+
+  /// Normalized tool choice configuration.
+  ToolChoice? get toolChoiceConfig => _parseToolChoice(toolChoice);
+
+  /// Legacy map representation of [toolChoice].
+  @Deprecated('Use toolChoiceConfig')
+  Map<String, dynamic>? get toolChoiceMap => _toolChoiceToLegacyMap(toolChoice);
+
+  const CreateMessageRequest({
+    required this.messages,
+    this.task,
+    this.systemPrompt,
+    this.includeContext,
+    this.temperature,
+    required this.maxTokens,
+    this.stopSequences,
+    this.metadata,
+    this.modelPreferences,
+    this.tools,
+    this.toolChoice,
+  });
+
+  factory CreateMessageRequest.fromJson(Map<String, dynamic> json) {
+    final task = _asJsonObjectOrNull(json['task'], 'CreateMessageRequest.task');
+    final toolChoice = _asJsonObjectOrNull(
+      json['toolChoice'],
+      'CreateMessageRequest.toolChoice',
+    );
+    if (toolChoice != null) {
+      ToolChoice.fromJson(toolChoice);
+    }
+    final messages = json['messages'];
+    if (messages is! List) {
+      throw const FormatException('CreateMessageRequest.messages is required');
+    }
+    final parsedMessages = messages
+        .map((m) => SamplingMessage.fromJson(_asJsonObject(m)))
+        .toList();
+    _validateSamplingMessageSequence(parsedMessages, decoding: true);
+    return CreateMessageRequest(
+      messages: parsedMessages,
+      task: task == null ? null : TaskCreation.fromJson(task),
+      systemPrompt: readOptionalString(
+        json['systemPrompt'],
+        'CreateMessageRequest.systemPrompt',
+      ),
+      includeContext: readOptionalEnumValue(
+        json['includeContext'],
+        IncludeContext.values,
+        'CreateMessageRequest.includeContext',
+      ),
+      temperature: readOptionalFiniteDouble(
+        json['temperature'],
+        'CreateMessageRequest.temperature',
+      ),
+      maxTokens: readInteger(
+        json['maxTokens'],
+        'CreateMessageRequest.maxTokens',
+      ),
+      stopSequences: readOptionalStringList(
+        json['stopSequences'],
+        'CreateMessageRequest.stopSequences',
+      ),
+      metadata: _asJsonObjectOrNull(
+        json['metadata'],
+        'CreateMessageRequest.metadata',
+      ),
+      modelPreferences: json['modelPreferences'] == null
+          ? null
+          : ModelPreferences.fromJson(
+              _asJsonObject(json['modelPreferences']),
+            ),
+      tools: _parseSamplingTools(json['tools']),
+      toolChoice: toolChoice,
+    );
+  }
+
+  /// Converts to JSON.
+  Map<String, dynamic> toJson({bool omitToolExecution = false}) {
+    _validateSamplingMessageSequence(messages, decoding: false);
+    validateOptionalFiniteNumber(
+      temperature,
+      'CreateMessageRequest.temperature',
+    );
+    return {
+      'messages': messages.map((m) => m.toJson()).toList(),
+      if (task != null) 'task': task!.toJson(),
+      if (systemPrompt != null) 'systemPrompt': systemPrompt,
+      if (includeContext != null) 'includeContext': includeContext!.name,
+      if (temperature != null) 'temperature': temperature,
+      'maxTokens': maxTokens,
+      if (stopSequences != null) 'stopSequences': stopSequences,
+      if (metadata != null)
+        'metadata': readJsonObject(
+          metadata,
+          'CreateMessageRequest.metadata',
+        ),
+      if (modelPreferences != null)
+        'modelPreferences': modelPreferences!.toJson(),
+      if (tools != null)
+        'tools': tools!
+            .map((t) => t.toJson(omitExecution: omitToolExecution))
+            .toList(),
+      if (toolChoiceConfig != null) 'toolChoice': toolChoiceConfig!.toJson(),
+    };
+  }
+}
+
+/// Request sent from server to client to sample an LLM.
+class JsonRpcCreateMessageRequest extends JsonRpcRequest {
+  /// The create message parameters.
+  final CreateMessageRequest createParams;
+
+  JsonRpcCreateMessageRequest({
+    required super.id,
+    required this.createParams,
+    super.meta,
+  }) : super(
+          method: Method.samplingCreateMessage,
+          params: createParams.toJson(),
+        );
+
+  factory JsonRpcCreateMessageRequest.fromJson(Map<String, dynamic> json) {
+    _expectJsonRpcMethod(
+      json,
+      Method.samplingCreateMessage,
+      'JsonRpcCreateMessageRequest',
+    );
+    final paramsMap = readOptionalJsonObject(
+      json['params'],
+      'JsonRpcCreateMessageRequest.params',
+    );
+    if (paramsMap == null) {
+      throw const FormatException("Missing params for create message request");
+    }
+    final meta = extractRequestMeta(json);
+    return JsonRpcCreateMessageRequest(
+      id: parseRequestId(json['id']),
+      createParams: CreateMessageRequest.fromJson(paramsMap),
+      meta: meta,
+    );
+  }
+}
+
+/// Reasons why LLM sampling might stop.
+enum StopReason { endTurn, stopSequence, maxTokens, toolUse }
+
+/// Type alias allowing [StopReason] or a custom [String] reason.
+typedef DynamicStopReason = dynamic; // StopReason or String
+
+/// Result data for a successful `sampling/createMessage` request.
+class CreateMessageResult implements BaseResultData {
+  /// Name of the model that generated the message.
+  final String model;
+
+  /// Reason why sampling stopped ([StopReason] or custom string).
+  final DynamicStopReason stopReason;
+
+  /// Role of the generated message (usually assistant).
+  final SamplingMessageRole role;
+
+  /// Content generated by the model.
+  ///
+  /// Legacy APIs may use a single block while newer APIs may use a list.
+  final dynamic content;
+
+  /// Optional metadata.
+  @override
+  final Map<String, dynamic>? meta;
+
+  const CreateMessageResult({
+    required this.model,
+    this.stopReason,
+    required this.role,
+    required this.content,
+    this.meta,
+  });
+
+  /// Normalized content blocks representation.
+  List<SamplingContent> get contentBlocks {
+    return _asSamplingContentBlocks(
+      content,
+      context: 'createMessage result content',
+    );
+  }
+
+  factory CreateMessageResult.fromJson(Map<String, dynamic> json) {
+    final meta =
+        _asJsonObjectOrNull(json['_meta'], 'CreateMessageResult._meta');
+    dynamic reason = json['stopReason'];
+    if (reason is String) {
+      try {
+        reason = StopReason.values.byName(reason);
+      } catch (_) {}
+    } else if (reason != null) {
+      throw const FormatException(
+        'CreateMessageResult.stopReason must be a string',
+      );
+    }
+    return CreateMessageResult(
+      model: readRequiredString(json['model'], 'CreateMessageResult.model'),
+      stopReason: reason,
+      role: SamplingMessageRole.values.byName(
+        readRequiredRoleString(json['role'], 'CreateMessageResult.role'),
+      ),
+      content: _parseSamplingMessageContent(json['content']),
+      meta: meta,
+    );
+  }
+
+  @override
+  Map<String, dynamic> toJson() {
+    final reason = stopReason;
+    if (reason != null && reason is! StopReason && reason is! String) {
+      throw ArgumentError.value(
+        reason,
+        'stopReason',
+        'CreateMessageResult.stopReason must be a StopReason or string',
+      );
+    }
+    return {
+      'model': model,
+      if (reason != null)
+        'stopReason': reason is StopReason ? reason.name : reason,
+      'role': role.name,
+      'content': _samplingMessageContentToJson(content),
+      if (meta != null)
+        '_meta': readJsonObject(meta, 'CreateMessageResult._meta'),
+    };
+  }
+}
+
+/// Deprecated alias for [CreateMessageRequest].
+@Deprecated('Use CreateMessageRequest instead')
+typedef CreateMessageRequestParams = CreateMessageRequest;

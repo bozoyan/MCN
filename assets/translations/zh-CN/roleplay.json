@@ -1,0 +1,10 @@
+{
+  "roleplay.select_character": "选择角色",
+  "roleplay.no_characters": "暂无角色，请先在人物管理中新建角色",
+  "roleplay.input_hint": "与 {name} 对话...",
+  "roleplay.start": "开始对话",
+  "roleplay.new": "新对话",
+  "roleplay.default_title": "角色扮演",
+  "roleplay.speaking_fmt": "{name} 正在回应...",
+  "roleplay.session_title_fmt": "角色扮演：{character}"
+}

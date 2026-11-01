@@ -1,0 +1,269 @@
+/* =========================================================================
+   Reveric Design System — Tokens
+   Source of truth: lib/shared/theme/
+     - lib/shared/theme/reveric_colors.dart
+     - lib/shared/theme/reveric_typography.dart
+     - lib/shared/theme/reveric_spacing.dart
+
+   Color tokens live in ../themes.css (reveric / classic / ivory × light /
+   dark, switched by ../theme.js). This file holds typography, spacing,
+   radii, sizes, elevation, and semantic element styles.
+
+   Typography uses Georgia only for manuscript prose being read or written
+   (--font-serif). Every title — page, section, card, dialog — and all UI
+   copy use system sans (--font-display / --font-sans).
+   ========================================================================= */
+
+@import url("../themes.css");
+
+:root {
+  /* ---- Typography -------------------------------------------------- */
+
+  --font-serif:  Georgia, "Times New Roman", "Songti SC", "STSong", serif;
+  --font-sans:   system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+                 "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-mono:   ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  /* Titles: page / section / card / dialog headings. Sans, tight tracking. */
+  --font-display: var(--font-sans);
+
+  /* Title + manuscript scale — display/heading are sans titles; body is Georgia prose */
+  --type-display-size:        28px;
+  --type-display-weight:      700;
+  --type-display-line:        1.3;
+
+  --type-heading-size:        22px;
+  --type-heading-weight:      700;
+  --type-heading-line:        1.3;
+
+  --type-body-size:           16px;
+  --type-body-weight:         400;
+  --type-body-line:           1.75;   /* writer-first leading */
+
+  --type-body-small-size:     14px;
+  --type-body-small-weight:   400;
+  --type-body-small-line:     1.5;
+
+  /* Mechanism scale — system sans, compact */
+  --type-ui-size:             13px;
+  --type-ui-weight:           400;
+  --type-ui-medium-weight:    500;
+  --type-ui-semibold-weight:  600;
+  --type-ui-line:             1.4;
+
+  --type-ui-small-size:       12px;
+  --type-ui-tiny-size:        11px;
+  --type-ui-tiny-weight:      500;
+
+  /* ---- Spacing tokens (RevericSpacing) ---------------------------- */
+  --space-xxs: 4px;
+  --space-xs:  6px;
+  --space-sm:  8px;
+  --space-md:  10px;
+  --space-lg:  12px;
+  --space-xl:  14px;
+  --space-2xl: 16px;
+  --space-3xl: 20px;
+  --space-4xl: 24px;
+  --space-5xl: 28px;
+  --space-6xl: 40px;
+  --editor-padding-h: 72px; /* editor horizontal padding — preserve line length */
+
+  /* ---- Radii (RevericRadius) -------------------------------------- */
+  --radius-small:  6px;
+  --radius-medium: 8px;   /* list items, tabs, chips, menus */
+  --radius-large:  12px;  /* inputs, small cards */
+  --radius-xl:     14px;
+  --radius-2xl:    18px;  /* cards, panels, dialogs */
+  --radius-full:   20px;
+  --radius-pill:   999px;
+  --radius-button: 999px; /* all buttons are pills */
+
+  /* ---- Sizes (RevericSizes) --------------------------------------- */
+  --size-sidebar:           280px;
+  --size-editor-sidebar:    340px;
+  --size-chat-panel:        360px;
+  --size-button-h:          40px;
+  --size-button-h-sm:       32px;
+  --size-icon-button:       32px;
+  --size-chat-bubble-r:     14px;
+  --size-chat-bubble-max:   300px;
+  --size-avatar-lg:         36px;
+  --size-avatar-md:         28px;
+
+  /* ---- Elevation --------------------------------------------------- */
+  /* Cards and panels float on the canvas with --shadow-card (themes.css)
+     and no visible border (--card-border). Chrome — sidebars, toolbars,
+     inputs, list rows — stays flat: tonal layers + hover/selected states.
+     No ad-hoc shadows beyond these tokens. */
+  --shadow-none:    none;
+  --shadow-dialog:  0 8px 24px color-mix(in srgb, var(--shadow-base) 10%, transparent),
+                    0 2px 8px color-mix(in srgb, var(--shadow-base) 6%, transparent);
+  --shadow-overlay: 0 4px 16px color-mix(in srgb, var(--shadow-base) 8%, transparent);
+}
+
+/* =========================================================================
+   Semantic element styles — drop into pages for instant Reveric flavor
+   ========================================================================= */
+
+body {
+  background: var(--canvas);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: var(--type-ui-size);
+  line-height: var(--type-ui-line);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* Titles — sans; manuscript prose — Georgia */
+h1, .m-display {
+  font-family: var(--font-display);
+  font-size: var(--type-display-size);
+  font-weight: var(--type-display-weight);
+  line-height: var(--type-display-line);
+  color: var(--text-primary);
+  margin: 0;
+  letter-spacing: -0.02em;
+}
+
+h2, .m-heading {
+  font-family: var(--font-display);
+  letter-spacing: -0.015em;
+  font-size: var(--type-heading-size);
+  font-weight: var(--type-heading-weight);
+  line-height: var(--type-heading-line);
+  color: var(--text-primary);
+  margin: 0;
+}
+
+p, .m-body {
+  font-family: var(--font-serif);
+  font-size: var(--type-body-size);
+  font-weight: var(--type-body-weight);
+  line-height: var(--type-body-line);
+  color: var(--text-primary);
+  margin: 0;
+  text-wrap: pretty;
+}
+
+.m-body-small {
+  font-family: var(--font-serif);
+  font-size: var(--type-body-small-size);
+  line-height: var(--type-body-small-line);
+  color: var(--text-secondary);
+}
+
+.m-body-italic {
+  font-family: var(--font-serif);
+  font-style: italic;
+  font-size: var(--type-body-size);
+  line-height: var(--type-body-line);
+  color: var(--text-secondary);
+}
+
+/* Mechanism — system sans, dense */
+.m-ui            { font: var(--type-ui-weight)         var(--type-ui-size)/var(--type-ui-line) var(--font-sans); color: var(--text-secondary); }
+.m-ui-medium     { font: var(--type-ui-medium-weight)  var(--type-ui-size)/var(--type-ui-line) var(--font-sans); color: var(--text-primary); }
+.m-ui-semibold   { font: var(--type-ui-semibold-weight) var(--type-ui-size)/var(--type-ui-line) var(--font-sans); color: var(--text-primary); }
+.m-ui-small      { font: 400 var(--type-ui-small-size)/var(--type-ui-line) var(--font-sans); color: var(--text-muted); }
+.m-ui-tiny       { font: var(--type-ui-tiny-weight) var(--type-ui-tiny-size)/var(--type-ui-line) var(--font-sans); color: var(--text-subtle); letter-spacing: 0.5px; }
+.m-ui-tiny-section {
+  font: 600 var(--type-ui-tiny-size)/1.3 var(--font-sans);
+  color: var(--text-muted);
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+
+/* Markdown literary detail */
+blockquote, .m-blockquote {
+  border-left: 3px solid var(--blockquote-border);
+  padding-left: 20px;
+  font-family: var(--font-serif);
+  font-style: italic;
+  color: var(--text-secondary);
+  margin: 0;
+}
+
+/* Buttons (canonical) */
+.m-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-sm);
+  height: var(--size-button-h);
+  padding: 0 var(--space-2xl);
+  border-radius: var(--radius-button);
+  font: var(--type-ui-medium-weight) var(--type-ui-size)/1 var(--font-sans);
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+.m-btn--primary  { background: var(--accent); color: var(--on-accent); }
+.m-btn--primary:hover  { background: var(--accent-warm); }
+.m-btn--secondary{ background: var(--surface); color: var(--text-secondary); border-color: var(--border-input); }
+.m-btn--secondary:hover{ background: var(--hover); }
+.m-btn--text     { background: transparent; color: var(--text-secondary); padding: 0 var(--space-lg); }
+.m-btn--text:hover     { background: var(--hover); }
+.m-btn--danger   { background: var(--deletion-border); color: #fff; }
+.m-btn--sm       { height: var(--size-button-h-sm); padding: 0 var(--space-lg); }
+
+/* Inputs */
+.m-input {
+  display: block;
+  width: 100%;
+  padding: 10px 12px;
+  background: var(--surface-container-high);
+  color: var(--text-primary);
+  border: 1px solid var(--border-input);
+  border-radius: var(--radius-large);
+  font: 400 var(--type-ui-size)/var(--type-ui-line) var(--font-sans);
+  transition: border-color 120ms ease;
+  outline: none;
+}
+.m-input::placeholder { color: var(--text-subtle); }
+.m-input:focus { border-color: var(--accent); }
+
+/* Cards / Panels */
+.m-card {
+  background: var(--surface);
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius-2xl);
+  box-shadow: var(--shadow-card);
+  padding: var(--space-4xl);
+}
+.m-panel {
+  background: var(--surface);
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius-2xl);
+  box-shadow: var(--shadow-card);
+}
+
+/* Sidebar list item */
+.m-list-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-xs) var(--space-sm);
+  border-radius: var(--radius-medium);
+  cursor: pointer;
+  color: var(--text-secondary);
+}
+.m-list-item:hover { background: var(--hover); }
+.m-list-item.is-selected {
+  background: var(--selected);
+  color: var(--text-primary);
+  font-weight: var(--type-ui-semibold-weight);
+}
+
+/* Tag dot */
+.m-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--text-subtle);
+  flex: none;
+}
+.m-list-item.is-selected .m-dot { background: var(--accent); }
+
+/* Scrollbar — quiet */
+*::-webkit-scrollbar { width: 8px; height: 8px; }
+*::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+*::-webkit-scrollbar-track { background: transparent; }

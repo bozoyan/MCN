@@ -1,0 +1,16 @@
+{
+  "entity.type.character": "Character",
+  "entity.type.faction": "Faction",
+  "entity.type.skill": "Skill",
+  "entity.type.item": "Item",
+  "entity.type.location": "Location",
+  "entity.type.chapter": "Chapter",
+  "entity.type.foreshadowing": "Foreshadowing",
+  "entity.type.unknown": "Unknown",
+  "entity.type.creature": "Creature",
+  "entity.subject.locations": "Locations",
+  "entity.subject.characters_empty": "No characters yet. Add them to the story first.",
+  "entity.subject.locations_empty": "No locations yet. Add them to the story first.",
+  "entity.subject.compendium_empty": "No compendium entries yet. Add them to the story first.",
+  "entity.subject.photo_count": "{count} photos"
+}

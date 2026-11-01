@@ -1,0 +1,193 @@
+// 职责: 验证对象存储表单的字段校验、折叠字段的错误回填，以及仅在连接测试通过后才保存配置并通知调用方。
+// 关联文件:
+//   lib/shared/widgets/settings/object_storage_form.dart
+//   lib/shared/services/object_storage/service.dart
+// 遵循的 Rules:
+//   .agents/rules/testing.md
+
+import 'package:drift/native.dart';
+import 'package:easy_localization/easy_localization.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:reveric/shared/database/app_database.dart';
+import 'package:reveric/shared/localization/merging_asset_loader.dart';
+import 'package:reveric/shared/models/object_storage_config.dart';
+import 'package:reveric/shared/providers/object_storage.dart';
+import 'package:reveric/shared/services/object_storage/service.dart';
+import 'package:reveric/shared/theme/theme.dart';
+import 'package:reveric/shared/widgets/settings/object_storage_form.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+void main() {
+  late AppDatabase database;
+
+  setUpAll(() async {
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+    await EasyLocalization.ensureInitialized();
+  });
+  setUp(() {
+    rootBundle.clear();
+    final view =
+        TestWidgetsFlutterBinding.instance.platformDispatcher.views.first;
+    view.physicalSize = const Size(1000, 1600);
+    view.devicePixelRatio = 1;
+    database = AppDatabase.forTest(NativeDatabase.memory());
+  });
+  tearDown(() async {
+    final view =
+        TestWidgetsFlutterBinding.instance.platformDispatcher.views.first;
+    view.resetPhysicalSize();
+    view.resetDevicePixelRatio();
+    await database.close();
+  });
+
+  Future<void> fill(WidgetTester tester, String field, String value) async {
+    final input = find.descendant(
+      of: find.byKey(ValueKey('object_storage_${field}_field')),
+      matching: find.byType(EditableText),
+    );
+    await tester.ensureVisible(input);
+    await tester.enterText(input, value);
+  }
+
+  Future<void> submit(WidgetTester tester) async {
+    final button = find.byKey(const ValueKey('object_storage_save_button'));
+    await tester.ensureVisible(button);
+    await tester.tap(button);
+    await tester.pumpAndSettle();
+  }
+
+  testWidgets('blocks incomplete config before testing the connection', (
+    tester,
+  ) async {
+    final service = _FakeService(database);
+    await tester.pumpWidget(
+      _wrap(service, const ObjectStorageForm(config: ObjectStorageConfig())),
+    );
+    await tester.pumpAndSettle();
+
+    await submit(tester);
+
+    expect(find.text('Enter a valid HTTP or HTTPS URL.'), findsOneWidget);
+    expect(service.tested, isEmpty);
+    expect(service.saved, isEmpty);
+  });
+
+  testWidgets('saves only after the connection test passes', (tester) async {
+    final service = _FakeService(database)
+      ..failure = ObjectStorageFailure.unauthorized;
+    var savedCalls = 0;
+    await tester.pumpWidget(
+      _wrap(
+        service,
+        ObjectStorageForm(
+          config: const ObjectStorageConfig(),
+          onSaved: () => savedCalls++,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await fill(tester, 'endpoint', 'https://s3.example.com');
+    await fill(tester, 'bucket', 'media');
+    await fill(tester, 'accessKeyId', 'ak');
+    await fill(tester, 'secretAccessKey', 'sk');
+    await submit(tester);
+
+    expect(service.tested.single.bucket, 'media');
+    expect(service.saved, isEmpty);
+    expect(savedCalls, 0);
+    expect(
+      find.text(
+        'Authentication failed. Check the access key, secret key and region.',
+      ),
+      findsOneWidget,
+    );
+
+    service.failure = null;
+    await submit(tester);
+
+    expect(service.saved.single.secretAccessKey, 'sk');
+    expect(savedCalls, 1);
+  });
+
+  testWidgets('expands advanced options when a collapsed field fails', (
+    tester,
+  ) async {
+    final service = _FakeService(database);
+    await tester.pumpWidget(
+      _wrap(service, const ObjectStorageForm(config: ObjectStorageConfig())),
+    );
+    await tester.pumpAndSettle();
+
+    final toggle = find.byKey(const ValueKey('object_storage_advanced_toggle'));
+    final publicUrl = find.byKey(
+      const ValueKey('object_storage_publicBaseUrl_field'),
+    );
+    expect(publicUrl.hitTestable(), findsNothing);
+
+    await tester.tap(toggle);
+    await tester.pumpAndSettle();
+    await fill(tester, 'endpoint', 'https://s3.example.com');
+    await fill(tester, 'bucket', 'media');
+    await fill(tester, 'accessKeyId', 'ak');
+    await fill(tester, 'secretAccessKey', 'sk');
+    await fill(tester, 'publicBaseUrl', 'not a url');
+    await tester.ensureVisible(toggle);
+    await tester.tap(toggle);
+    await tester.pumpAndSettle();
+    expect(publicUrl.hitTestable(), findsNothing);
+
+    await submit(tester);
+
+    expect(publicUrl.hitTestable(), findsOneWidget);
+    expect(find.text('Enter a valid HTTP or HTTPS URL.'), findsOneWidget);
+    expect(service.tested, isEmpty);
+  });
+}
+
+Widget _wrap(ObjectStorageService service, Widget child) {
+  return ProviderScope(
+    overrides: [objectStorageServiceProvider.overrideWithValue(service)],
+    child: EasyLocalization(
+      supportedLocales: const <Locale>[Locale('en')],
+      path: 'assets/translations',
+      assetLoader: const MergingAssetLoader(),
+      fallbackLocale: const Locale('en'),
+      startLocale: const Locale('en'),
+      child: Builder(
+        builder: (context) => MaterialApp(
+          localizationsDelegates: context.localizationDelegates,
+          supportedLocales: context.supportedLocales,
+          locale: context.locale,
+          theme: RevericThemeData.reveric.toThemeData(),
+          home: RevericTheme(
+            data: RevericThemeData.reveric,
+            child: Scaffold(body: SingleChildScrollView(child: child)),
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
+class _FakeService extends ObjectStorageService {
+  _FakeService(AppDatabase database) : super(database: database);
+
+  ObjectStorageFailure? failure;
+  final tested = <ObjectStorageConfig>[];
+  final saved = <ObjectStorageConfig>[];
+
+  @override
+  Future<ObjectStorageFailure?> test(ObjectStorageConfig config) async {
+    tested.add(config);
+    return failure;
+  }
+
+  @override
+  Future<void> save(ObjectStorageConfig config) async {
+    saved.add(config);
+  }
+}

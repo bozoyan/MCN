@@ -1,0 +1,7 @@
+{
+  "diff.review_applied_count": "{count} lines reverted",
+  "diff.review_marked_count": "{count} lines marked to revert",
+  "diff.review_restore_line": "Restore this change",
+  "diff.review_revert_line": "Revert this line",
+  "diff.unchanged_hidden": "{count} unchanged"
+}

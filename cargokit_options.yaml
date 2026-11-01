@@ -1,0 +1,2 @@
+# Build the vendored loader restriction; never fetch upstream native binaries.
+precompiled_binaries_mode: disabled

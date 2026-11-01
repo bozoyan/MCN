@@ -1,0 +1,69 @@
+// 职责: 将 Wan 3.0 标准版及 prime 请求与回执转换为异步视频协议。
+// 关联文件:
+//   lib/shared/services/ai/video/client.dart
+//   lib/shared/models/video/request.dart
+//   lib/shared/models/video/task_result.dart
+
+import '../../../models/video/request.dart';
+import '../../../models/video/task_result.dart';
+import 'client.dart';
+
+/// Qwen chat and video share credentials and the proxy prefix before this suffix.
+Uri wanVideoEndpoint(String configuredBaseUrl) {
+  final uri = Uri.parse(configuredBaseUrl.trim());
+  final path = uri.path
+      .replaceFirst(RegExp(r'/+$'), '')
+      .replaceFirst(RegExp(r'/compatible-mode/v1$'), '');
+  return uri.replace(path: path);
+}
+
+class WanVideoClient extends VideoClient {
+  WanVideoClient({
+    required super.httpClient,
+    required super.providerType,
+    required super.endpoint,
+    required super.apiKey,
+    super.timeout,
+  });
+  @override
+  String get createPath =>
+      'api/v1/services/aigc/video-generation/video-synthesis';
+  @override
+  String queryPath(String id) => 'api/v1/tasks/$id';
+  @override
+  Map<String, String> get extraHeaders => {'X-DashScope-Async': 'enable'};
+  @override
+  Map<String, dynamic> encode(
+    VideoRequest request,
+    List<VideoReference> references,
+  ) => {
+    'model': request.modelId,
+    'input': {
+      'prompt': request.prompt,
+      if (references.isNotEmpty)
+        'media': [
+          for (final ref in references)
+            {'type': ref.role.name, 'url': ref.url.toString()},
+        ],
+    },
+    'parameters': {
+      'resolution': request.resolution,
+      'duration': request.durationSeconds,
+      'ratio': request.ratio,
+      'audio': request.audio,
+      'prompt_extend': request.promptExtend,
+    },
+  };
+  @override
+  String submissionId(Map<String, dynamic> json) =>
+      (json['output'] as Map)['task_id'] as String;
+  @override
+  VideoTaskResult decodeResult(Map<String, dynamic> json) {
+    final output = json['output'] as Map;
+    return videoResult(
+      output['task_status'] as String,
+      output['video_url'],
+      wan: true,
+    );
+  }
+}

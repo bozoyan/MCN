@@ -1,0 +1,7 @@
+{
+  "map.type.world": "世界地图",
+  "map.type.region": "区域地图",
+  "map.type.city": "城市地图",
+  "map.type.building": "建筑地图",
+  "map.type.dungeon": "地下城地图"
+}

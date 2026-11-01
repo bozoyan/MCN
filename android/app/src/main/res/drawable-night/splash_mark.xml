@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android 12+ 系统启动页图标：只有双色折带标志，透明背景（不带桌面图标的方块底）。
+     路径取自 assets/logo/reveric_mark.svg；图形在 288dp 画布中心 192dp 安全圆内。 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="288dp"
+    android:height="288dp"
+    android:viewportWidth="1024"
+    android:viewportHeight="1024">
+    <group
+        android:scaleX="0.66"
+        android:scaleY="0.66"
+        android:translateX="97.19"
+        android:translateY="97.19">
+        <path
+            android:fillColor="#FFC5CEF0"
+            android:pathData="M334 620C334 512 436 465 579 423C749 372 882 326 923 248V429C923 510 836 540 718 577C550 633 338 722 338 811C334 803 334 792 334 781Z" />
+        <path
+            android:fillColor="#FF8797D2"
+            android:pathData="M608 637C608 708 672 744 758 781C845 818 892 843 913 918C924 953 926 985 921 1009C862 949 744 935 626 925C507 915 415 891 415 816C415 752 490 691 608 637Z" />
+    </group>
+</vector>

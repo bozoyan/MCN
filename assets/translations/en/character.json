@@ -1,0 +1,11 @@
+{
+  "character.role.protagonist": "Protagonist",
+  "character.role.antagonist": "Antagonist",
+  "character.role.supporting": "Supporting",
+  "character.role.minor": "Minor",
+  "character.gender.male": "Male",
+  "character.gender.female": "Female",
+  "character.gender.non_binary": "Non-binary",
+  "character.gender.other": "Other",
+  "character.gender.unknown": "Unknown"
+}

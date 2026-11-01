@@ -1,0 +1,301 @@
+/* =========================================================================
+   Reveric Design Mockups — Color themes (shared by desktop + mobile)
+
+   Palette set mirrors Flutter AppTheme: reveric / classic / ivory, each with
+   a light and dark preset. Semantic token names map 1:1 to RevericColors
+   (camelCase → kebab-case) in lib/shared/theme/reveric_colors.dart.
+
+   - classic / ivory: copied verbatim from reveric_colors.dart.
+   - reveric: 玉白 · 墨玉 — mockup draft of the redesigned default.
+     Flutter still ships the previous 墨蓝纸本 values until this is synced.
+
+   Selection: <html data-palette="reveric|classic|ivory" data-theme="light|dark">
+   driven by designs/theme.js. data-theme is the resolved brightness, so
+   existing `:root[data-theme="dark"]` overrides keep working.
+
+   Derived tokens (--shadow-base, --scrim, --glass) are mockup-only helpers
+   for translucency; tint any token with
+   color-mix(in srgb, var(--accent) 12%, transparent).
+   ========================================================================= */
+
+/* ---- Reveric (default) · light — 玉白 · 墨玉 --------------------------
+   带一丝薄荷的冷白底（canvas）托起纯白卡片（surface），卡片靠柔和投影而非
+   描边分层。近黑墨玉担主操作与最强调元素；翡翠绿（accent-amber 槽位）只用于
+   AI、状态与小面积点缀，不做正文色。 */
+:root,
+:root[data-palette="reveric"] {
+  color-scheme: light;
+
+  --canvas:                 #F2F6F4;
+  --surface:                #FFFFFF;
+  --surface-dim:            #EAF0ED;
+  --surface-container:      #F6F9F7;
+  --surface-container-high: #FFFFFF;
+
+  --border:        #E0E8E4;
+  --border-subtle: #EAF0ED;
+  --border-input:  #D8E1DD;
+
+  --text-primary:   #141A18;
+  --text-secondary: #3D4643;
+  --text-muted:     #646E6A;
+  --text-subtle:    #A2ACA8;
+  --text-tertiary:  #646E6A;
+
+  --accent:       #1C2623;
+  --accent-warm:  #2D3A36;
+  --accent-amber: #2A9C78;
+  --on-accent:    #FFFFFF;
+
+  --selected: #E1F1EA;
+  --hover:    #EDF3F0;
+
+  --deletion-bg:     #FCE9E7;
+  --deletion-border: #C2392B;
+  --addition-bg:     #E1F2E9;
+  --addition-border: #1F8A68;
+  --warning-bg:      #FCF1DC;
+  --warning-text:    #B4690E;
+  --success:         #1F8A68;
+  --error:           #C2392B;
+
+  --blockquote-border: #8ED0B8;
+
+  --shadow-base: #1C2623;
+  --scrim:       rgba(20, 26, 24, 0.32);
+  --glass:       rgba(242, 246, 244, 0.86);
+}
+
+/* ---- Reveric · dark — 主操作反转为玉白，翡翠提亮 ---------------------- */
+:root[data-theme="dark"],
+:root[data-palette="reveric"][data-theme="dark"] {
+  color-scheme: dark;
+
+  --canvas:                 #0F1412;
+  --surface:                #161C1A;
+  --surface-dim:            #1A211E;
+  --surface-container:      #1D2422;
+  --surface-container-high: #232B28;
+
+  --border:        #2A3330;
+  --border-subtle: #212926;
+  --border-input:  #333D39;
+
+  --text-primary:   #E8EEEB;
+  --text-secondary: #BEC8C4;
+  --text-muted:     #85918C;
+  --text-subtle:    #5A6561;
+  --text-tertiary:  #85918C;
+
+  --accent:       #E4ECE8;
+  --accent-warm:  #C9D5D0;
+  --accent-amber: #4CC49C;
+  --on-accent:    #0F1412;
+
+  --selected: #1B302A;
+  --hover:    #1F2724;
+
+  --deletion-bg:     #3A2120;
+  --deletion-border: #E04A3F;
+  --addition-bg:     #173126;
+  --addition-border: #4CC49C;
+  --warning-bg:      #3A2F1C;
+  --warning-text:    #E8A657;
+  --success:         #4CC49C;
+  --error:           #EB6B5E;
+
+  --blockquote-border: #2F7D63;
+
+  --shadow-base: #000000;
+  --scrim:       rgba(0, 0, 0, 0.55);
+  --glass:       rgba(15, 20, 18, 0.86);
+}
+
+/* ---- Classic · light (RevericColors.classic) ------------------------ */
+:root[data-palette="classic"] {
+  color-scheme: light;
+
+  --canvas:                 #FFFFFF;
+  --surface:                #FAFAFA;
+  --surface-dim:            #F0F0F0;
+  --surface-container:      #F5F5F5;
+  --surface-container-high: #FFFFFF;
+
+  --border:        #E0E0E0;
+  --border-subtle: #EEEEEE;
+  --border-input:  #D0D0D0;
+
+  --text-primary:   #000000;
+  --text-secondary: #333333;
+  --text-muted:     #666666;
+  --text-subtle:    #999999;
+  --text-tertiary:  #666666;
+
+  --accent:       #000000;
+  --accent-warm:  #333333;
+  --accent-amber: #666666;
+  --on-accent:    #FFFFFF;
+
+  --selected: #E8E8E8;
+  --hover:    #F2F2F2;
+
+  --deletion-bg:     #FEE2E2;
+  --deletion-border: #DC2626;
+  --addition-bg:     #D1FAE5;
+  --addition-border: #059669;
+  --warning-bg:      #FEF9C3;
+  --warning-text:    #A16207;
+  --success:         #059669;
+  --error:           #DC2626;
+
+  --blockquote-border: #CCCCCC;
+
+  --shadow-base: #000000;
+  --scrim:       rgba(0, 0, 0, 0.32);
+  --glass:       rgba(255, 255, 255, 0.88);
+}
+
+/* ---- Classic · dark (RevericColors.classicDark) --------------------- */
+:root[data-palette="classic"][data-theme="dark"] {
+  color-scheme: dark;
+
+  --canvas:                 #000000;
+  --surface:                #0A0A0A;
+  --surface-dim:            #141414;
+  --surface-container:      #1A1A1A;
+  --surface-container-high: #242424;
+
+  --border:        #2A2A2A;
+  --border-subtle: #1F1F1F;
+  --border-input:  #333333;
+
+  --text-primary:   #FFFFFF;
+  --text-secondary: #CCCCCC;
+  --text-muted:     #888888;
+  --text-subtle:    #666666;
+  --text-tertiary:  #888888;
+
+  --accent:       #FFFFFF;
+  --accent-warm:  #CCCCCC;
+  --accent-amber: #888888;
+  --on-accent:    #000000;
+
+  --selected: #2A2A2A;
+  --hover:    #333333;
+
+  --deletion-bg:     #2A1414;
+  --deletion-border: #EF4444;
+  --addition-bg:     #142A1C;
+  --addition-border: #10B981;
+  --warning-bg:      #2A2614;
+  --warning-text:    #FBBF24;
+  --success:         #10B981;
+  --error:           #EF4444;
+
+  --blockquote-border: #444444;
+
+  --shadow-base: #000000;
+  --scrim:       rgba(0, 0, 0, 0.6);
+  --glass:       rgba(0, 0, 0, 0.86);
+}
+
+/* ---- Ivory · light (RevericColors.ivory) ---------------------------- */
+:root[data-palette="ivory"] {
+  color-scheme: light;
+
+  --canvas:                 #F8F8F0;
+  --surface:                #FAFAF3;
+  --surface-dim:            #EBECDC;
+  --surface-container:      #F1F2E5;
+  --surface-container-high: #F5F6EC;
+
+  --border:        #DADBC4;
+  --border-subtle: #ECEDDC;
+  --border-input:  #DEDFCA;
+
+  --text-primary:   #2E3026;
+  --text-secondary: #555848;
+  --text-muted:     #767866;
+  --text-subtle:    #92957F;
+  --text-tertiary:  #767866;
+
+  --accent:       #A2AF9B;
+  --accent-warm:  #8B9A8A;
+  --accent-amber: #C4956A;
+  --on-accent:    #2E3026;
+
+  --selected: #E2E3CD;
+  --hover:    #EBECDC;
+
+  --deletion-bg:     #FDE8E8;
+  --deletion-border: #C53030;
+  --addition-bg:     #E8FDE8;
+  --addition-border: #2F855A;
+  --warning-bg:      #FEF3C7;
+  --warning-text:    #D97706;
+  --success:         #2F855A;
+  --error:           #C53030;
+
+  --blockquote-border: #D4A574;
+
+  --shadow-base: #2E3026;
+  --scrim:       rgba(46, 48, 38, 0.32);
+  --glass:       rgba(248, 248, 240, 0.88);
+}
+
+/* ---- Ivory · dark (RevericColors.ivoryDark) ------------------------- */
+:root[data-palette="ivory"][data-theme="dark"] {
+  color-scheme: dark;
+
+  --canvas:                 #141410;
+  --surface:                #1C1C16;
+  --surface-dim:            #252520;
+  --surface-container:      #2A2A24;
+  --surface-container-high: #34342E;
+
+  --border:        #3E3E36;
+  --border-subtle: #323228;
+  --border-input:  #484840;
+
+  --text-primary:   #EBECDC;
+  --text-secondary: #B8B8A6;
+  --text-muted:     #7A7A68;
+  --text-subtle:    #5A5A48;
+  --text-tertiary:  #7A7A68;
+
+  --accent:       #A2AF9B;
+  --accent-warm:  #8B9A8A;
+  --accent-amber: #C4956A;
+  --on-accent:    #141410;
+
+  --selected: #3E3E36;
+  --hover:    #484840;
+
+  --deletion-bg:     #3D1F1F;
+  --deletion-border: #E53E3E;
+  --addition-bg:     #1F3D2A;
+  --addition-border: #48BB78;
+  --warning-bg:      #3D331F;
+  --warning-text:    #F6AD55;
+  --success:         #48BB78;
+  --error:           #E53E3E;
+
+  --blockquote-border: #A2AF9B;
+
+  --shadow-base: #000000;
+  --scrim:       rgba(0, 0, 0, 0.55);
+  --glass:       rgba(20, 20, 16, 0.86);
+}
+
+/* ---- Card elevation (all palettes) ----------------------------------
+   卡片不描边，靠柔和投影与底色分层；深色下投影不可见，改回一圈极淡描边。
+   桌面与移动端的卡片、面板统一用这两个令牌。 */
+:root {
+  --card-border: transparent;
+  --shadow-card: 0 1px 2px color-mix(in srgb, var(--shadow-base) 4%, transparent),
+                 0 8px 24px color-mix(in srgb, var(--shadow-base) 6%, transparent);
+}
+:root[data-theme="dark"] {
+  --card-border: var(--border-subtle);
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.24);
+}

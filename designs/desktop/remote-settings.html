@@ -1,0 +1,600 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>远程控制设置 — UI 优化方案</title>
+<link rel="stylesheet" href="colors_and_type.css">
+<link rel="stylesheet" href="kit.css">
+<style>
+  body { background: var(--canvas); display: flex; justify-content: center; align-items: flex-start; min-height: 100vh; padding: 40px 20px; }
+
+  /* Settings dialog frame */
+  .settings-dialog {
+    width: 640px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-2xl);
+    box-shadow: var(--shadow-dialog);
+    overflow: hidden;
+  }
+  .settings-dialog__header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: var(--space-2xl) var(--space-4xl);
+    border-bottom: 1px solid var(--border-subtle);
+  }
+  .settings-dialog__title {
+    font: 600 var(--type-ui-size)/1 var(--font-sans);
+    color: var(--text-primary);
+  }
+  .settings-dialog__close {
+    width: 28px; height: 28px; display: inline-flex; align-items: center; justify-content: center;
+    background: transparent; border: 0; border-radius: var(--radius-medium);
+    color: var(--text-muted); cursor: pointer;
+  }
+  .settings-dialog__close:hover { background: var(--hover); color: var(--text-secondary); }
+
+  .settings-dialog__body {
+    padding: var(--space-4xl);
+  }
+
+  /* Section header */
+  .section-header { margin-bottom: var(--space-3xl); }
+  .section-header__title {
+    font: 600 var(--type-ui-size)/1.3 var(--font-sans);
+    color: var(--text-primary);
+  }
+  .section-header__desc {
+    margin-top: var(--space-xxs);
+    font: 400 var(--type-ui-small-size)/1.5 var(--font-sans);
+    color: var(--text-muted);
+  }
+
+  /* ======== VARIATION A: Feature card with illustration ======== */
+  .variant-label {
+    font: 600 var(--type-ui-tiny-size)/1 var(--font-sans);
+    color: var(--text-muted);
+    letter-spacing: 0.6px;
+    text-transform: uppercase;
+    margin-bottom: var(--space-lg);
+  }
+
+  .feature-card {
+    background: var(--surface-container-high);
+    border: 1px solid var(--border-input);
+    border-radius: var(--radius-xl);
+    overflow: hidden;
+  }
+  .feature-card__hero {
+    position: relative;
+    height: 140px;
+    background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 8%, transparent) 0%, color-mix(in srgb, var(--accent) 2%, transparent) 100%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+  }
+  .feature-card__hero::before {
+    content: '';
+    position: absolute;
+    width: 200px; height: 200px;
+    border-radius: 50%;
+    background: radial-gradient(circle, color-mix(in srgb, var(--accent) 12%, transparent) 0%, transparent 70%);
+    top: -40px; right: -40px;
+  }
+  .feature-card__icon-group {
+    display: flex;
+    align-items: center;
+    gap: var(--space-xl);
+    position: relative;
+    z-index: 1;
+  }
+  .feature-card__device {
+    width: 56px; height: 80px;
+    background: var(--surface);
+    border: 1.5px solid var(--border-input);
+    border-radius: var(--radius-large);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    position: relative;
+  }
+  .feature-card__device::after {
+    content: '';
+    position: absolute;
+    bottom: 6px;
+    width: 20px; height: 3px;
+    background: var(--border);
+    border-radius: 2px;
+  }
+  .feature-card__device-screen {
+    width: 36px; height: 48px;
+    background: var(--surface-dim);
+    border-radius: 3px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .feature-card__connection-line {
+    width: 40px; height: 2px;
+    background: repeating-linear-gradient(90deg, var(--accent) 0, var(--accent) 4px, transparent 4px, transparent 8px);
+    position: relative;
+  }
+  .feature-card__connection-line::before,
+  .feature-card__connection-line::after {
+    content: '';
+    position: absolute;
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--accent);
+    top: -2px;
+  }
+  .feature-card__connection-line::before { left: -3px; }
+  .feature-card__connection-line::after { right: -3px; }
+  .feature-card__wechat-icon {
+    width: 56px; height: 56px;
+    border-radius: var(--radius-large);
+    background: #07C160;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    font: 700 20px/1 var(--font-sans);
+    box-shadow: 0 2px 8px rgba(7, 193, 96, 0.25);
+  }
+
+  .feature-card__body {
+    padding: var(--space-2xl) var(--space-3xl) var(--space-3xl);
+  }
+  .feature-card__title {
+    font: 600 var(--type-ui-size)/1.3 var(--font-sans);
+    color: var(--text-primary);
+  }
+  .feature-card__desc {
+    margin-top: var(--space-xs);
+    font: 400 var(--type-ui-small-size)/1.5 var(--font-sans);
+    color: var(--text-muted);
+  }
+  .feature-card__actions {
+    display: flex;
+    gap: var(--space-sm);
+    margin-top: var(--space-2xl);
+  }
+
+  /* ======== VARIATION B: Compact row with QR preview ======== */
+  .qr-login-card {
+    background: var(--surface);
+    border: 1px solid var(--border-input);
+    border-radius: var(--radius-large);
+    padding: var(--space-3xl);
+    display: flex;
+    gap: var(--space-3xl);
+    align-items: center;
+  }
+  .qr-login-card__qr {
+    width: 120px; height: 120px;
+    flex: none;
+    background: var(--surface-container-high);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-medium);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    overflow: hidden;
+  }
+  .qr-login-card__qr-pattern {
+    width: 80px; height: 80px;
+    display: grid;
+    grid-template-columns: repeat(8, 1fr);
+    grid-template-rows: repeat(8, 1fr);
+    gap: 1px;
+  }
+  .qr-login-card__qr-cell { background: var(--text-primary); border-radius: 1px; }
+  .qr-login-card__qr-cell--empty { background: transparent; }
+  .qr-login-card__qr-overlay {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: color-mix(in srgb, var(--canvas) 85%, transparent);
+  }
+  .qr-login-card__qr-spinner {
+    width: 24px; height: 24px;
+    border: 2.5px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .qr-login-card__info { flex: 1; min-width: 0; }
+  .qr-login-card__title {
+    font: 600 var(--type-ui-size)/1.3 var(--font-sans);
+    color: var(--text-primary);
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+  }
+  .qr-login-card__badge {
+    display: inline-flex;
+    padding: 2px 8px;
+    border-radius: var(--radius-pill);
+    background: rgba(7, 193, 96, 0.1);
+    color: #07C160;
+    font: 500 var(--type-ui-tiny-size)/1.2 var(--font-sans);
+  }
+  .qr-login-card__steps {
+    margin-top: var(--space-lg);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm);
+  }
+  .qr-step {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    font: 400 var(--type-ui-small-size)/1.4 var(--font-sans);
+    color: var(--text-secondary);
+  }
+  .qr-step__num {
+    width: 20px; height: 20px;
+    border-radius: 50%;
+    background: var(--surface-dim);
+    border: 1px solid var(--border-subtle);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font: 600 10px/1 var(--font-sans);
+    color: var(--text-muted);
+    flex: none;
+  }
+
+  /* ======== VARIATION C: Connected state ======== */
+  .connected-card {
+    background: var(--surface);
+    border: 1px solid var(--border-input);
+    border-radius: var(--radius-large);
+    overflow: hidden;
+  }
+  .connected-card__status {
+    display: flex;
+    align-items: center;
+    gap: var(--space-lg);
+    padding: var(--space-2xl) var(--space-3xl);
+    background: rgba(74, 124, 89, 0.04);
+    border-bottom: 1px solid var(--border-subtle);
+  }
+  .connected-card__dot {
+    width: 10px; height: 10px;
+    border-radius: 50%;
+    background: var(--success);
+    box-shadow: 0 0 0 3px rgba(74, 124, 89, 0.15);
+    flex: none;
+    animation: pulse-dot 2s ease-in-out infinite;
+  }
+  @keyframes pulse-dot {
+    0%, 100% { box-shadow: 0 0 0 3px rgba(74, 124, 89, 0.15); }
+    50% { box-shadow: 0 0 0 6px rgba(74, 124, 89, 0.08); }
+  }
+  .connected-card__meta { flex: 1; }
+  .connected-card__label {
+    font: 600 var(--type-ui-size)/1.3 var(--font-sans);
+    color: var(--text-primary);
+  }
+  .connected-card__sub {
+    font: 400 var(--type-ui-tiny-size)/1.3 var(--font-sans);
+    color: var(--text-muted);
+    margin-top: 1px;
+  }
+
+  /* Toggle switch */
+  .toggle {
+    width: 40px; height: 22px;
+    border-radius: 11px;
+    background: var(--border);
+    position: relative;
+    cursor: pointer;
+    transition: background 200ms ease;
+    flex: none;
+  }
+  .toggle.is-on { background: var(--accent); }
+  .toggle__knob {
+    position: absolute;
+    top: 2px; left: 2px;
+    width: 18px; height: 18px;
+    border-radius: 50%;
+    background: white;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.15);
+    transition: transform 200ms ease;
+  }
+  .toggle.is-on .toggle__knob { transform: translateX(18px); }
+
+  .connected-card__detail {
+    padding: var(--space-2xl) var(--space-3xl);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-md);
+  }
+  .connected-card__info-row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    font: 400 var(--type-ui-small-size)/1.4 var(--font-sans);
+    color: var(--text-muted);
+  }
+  .connected-card__info-row svg { flex: none; color: var(--text-subtle); }
+  .connected-card__info-value { color: var(--text-secondary); font-weight: 500; }
+
+  .connected-card__footer {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    padding: var(--space-lg) var(--space-3xl);
+    border-top: 1px solid var(--border-subtle);
+  }
+
+  /* Spacing between variations */
+  .variant-block + .variant-block { margin-top: var(--space-5xl); }
+
+  /* Section divider */
+  .section-divider {
+    height: 1px;
+    background: var(--border-subtle);
+    margin: var(--space-4xl) 0;
+  }
+
+  /* Dark mode toggle */
+  .theme-toggle {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    padding: 6px 12px;
+    background: var(--surface);
+    border: 1px solid var(--border-input);
+    border-radius: var(--radius-pill);
+    font: 400 var(--type-ui-small-size)/1 var(--font-sans);
+    color: var(--text-secondary);
+    cursor: pointer;
+    z-index: 100;
+  }
+  .theme-toggle:hover { background: var(--hover); }
+</style>
+</head>
+<body>
+
+<button class="theme-toggle" onclick="document.documentElement.toggleAttribute('data-theme'); document.querySelector('.theme-toggle').textContent = document.documentElement.hasAttribute('data-theme') ? '☀ Light' : '🌙 Dark'">
+  🌙 Dark
+</button>
+
+<div style="display: flex; flex-direction: column; gap: 48px; max-width: 640px; width: 100%;">
+
+  <!-- ======== VARIATION A: Feature card with illustration ======== -->
+  <div class="variant-block">
+    <div class="variant-label">方案 A — 功能展示卡</div>
+    <div class="settings-dialog">
+      <div class="settings-dialog__header">
+        <span class="settings-dialog__title">设置</span>
+        <button class="settings-dialog__close">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M1 1l12 12M13 1L1 13" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+        </button>
+      </div>
+      <div class="settings-dialog__body">
+        <div class="section-header">
+          <div class="section-header__title">远程控制</div>
+          <div class="section-header__desc">连接微信，即可在手机上与助手对话、查看任务进度。</div>
+        </div>
+
+        <div class="feature-card">
+          <div class="feature-card__hero">
+            <div class="feature-card__icon-group">
+              <div class="feature-card__device">
+                <div class="feature-card__device-screen">
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><rect x="2" y="3" width="12" height="10" rx="1.5" stroke="var(--text-subtle)" stroke-width="1.2"/><path d="M5 7h6M5 9.5h3" stroke="var(--text-subtle)" stroke-width="1" stroke-linecap="round"/></svg>
+                </div>
+              </div>
+              <div class="feature-card__connection-line"></div>
+              <div class="feature-card__wechat-icon">
+                <svg width="28" height="28" viewBox="0 0 28 28" fill="none"><path d="M10.5 5C7.46 5 5 7.01 5 9.5c0 1.4.74 2.65 1.9 3.5L6.5 15l2.2-1.1c.58.17 1.2.27 1.8.27.2 0 .4-.01.6-.04A4.5 4.5 0 009.5 12.5c0-2.49 2.24-4.5 5-4.5.34 0 .67.03 1 .09C14.68 6.29 12.82 5 10.5 5zm-2 3a.75.75 0 110-1.5.75.75 0 010 1.5zm4 0a.75.75 0 110-1.5.75.75 0 010 1.5z" fill="white"/><path d="M23 12.5c0-2.21-2.24-4-5-4s-5 1.79-5 4 2.24 4 5 4c.54 0 1.06-.07 1.55-.2L21 17l-.45-1.3c.83-.72 1.45-1.66 1.45-2.7v-.5zm-6.5-.5a.6.6 0 110-1.2.6.6 0 010 1.2zm3 0a.6.6 0 110-1.2.6.6 0 010 1.2z" fill="white"/></svg>
+              </div>
+            </div>
+          </div>
+          <div class="feature-card__body">
+            <div class="feature-card__title">微信登录</div>
+            <div class="feature-card__desc">扫描二维码，将电脑端助手连接到你的微信，随时随地接收消息。</div>
+            <div class="feature-card__actions">
+              <button class="m-btn m-btn--primary">
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><rect x="1" y="1" width="5" height="5" rx="0.8" stroke="currentColor" stroke-width="1.2"/><rect x="8" y="1" width="5" height="5" rx="0.8" stroke="currentColor" stroke-width="1.2"/><rect x="1" y="8" width="5" height="5" rx="0.8" stroke="currentColor" stroke-width="1.2"/><rect x="9.5" y="9.5" width="2" height="2" rx="0.4" fill="currentColor"/><rect x="8" y="8" width="2" height="2" rx="0.4" fill="currentColor"/></svg>
+                微信登录
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ======== VARIATION B: Compact with QR preview ======== -->
+  <div class="variant-block">
+    <div class="variant-label">方案 B — 扫码预览卡</div>
+    <div class="settings-dialog">
+      <div class="settings-dialog__header">
+        <span class="settings-dialog__title">设置</span>
+        <button class="settings-dialog__close">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M1 1l12 12M13 1L1 13" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+        </button>
+      </div>
+      <div class="settings-dialog__body">
+        <div class="section-header">
+          <div class="section-header__title">远程控制</div>
+          <div class="section-header__desc">连接微信，即可在手机上与助手对话、查看任务进度。</div>
+        </div>
+
+        <div class="qr-login-card">
+          <div class="qr-login-card__qr">
+            <!-- Simulated QR pattern -->
+            <div class="qr-login-card__qr-pattern">
+              <div class="qr-login-card__qr-cell"></div>
+              <div class="qr-login-card__qr-cell"></div>
+              <div class="qr-login-card__qr-cell"></div>
+              <div class="qr-login-card__qr-cell--empty"></div>
+              <div class="qr-login-card__qr-cell"></div>
+              <div class="qr-login-card__qr-cell"></div>
+              <div class="qr-login-card__qr-cell"></div>
+              <div class="qr-login-card__qr-cell--empty"></div>
+              <div class="qr-login-card__qr-cell"></div>
+              <div class="qr-login-card__qr-cell--empty"></div>
+              <div class="qr-login-card__qr-cell"></div>
+              <div class="qr-login-card__qr-cell"></div>
+              <div class="qr-login-card__qr-cell--empty"></div>
+              <div class="qr-login-card__qr-cell"></div>
+              <div class="qr-login-card__qr-cell--empty"></div>
+              <div class="qr-login-card__qr-cell"></div>
+              <div class="qr-login-card__qr-cell--empty"></div>
+              <div class="qr-login-card__qr-cell"></div>
+              <div class="qr-login-card__qr-cell--empty"></div>
+              <div class="qr-login-card__qr-cell"></div>
+              <div class="qr-login-card__qr-cell"></div>
+              <div class="qr-login-card__qr-cell--empty"></div>
+              <div class="qr-login-card__qr-cell"></div>
+              <div class="qr-login-card__qr-cell"></div>
+              <div class="qr-login-card__qr-cell"></div>
+              <div class="qr-login-card__qr-cell"></div>
+              <div class="qr-login-card__qr-cell--empty"></div>
+              <div class="qr-login-card__qr-cell"></div>
+              <div class="qr-login-card__qr-cell--empty"></div>
+              <div class="qr-login-card__qr-cell"></div>
+              <div class="qr-login-card__qr-cell"></div>
+              <div class="qr-login-card__qr-cell--empty"></div>
+              <div class="qr-login-card__qr-cell"></div>
+              <div class="qr-login-card__qr-cell"></div>
+              <div class="qr-login-card__qr-cell--empty"></div>
+              <div class="qr-login-card__qr-cell"></div>
+              <div class="qr-login-card__qr-cell--empty"></div>
+              <div class="qr-login-card__qr-cell"></div>
+              <div class="qr-login-card__qr-cell"></div>
+              <div class="qr-login-card__qr-cell--empty"></div>
+              <div class="qr-login-card__qr-cell"></div>
+              <div class="qr-login-card__qr-cell--empty"></div>
+              <div class="qr-login-card__qr-cell"></div>
+              <div class="qr-login-card__qr-cell"></div>
+              <div class="qr-login-card__qr-cell"></div>
+              <div class="qr-login-card__qr-cell--empty"></div>
+              <div class="qr-login-card__qr-cell"></div>
+              <div class="qr-login-card__qr-cell"></div>
+              <div class="qr-login-card__qr-cell--empty"></div>
+              <div class="qr-login-card__qr-cell"></div>
+              <div class="qr-login-card__qr-cell"></div>
+              <div class="qr-login-card__qr-cell"></div>
+              <div class="qr-login-card__qr-cell--empty"></div>
+              <div class="qr-login-card__qr-cell"></div>
+              <div class="qr-login-card__qr-cell--empty"></div>
+              <div class="qr-login-card__qr-cell"></div>
+              <div class="qr-login-card__qr-cell"></div>
+              <div class="qr-login-card__qr-cell--empty"></div>
+              <div class="qr-login-card__qr-cell"></div>
+              <div class="qr-login-card__qr-cell"></div>
+              <div class="qr-login-card__qr-cell"></div>
+              <div class="qr-login-card__qr-cell"></div>
+              <div class="qr-login-card__qr-cell--empty"></div>
+              <div class="qr-login-card__qr-cell"></div>
+            </div>
+            <!-- Loading overlay -->
+            <div class="qr-login-card__qr-overlay" id="qrOverlay">
+              <div class="qr-login-card__qr-spinner"></div>
+            </div>
+          </div>
+          <div class="qr-login-card__info">
+            <div class="qr-login-card__title">
+              微信扫码登录
+              <span class="qr-login-card__badge">扫码连接</span>
+            </div>
+            <div class="qr-login-card__steps">
+              <div class="qr-step">
+                <span class="qr-step__num">1</span>
+                打开手机微信
+              </div>
+              <div class="qr-step">
+                <span class="qr-step__num">2</span>
+                扫描左侧二维码
+              </div>
+              <div class="qr-step">
+                <span class="qr-step__num">3</span>
+                在手机上确认登录
+              </div>
+            </div>
+            <div style="margin-top: var(--space-2xl);">
+              <button class="m-btn m-btn--secondary m-btn--sm" onclick="document.getElementById('qrOverlay').style.display = document.getElementById('qrOverlay').style.display === 'none' ? 'flex' : 'none'">
+                刷新二维码
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ======== VARIATION C: Connected state ======== -->
+  <div class="variant-block">
+    <div class="variant-label">方案 C — 已连接状态</div>
+    <div class="settings-dialog">
+      <div class="settings-dialog__header">
+        <span class="settings-dialog__title">设置</span>
+        <button class="settings-dialog__close">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M1 1l12 12M13 1L1 13" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+        </button>
+      </div>
+      <div class="settings-dialog__body">
+        <div class="section-header">
+          <div class="section-header__title">远程控制</div>
+          <div class="section-header__desc">连接微信，即可在手机上与助手对话、查看任务进度。</div>
+        </div>
+
+        <div class="connected-card">
+          <div class="connected-card__status">
+            <div class="connected-card__dot"></div>
+            <div class="connected-card__meta">
+              <div class="connected-card__label">已连接</div>
+              <div class="connected-card__sub">远程桥接运行中</div>
+            </div>
+            <div class="toggle is-on" onclick="this.classList.toggle('is-on')">
+              <div class="toggle__knob"></div>
+            </div>
+          </div>
+          <div class="connected-card__detail">
+            <div class="connected-card__info-row">
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><circle cx="7" cy="7" r="5.5" stroke="currentColor" stroke-width="1.2"/><path d="M7 4.5V7l1.5 1.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>
+              <span>上次同步：</span>
+              <span class="connected-card__info-value">2 分钟前</span>
+            </div>
+            <div class="connected-card__info-row">
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M2 5l5-3 5 3v5a1 1 0 01-1 1H3a1 1 0 01-1-1V5z" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              <span>设备：</span>
+              <span class="connected-card__info-value">iPhone 15 Pro</span>
+            </div>
+          </div>
+          <div class="connected-card__footer">
+            <button class="m-btn m-btn--text" style="color: var(--text-muted);">退出登录</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+  // Show QR after a delay to simulate loading
+  setTimeout(() => {
+    const overlay = document.getElementById('qrOverlay');
+    if (overlay) overlay.style.display = 'none';
+  }, 2000);
+</script>
+
+</body>
+</html>

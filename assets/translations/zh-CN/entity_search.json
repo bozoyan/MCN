@@ -1,0 +1,5 @@
+{
+  "entity_search.hint": "搜索{type}",
+  "entity_search.empty": "未找到符合条件的{type}",
+  "entity_search.load_failed": "加载{type}失败：{error}"
+}

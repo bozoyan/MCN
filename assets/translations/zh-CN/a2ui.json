@@ -1,0 +1,18 @@
+{
+  "a2ui.component_unavailable": "无法显示此组件",
+  "a2ui.surface_unavailable_title": "无法显示此界面",
+  "a2ui.surface_unavailable_description": "界面描述有误或超出限制。",
+  "a2ui.preview_title": "A2UI 组件预览",
+  "a2ui.preview_description": "用内置样例渲染插件页面与 AI 界面共用的组件目录，查看页面数据与事件。",
+  "a2ui.preview_open": "打开预览",
+  "a2ui.preview_sample": "样例",
+  "a2ui.preview_data": "页面数据",
+  "a2ui.preview_actions": "事件记录",
+  "a2ui.preview_no_actions": "还没有触发事件",
+  "a2ui.validation_failed": "输入不符合要求",
+  "a2ui.preview_mode_samples": "组件样例",
+  "a2ui.preview_mode_plugin_config": "插件配置表单",
+  "a2ui.preview_stored": "已保存的配置",
+  "a2ui.preview_submissions": "保存记录",
+  "a2ui.preview_no_submissions": "还没有保存过"
+}

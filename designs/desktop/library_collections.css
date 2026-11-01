@@ -1,0 +1,269 @@
+/* ---- 作品库：集合导航 · 对齐 Flutter 的作品网格 · 集合弹窗 ---- */
+
+/* 作品区那一行：左集合标签，右工具。滚过上方区块后吸顶；底边是整行细线，选中标签的下划线压在上面。 */
+.m-main { position: relative; }
+.m-libbar {
+  position: sticky; top: 0; z-index: 6;
+  display: flex; align-items: center; gap: var(--space-3xl);
+  margin: 0 calc(-1 * var(--space-6xl));
+  padding: 0 var(--space-6xl);
+  background: var(--canvas);
+  box-shadow: inset 0 -1px 0 var(--border-subtle);
+}
+.m-libbar__tools { display: flex; align-items: center; gap: var(--space-sm); flex: none; }
+.m-libbar__menu-label { max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.m-libbar__check { width: 14px; display: inline-flex; color: var(--accent); }
+.m-workmenu__menu button.is-selected { color: var(--accent); }
+
+.m-cnav {
+  position: relative;
+  flex: 1; min-width: 0;
+  display: flex; align-items: stretch; gap: 4px;
+  height: 44px;
+}
+.m-cnav__measure { position: absolute; visibility: hidden; pointer-events: none; display: flex; gap: 4px; white-space: nowrap; }
+.m-cnav__tab {
+  position: relative; flex: none;
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 0 var(--space-md);
+  border: 0; background: transparent; cursor: pointer; white-space: nowrap;
+  font: 400 var(--type-ui-size)/1 var(--font-sans); color: var(--text-muted);
+  transition: color 120ms ease;
+}
+.m-cnav__tab:hover { color: var(--text-primary); }
+.m-cnav__tab.is-active { color: var(--text-primary); font-weight: 600; }
+.m-cnav__tab.is-active::after {
+  content: ""; position: absolute; left: var(--space-md); right: var(--space-md); bottom: 0;
+  height: 2px; border-radius: 2px 2px 0 0; background: var(--accent);
+}
+.m-cnav__name { max-width: 160px; overflow: hidden; text-overflow: ellipsis; }
+.m-cnav__count {
+  font: 400 var(--type-ui-tiny-size)/1 var(--font-sans);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-subtle);
+}
+.m-cnav__tab.is-active .m-cnav__count { color: var(--accent); }
+.m-cnav__tab[draggable="true"] { cursor: pointer; }
+.m-cnav__tab[draggable="true"]:active { cursor: grabbing; }
+.m-cnav__tab.is-drop-before::before,
+.m-cnav__tab.is-drop-after::before {
+  content: ""; position: absolute; top: 10px; bottom: 10px; width: 2px; border-radius: 1px; background: var(--accent);
+}
+.m-cnav__tab.is-drop-before::before { left: -3px; }
+.m-cnav__tab.is-drop-after::before { right: -3px; }
+.m-cnav .m-workmenu { display: flex; }
+.m-cnav__more { gap: 4px; }
+.m-cnav__more.is-open { color: var(--text-primary); }
+.m-cnav__more .m-cnav__count { margin-right: 2px; }
+.m-cnav__overflow { left: 0; right: auto; min-width: 200px; max-height: 320px; overflow: auto; }
+.m-cnav__overflow button { gap: var(--space-lg); }
+.m-cnav__add {
+  flex: none; align-self: center;
+  display: grid; place-items: center; width: 28px; height: 28px;
+  border: 0; border-radius: var(--radius-medium); background: transparent; cursor: pointer;
+  color: var(--text-subtle);
+}
+.m-cnav__add:hover { background: var(--hover); color: var(--accent); }
+.m-cnav__ctx { position: fixed; top: auto; right: auto; min-width: 160px; }
+.m-workmenu__menu button:disabled { opacity: 0.4; cursor: default; background: transparent; }
+
+.m-libsearch {
+  display: flex; align-items: center; gap: var(--space-sm);
+  width: 200px; height: 28px; padding: 0 var(--space-md);
+  border: 1px solid var(--border-subtle); border-radius: var(--radius-medium);
+  background: var(--surface); color: var(--text-subtle);
+  transition: border-color 120ms ease, width 160ms ease;
+}
+.m-libsearch:focus-within { border-color: var(--accent); width: 240px; }
+.m-libsearch.is-active { border-color: var(--accent); color: var(--accent); }
+.m-libsearch input {
+  flex: 1; min-width: 0; border: 0; outline: 0; background: transparent;
+  font: 400 var(--type-ui-small-size)/1.4 var(--font-sans); color: var(--text-primary);
+}
+.m-libsearch input::placeholder { color: var(--text-subtle); }
+.m-libsearch__clear {
+  display: grid; place-items: center; width: 18px; height: 18px; flex: none;
+  border: 0; border-radius: 50%; background: var(--surface-dim); color: var(--text-muted); cursor: pointer;
+}
+.m-tool.m-co-tool--on { border-color: var(--accent); color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, transparent); }
+
+
+/* ---- 作品网格：对齐 lib/desktop/widgets/novel_list.dart ----
+   maxCrossAxisExtent 180 · 间距 16 · childAspectRatio 0.51 */
+.m-home--library .m-home__content { padding: var(--space-4xl) var(--space-6xl); }
+.m-co-grid { display: grid; gap: var(--space-2xl); }
+
+.m-co-wcard {
+  position: relative;
+  aspect-ratio: 0.51;
+  display: flex; flex-direction: column;
+  min-width: 0;
+  background: var(--surface);
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius-2xl);
+  cursor: pointer;
+  transition: background-color 120ms ease;
+  box-shadow: var(--shadow-card);
+}
+.m-co-wcard:hover { background: color-mix(in srgb, var(--surface) 92%, var(--text-primary)); }
+.m-co-wcard__cover {
+  position: relative; flex: 1; min-height: 0;
+  overflow: hidden;
+  border-radius: calc(var(--radius-2xl) - 1px) calc(var(--radius-2xl) - 1px) 0 0;
+}
+.m-co-wcover {
+  position: absolute; inset: 0;
+  background: var(--surface-dim) center / cover no-repeat;
+}
+.m-co-wcover--empty {
+  display: grid; place-items: center;
+  color: color-mix(in srgb, var(--text-subtle) 50%, transparent);
+}
+.m-co-badge {
+  position: absolute; top: var(--space-sm); left: var(--space-sm);
+  display: inline-flex; align-items: center; gap: var(--space-xxs);
+  padding: var(--space-xxs) var(--space-sm);
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--canvas) 92%, transparent);
+  font: 600 var(--type-ui-tiny-size)/1.2 var(--font-sans);
+}
+.m-co-badge--active { color: var(--accent-amber); }
+.m-co-badge--finished { color: var(--accent); }
+
+.m-co-wcard__body { padding: var(--space-md); display: flex; flex-direction: column; min-width: 0; }
+.m-co-wcard__title {
+  font: var(--type-ui-semibold-weight) var(--type-ui-size)/var(--type-ui-line) var(--font-sans);
+  color: var(--text-primary);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.m-co-wcard__type { margin-top: var(--space-xs); display: flex; align-items: center; gap: var(--space-xs); font: 400 var(--type-ui-tiny-size)/1.3 var(--font-sans); color: var(--text-subtle); }
+/* 剧本标记：混排网格里唯一区分类型的地方，压在类型行前，不抢封面。 */
+.m-co-kind { display: inline-flex; align-items: center; gap: 2px; padding: 0 5px; border-radius: var(--radius-pill); background: var(--surface-dim); color: var(--text-muted); font-weight: 600; }
+.m-co-wcard__words { margin-top: var(--space-xs); font: 400 var(--type-ui-small-size)/1.3 var(--font-sans); color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.m-co-wcard__time { margin-top: var(--space-xs); font: 400 var(--type-ui-tiny-size)/1.3 var(--font-sans); color: var(--text-subtle); }
+.m-co-wcard__tags { margin-top: var(--space-sm); height: 22px; display: flex; align-items: center; gap: var(--space-xs); overflow: hidden; }
+.m-co-wcard__tag {
+  flex: none;
+  padding: var(--space-xxs) var(--space-sm);
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  font: 400 var(--type-ui-tiny-size)/1.2 var(--font-sans); color: var(--accent);
+}
+
+/* 右上「⋮」：悬停才出现（AnimatedOpacity 150ms），菜单挂在卡片上不被封面裁掉。 */
+.m-co-cardmenu { position: absolute; top: var(--space-sm); right: var(--space-sm); z-index: 2; }
+.m-co-cardmenu__btn {
+  display: grid; place-items: center;
+  padding: var(--space-xs); border: 0; border-radius: var(--radius-small);
+  background: color-mix(in srgb, var(--canvas) 90%, transparent);
+  color: var(--text-secondary); cursor: pointer;
+  opacity: 0; transition: opacity 150ms ease;
+}
+.m-co-wcard:hover .m-co-cardmenu__btn,
+.m-co-cardmenu.is-open .m-co-cardmenu__btn { opacity: 1; }
+.m-co-cardmenu .m-workmenu__menu { z-index: 25; min-width: 160px; }
+.m-co-menu__grow { flex: 1; }
+
+.m-co-wcard--create {
+  align-items: center; justify-content: center; gap: 0;
+  padding: var(--space-3xl);
+  background: color-mix(in srgb, var(--surface-dim) 40%, transparent);
+  border-style: dashed;
+  font-family: var(--font-sans);
+}
+.m-co-wcard--create:hover { background: var(--hover); }
+.m-co-wcard__create-title { margin-top: var(--space-lg); font: var(--type-ui-semibold-weight) var(--type-ui-size)/1.4 var(--font-sans); color: var(--text-primary); }
+.m-co-wcard__create-sub { margin-top: var(--space-xs); font: 400 var(--type-ui-small-size)/1.5 var(--font-sans); color: var(--text-muted); text-align: center; }
+.m-tool.m-co-tool--icon { padding: 5px 8px; }
+
+/* 卡片菜单：二级「加入集合」 */
+.m-workmenu__menu button.m-co-menu__sub { justify-content: space-between; }
+.m-co-menu__panel { min-width: 220px; }
+.m-workmenu__menu button.m-co-menu__back {
+  font-weight: 600; color: var(--text-secondary);
+  padding-left: var(--space-sm);
+}
+
+/* 卡片菜单里的「加入集合」勾选列表 */
+.m-co-check { display: flex; flex-direction: column; gap: 1px; }
+.m-co-check__list { display: flex; flex-direction: column; gap: 1px; max-height: 240px; overflow: auto; }
+.m-co-check__row,
+.m-workmenu__menu button.m-co-check__row {
+  display: flex; align-items: center; gap: var(--space-md);
+  padding: var(--space-sm) var(--space-md);
+  border: 0; border-radius: var(--radius-medium);
+  background: transparent; cursor: pointer; text-align: left;
+  font: 400 var(--type-ui-small-size)/1.3 var(--font-sans); color: var(--text-primary);
+}
+.m-co-check__row:hover { background: var(--hover); }
+.m-co-check__name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.m-co-check__count { color: var(--text-subtle); font-variant-numeric: tabular-nums; }
+.m-co-check__row--add,
+.m-workmenu__menu button.m-co-check__row--add,
+.m-workmenu__menu button.m-co-check__row--add .m-icon { color: var(--accent); }
+.m-co-check__new { display: flex; gap: var(--space-xs); padding: var(--space-xs); }
+.m-co-check__input { flex: 1; min-width: 0; height: 30px; padding: 0 var(--space-md); }
+
+/* 弹窗 */
+.m-co-dialog__title { font: 600 var(--type-ui-large-size, 16px)/1.3 var(--font-sans); color: var(--text-primary); }
+.m-co-dialog__text { margin: calc(-1 * var(--space-md)) 0 0; font: 400 var(--type-ui-small-size)/1.6 var(--font-sans); color: var(--text-muted); }
+
+.m-co-picker { width: 600px; height: 560px; }
+.m-co-picker .m-dialog__head { padding: var(--space-2xl) var(--space-3xl) var(--space-lg); }
+.m-co-picker__search {
+  display: flex; align-items: center; gap: var(--space-sm);
+  margin: var(--space-lg) var(--space-3xl) var(--space-sm);
+  padding: 0 var(--space-lg); height: 34px;
+  border: 1px solid var(--border-input); border-radius: var(--radius-medium);
+  background: var(--canvas); color: var(--text-muted);
+}
+.m-co-picker__search:focus-within { border-color: var(--accent); }
+.m-co-picker__search input {
+  flex: 1; border: 0; outline: 0; background: transparent;
+  font: 400 var(--type-ui-size)/1.4 var(--font-sans); color: var(--text-primary);
+}
+.m-co-picker__list { flex: 1; min-height: 0; overflow: auto; padding: 0 var(--space-lg); display: flex; flex-direction: column; gap: 2px; }
+.m-co-picker__row {
+  display: flex; align-items: center; gap: var(--space-lg);
+  padding: var(--space-sm) var(--space-lg);
+  border: 0; border-radius: var(--radius-medium); background: transparent; cursor: pointer; text-align: left;
+}
+.m-co-picker__row:hover { background: var(--hover); }
+.m-co-picker__row.is-picked { background: color-mix(in srgb, var(--accent) 8%, transparent); }
+.m-co-picker__row.is-disabled { cursor: default; }
+.m-co-picker__row.is-disabled:hover { background: transparent; }
+.m-co-picker__row.is-disabled .m-co-picker__cover,
+.m-co-picker__row.is-disabled .m-co-picker__body { opacity: 0.5; }
+.m-co-picker__cover { width: 36px; height: 48px; padding: 0; }
+.m-co-picker__body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.m-co-picker__title { font: 600 var(--type-ui-size)/1.3 var(--font-sans); color: var(--text-primary); }
+.m-co-picker__meta { display: flex; align-items: center; gap: var(--space-sm); font: 400 var(--type-ui-small-size)/1 var(--font-sans); color: var(--text-muted); }
+.m-co-picker__meta > span { display: inline-flex; align-items: center; gap: 4px; }
+.m-co-picker__meta .m-status { transform: scale(.9); transform-origin: left; }
+.m-co-picker__updated { font: 400 var(--type-ui-small-size)/1 var(--font-sans); color: var(--text-subtle); flex: none; }
+.m-co-picker__foot {
+  display: flex; align-items: center; gap: var(--space-sm);
+  padding: var(--space-lg) var(--space-3xl);
+  border-top: 1px solid var(--border-subtle);
+}
+.m-co-picker__picked { flex: 1; font: 400 var(--type-ui-small-size)/1 var(--font-sans); color: var(--text-secondary); }
+
+.m-dialog .m-btn:disabled { opacity: 0.45; cursor: default; pointer-events: none; }
+
+/* 集合勾选框：加入集合列表、添加作品选择器共用；mixed = 多部作品里部分已在该集合。 */
+.m-co-checkbox {
+  display: inline-grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  flex: none;
+  padding: 0;
+  border: 1px solid var(--border-input);
+  border-radius: var(--radius-small);
+  background: var(--surface);
+  color: var(--on-accent);
+  cursor: pointer;
+}
+.m-co-checkbox.is-checked { border-color: var(--accent); background: var(--accent); }
+.m-co-checkbox.is-disabled { opacity: 0.38; cursor: default; }
+.m-co-checkbox__mixed { width: 9px; height: 1.5px; border-radius: 1px; background: currentColor; }

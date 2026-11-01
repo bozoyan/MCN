@@ -1,0 +1,6 @@
+- lib/shared/models/image/channels.dart
+'Qwen/Qwen-Image-2.1-Pro': ImageChannelModel(
+
+- lib/shared/models/image/catalog.dart
+MOSS 仅支持文生图;尺寸每边 256-2048 且为 16 的倍数。
+resolutions: {'1K', '1.5K', '2K'},

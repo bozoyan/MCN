@@ -1,0 +1,7 @@
+{
+  "diff.review_applied_count": "已退回 {count} 行",
+  "diff.review_marked_count": "已标记退回 {count} 行",
+  "diff.review_restore_line": "恢复此改动",
+  "diff.review_revert_line": "退回此行",
+  "diff.unchanged_hidden": "{count} 行未变更"
+}

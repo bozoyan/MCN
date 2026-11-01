@@ -1,0 +1,18 @@
+{
+  "monologue.select_character": "Select Character",
+  "monologue.no_characters": "No characters yet. Create characters in the Characters section first.",
+  "monologue.topic": "Current Situation",
+  "monologue.topic_hint": "Describe the character's current situation, e.g.: \"You just learned that your closest friend has betrayed you...\"",
+  "monologue.start": "Start Monologue",
+  "monologue.generating": "Thinking...",
+  "monologue.continue": "Continue Monologue",
+  "monologue.new": "New Session",
+  "monologue.inner_thoughts": "Inner Thoughts",
+  "monologue.planned_actions": "Planned Actions",
+  "monologue.default_title": "Monologue",
+  "monologue.thinking_fmt": "{name} is thinking...",
+  "monologue.selected_chip": "Selected",
+  "monologue.session_title_fmt": "Monologue: {character} — {topic}",
+  "monologue.inner_thoughts_label": "【Inner Thoughts】",
+  "monologue.planned_actions_label": "【Planned Actions】"
+}

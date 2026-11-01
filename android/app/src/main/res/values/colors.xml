@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 与 Flutter 启动占位（cartographer canvas）一致，原生启动屏到首帧无色差 -->
+    <color name="launch_background">#FFFFFBF5</color>
+</resources>

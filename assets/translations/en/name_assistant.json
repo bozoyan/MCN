@@ -1,0 +1,8 @@
+{
+  "name_assistant.title": "Name {type}",
+  "name_assistant.random": "Random",
+  "name_assistant.ai": "AI Generate",
+  "name_assistant.generating": "Generating...",
+  "name_assistant.use_name": "Use This Name",
+  "name_assistant.ai_error": "AI name generation failed"
+}

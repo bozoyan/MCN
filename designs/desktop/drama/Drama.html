@@ -1,0 +1,64 @@
+<!doctype html>
+<!-- @dsCard group="UI Kit — Desktop App" name="制片 · DramaProductionPage" subtitle="app 内页面 · NavRail + 第二栏 · 分镜 | 画布 | 列表 三个视图 · 剧集全局风格 + 剧本比例 / 清晰度 + 片段 / 视频 / 图片节点(风格跟随剧集、可上传) + 浮动生成输入框 + 制作助手 + 3D 导演台" viewport="1440x900" -->
+<html lang="zh">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=1440" />
+    <title>Reveric · 制片</title>
+    <script src="../../theme.js"></script>
+    <link rel="stylesheet" href="../colors_and_type.css" />
+    <link rel="stylesheet" href="../kit.css" />
+    <link rel="stylesheet" href="../canvas/canvas.css" />
+    <link rel="stylesheet" href="../screenplay/screenplay.css" />
+    <link rel="stylesheet" href="drama.css" />
+  </head>
+  <body>
+    <div id="root"></div>
+
+    <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+    <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+    <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+    <script>
+      // 图标 / 资源相对本页多一层目录
+      window.CV_BASE = "../";
+    </script>
+
+    <!-- 剧本数据(SP_*)注入作品库时依赖 REVERIC_DATA -->
+    <script src="../data.js"></script>
+    <script type="text/babel" src="../WindowFrame.jsx"></script>
+    <script type="text/babel" src="../screenplay/data.jsx"></script>
+    <!-- CvIcon / cvTint / cvWire / cvFitView 复用构思画布 -->
+    <script type="text/babel" src="../canvas/data.jsx"></script>
+    <script type="text/babel" src="../canvas/board.jsx"></script>
+    <script type="text/babel">
+      // ChatPanel.jsx 的 Icon 按根目录相对路径取图标;本页在子目录,改由带 CV_BASE 的 CvIcon 代画
+      function Icon({ name, size = 16, color, style, className }) {
+        return (
+          <span className={className} style={{ display: "inline-flex", flex: "none", ...style }}>
+            <CvIcon name={name} size={size} color={color || "currentColor"} />
+          </span>
+        );
+      }
+      window.Icon = Icon;
+    </script>
+    <!-- 制片是 app 内页面:左侧沿用 app 的 NavRail -->
+    <script type="text/babel" src="../NavRail.jsx"></script>
+    <!-- AI 布景的悬浮会话复用通用 chat 的消息组件(ChatBubble / ToolActivity) -->
+    <script type="text/babel" src="../ChatPanel.jsx"></script>
+    <script type="text/babel" src="data.jsx"></script>
+    <script type="text/babel" src="board.jsx"></script>
+    <script type="text/babel" src="style.jsx"></script>
+    <script type="text/babel" src="composer.jsx"></script>
+    <script type="text/babel" src="approval.jsx"></script>
+    <script type="text/babel" src="chat.jsx"></script>
+    <script type="text/babel" src="segments.jsx"></script>
+    <script type="text/babel" src="grid.jsx"></script>
+    <script type="text/babel" src="director.jsx"></script>
+    <script type="text/babel" src="views.jsx"></script>
+    <script type="text/babel" src="app.jsx"></script>
+    <script type="text/babel">
+      ReactDOM.createRoot(document.getElementById("root")).render(<DramaEntry />);
+    </script>
+  </body>
+</html>

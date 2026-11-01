@@ -1,0 +1,15 @@
+{
+  "sidebar.untitled_folder": "未命名文件夹",
+  "sidebar.untitled_document": "未命名文档",
+  "sidebar.untitled_entry": "未命名条目",
+  "sidebar.empty_hint": "暂无内容",
+  "sidebar.document_name_hint": "输入文档名称",
+  "sidebar.delete_folder_confirm": "确定要删除文件夹\"{title}\"吗？",
+  "sidebar.delete_document_confirm": "确定要删除\"{title}\"吗？",
+  "sidebar.delete_chapter_confirm": "确定要删除\"{title}\"吗？",
+  "sidebar.delete_volume_confirm": "确定要删除卷\"{title}\"以及其中的所有章节吗？",
+  "sidebar.move_to_position": "移动到位置",
+  "sidebar.current_position": "当前: {current} / {total}",
+  "sidebar.sort_ascending": "正序",
+  "sidebar.sort_descending": "倒序"
+}

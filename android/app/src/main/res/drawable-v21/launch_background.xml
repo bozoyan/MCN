@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 原生启动屏：只铺与 Flutter 启动占位一致的背景色，不放 logo（启动快时一闪而过反而难看）。 -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:drawable="@color/launch_background" />
+</layer-list>

@@ -1,0 +1,281 @@
+{
+  "format": "reveric.director",
+  "version": 1,
+  "id": "10000000-0000-4000-8000-000000000002",
+  "revision": 0,
+  "title": "进场与推进",
+  "units": "meters",
+  "up_axis": "Y",
+  "fps": 24,
+  "duration_frames": 120,
+  "output": {
+    "width": 720,
+    "height": 1280,
+    "background": "#E8E8E8"
+  },
+  "objects": [
+    {
+      "id": "20000000-0000-4000-8000-000000000001",
+      "kind": "actor",
+      "name": "演员 A",
+      "geometry_key": "actor.male.v1",
+      "position": [
+        -0.8,
+        0,
+        0
+      ],
+      "rotation": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "color": "#4477AA",
+      "visible": true,
+      "pose": {
+        "body_pitch": 0,
+        "body_yaw": 0,
+        "body_roll": 0,
+        "torso_pitch": 0,
+        "torso_yaw": 0,
+        "torso_roll": 0,
+        "head_pitch": 0,
+        "head_yaw": 0,
+        "head_roll": 0,
+        "left_shoulder_raise": 0,
+        "left_shoulder_abduct": 0,
+        "left_shoulder_twist": 0,
+        "right_shoulder_raise": 0,
+        "right_shoulder_abduct": 0,
+        "right_shoulder_twist": 0,
+        "left_elbow_bend": 0,
+        "right_elbow_bend": 0,
+        "left_hip_raise": 0,
+        "left_hip_abduct": 0,
+        "left_hip_twist": 0,
+        "right_hip_raise": 0,
+        "right_hip_abduct": 0,
+        "right_hip_twist": 0,
+        "left_knee_bend": 0,
+        "right_knee_bend": 0,
+        "root_offset_y": 0
+      }
+    },
+    {
+      "id": "20000000-0000-4000-8000-000000000002",
+      "kind": "actor",
+      "name": "演员 B",
+      "geometry_key": "actor.male.v1",
+      "position": [
+        0.8,
+        0,
+        0
+      ],
+      "rotation": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "color": "#CC6677",
+      "visible": true,
+      "pose": {
+        "body_pitch": 0,
+        "body_yaw": 0,
+        "body_roll": 0,
+        "torso_pitch": 0,
+        "torso_yaw": 0,
+        "torso_roll": 0,
+        "head_pitch": 0,
+        "head_yaw": 0,
+        "head_roll": 0,
+        "left_shoulder_raise": 0,
+        "left_shoulder_abduct": 0,
+        "left_shoulder_twist": 0,
+        "right_shoulder_raise": 0,
+        "right_shoulder_abduct": 0,
+        "right_shoulder_twist": 0,
+        "left_elbow_bend": 0,
+        "right_elbow_bend": 0,
+        "left_hip_raise": 0,
+        "left_hip_abduct": 0,
+        "left_hip_twist": 0,
+        "right_hip_raise": 0,
+        "right_hip_abduct": 0,
+        "right_hip_twist": 0,
+        "left_knee_bend": 0,
+        "right_knee_bend": 0,
+        "root_offset_y": 0
+      }
+    },
+    {
+      "id": "20000000-0000-4000-8000-000000000003",
+      "kind": "prop",
+      "name": "柜台",
+      "geometry_key": "prop.cube.v1",
+      "position": [
+        0,
+        0,
+        -0.7
+      ],
+      "rotation": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "scale": [
+        2,
+        1,
+        0.6
+      ],
+      "color": "#999999",
+      "visible": true,
+      "pose": "none"
+    }
+  ],
+  "cameras": [
+    {
+      "id": "30000000-0000-4000-8000-000000000001",
+      "name": "机位 A",
+      "position": [
+        0,
+        1.6,
+        5
+      ],
+      "orientation_mode": "look_at",
+      "camera_target": {
+        "type": "point",
+        "position": [
+          0,
+          1,
+          0
+        ]
+      },
+      "reference_up": [
+        0,
+        1,
+        0
+      ],
+      "roll": 0,
+      "focal_length_mm": 35,
+      "sensor_height_mm": 24,
+      "near": 0.05,
+      "far": 200
+    },
+    {
+      "id": "30000000-0000-4000-8000-000000000002",
+      "name": "机位 B",
+      "position": [
+        -2.2,
+        1.55,
+        1.4
+      ],
+      "orientation_mode": "look_at",
+      "camera_target": {
+        "type": "bone",
+        "actor_id": "20000000-0000-4000-8000-000000000002",
+        "bone": "chest",
+        "offset": [
+          0,
+          0,
+          0
+        ]
+      },
+      "reference_up": [
+        0,
+        1,
+        0
+      ],
+      "roll": 0,
+      "focal_length_mm": 50,
+      "sensor_height_mm": 24,
+      "near": 0.05,
+      "far": 200
+    }
+  ],
+  "default_camera_id": "30000000-0000-4000-8000-000000000001",
+  "lighting": {
+    "ambient_intensity": 0.6,
+    "key_intensity": 1,
+    "key_direction": [
+      -1,
+      -2,
+      -1
+    ]
+  },
+  "tracks": [
+    {
+      "id": "40000000-0000-4000-8000-000000000001",
+      "target_id": "20000000-0000-4000-8000-000000000001",
+      "property": "position",
+      "keys": [
+        {
+          "frame": 0,
+          "value": [
+            -0.8,
+            0,
+            -2
+          ],
+          "easing": "linear"
+        },
+        {
+          "frame": 96,
+          "value": [
+            -0.8,
+            0,
+            0
+          ],
+          "easing": "hold"
+        },
+        {
+          "frame": 120,
+          "value": [
+            -0.8,
+            0,
+            0
+          ],
+          "easing": "hold"
+        }
+      ]
+    },
+    {
+      "id": "40000000-0000-4000-8000-000000000002",
+      "target_id": "30000000-0000-4000-8000-000000000001",
+      "property": "position",
+      "keys": [
+        {
+          "frame": 0,
+          "value": [
+            0,
+            1.6,
+            5
+          ],
+          "easing": "linear"
+        },
+        {
+          "frame": 120,
+          "value": [
+            0,
+            1.6,
+            4
+          ],
+          "easing": "hold"
+        }
+      ]
+    }
+  ],
+  "motion_paths": [],
+  "camera_cuts": [],
+  "camera_moves": []
+}

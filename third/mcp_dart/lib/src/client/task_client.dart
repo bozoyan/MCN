@@ -1,0 +1,336 @@
+import 'dart:async';
+
+import 'package:mcp_dart/src/client/client.dart';
+import 'package:mcp_dart/src/shared/json_schema/json_schema_validator.dart';
+import 'package:mcp_dart/src/types.dart';
+
+/// Wrapper for raw JSON result to satisfy BaseResultData constraint.
+class _RawResult implements BaseResultData {
+  final Map<String, dynamic> data;
+
+  @override
+  final Map<String, dynamic>? meta;
+
+  _RawResult(this.data, {this.meta});
+
+  @override
+  Map<String, dynamic> toJson() => {
+        ...data,
+        if (meta != null) '_meta': meta,
+      };
+}
+
+/// Helper to handle task-augmented tool calls and interactions.
+///
+/// This client wrapper abstracts the complexity of task-based tool calls,
+/// which may either return an immediate result or create a long-running task.
+/// It handles polling for task status and retrieving the final result.
+class TaskClient {
+  final McpClient client;
+
+  TaskClient(this.client);
+
+  bool get _usesStatelessProtocol {
+    final protocolVersion = client.getProtocolVersion();
+    return protocolVersion != null &&
+        isStatelessProtocolVersion(protocolVersion);
+  }
+
+  Future<Tool?> _findTool(String name) async {
+    String? cursor;
+    do {
+      final result = await client.listTools(
+        params: cursor == null ? null : ListToolsRequest(cursor: cursor),
+      );
+      for (final tool in result.tools) {
+        if (tool.name == name) {
+          return tool;
+        }
+      }
+      cursor = result.nextCursor;
+    } while (cursor != null);
+    return null;
+  }
+
+  /// Calls a tool and streams the result, handling task-based execution.
+
+  /// This handles both immediate results (yielding a single [TaskResultMessage])
+  /// and long-running tasks (yielding [TaskCreatedMessage], multiple
+  /// [TaskStatusMessage]s, and finally [TaskResultMessage]).
+  ///
+  /// For every MCP `2026-07-28` stateless session, [task] must be omitted. When
+  /// `io.modelcontextprotocol/tasks` is advertised, task creation is
+  /// server-directed. The call is routed through [McpClient.callTool], which
+  /// transparently follows that extension's polling flow when needed and
+  /// otherwise returns the ordinary tool result.
+  ///
+  /// For MCP 2025-11-25 legacy tasks, [task] is used for task augmentation.
+  /// Pass task creation parameters (e.g., `{'ttl': 60000, 'pollInterval': 50}`)
+  /// to request task-based execution from tools that support it.
+  ///
+  /// When [task] is provided, the connected server must advertise
+  /// `tasks.requests.tools.call`, and the target tool must be discoverable from
+  /// `tools/list` with `execution.taskSupport` set to `optional` or `required`.
+  /// This method performs a `tools/list` preflight before sending `tools/call`
+  /// so it can fail locally before creating a task the server did not advertise.
+  Stream<TaskStreamMessage> callToolStream(
+    String name,
+    Map<String, dynamic> arguments, {
+    Map<String, dynamic>? task,
+  }) async* {
+    try {
+      if (_usesStatelessProtocol || task == null) {
+        if (_usesStatelessProtocol && task != null) {
+          throw McpError(
+            ErrorCode.invalidRequest.value,
+            'MCP ${client.getProtocolVersion()} does not support the legacy '
+            'task request parameter. Server-directed tasks require the '
+            '$mcpTasksExtensionId extension.',
+          );
+        }
+        final result = await client.callTool(
+          CallToolRequest(name: name, arguments: arguments),
+        );
+        yield TaskResultMessage(result);
+        return;
+      }
+
+      client.assertTaskCapability(Method.toolsCall);
+      final tool = await _findTool(name);
+      if (tool == null) {
+        throw McpError(
+          ErrorCode.invalidRequest.value,
+          "Tool '$name' was not advertised by tools/list; cannot verify task augmentation support",
+        );
+      }
+      final taskSupport = tool.execution?.taskSupport ?? 'forbidden';
+      if (taskSupport == 'forbidden') {
+        throw McpError(
+          ErrorCode.invalidRequest.value,
+          "Tool '$name' does not support task augmentation (taskSupport: 'forbidden')",
+        );
+      }
+      final advertisedOutputSchema = tool.outputSchema;
+      final outputSchema = advertisedOutputSchema?.toJson()['type'] == 'object'
+          ? advertisedOutputSchema
+          : null;
+
+      // 1. Call the tool using generic request to capture 'task' field if present.
+      // We cannot use client.callTool() because it forces CallToolResult return type
+      // which ignores the 'task' field.
+      final callParamsJson =
+          CallToolRequest(name: name, arguments: arguments).toJson();
+
+      // Add task augmentation params directly to params (per MCP spec)
+      final paramsWithTask = <String, dynamic>{
+        ...callParamsJson,
+        'task': task,
+      };
+
+      final req = JsonRpcCallToolRequest(
+        id: -1,
+        params: paramsWithTask,
+      );
+
+      final response = await client.request<_RawResult>(
+        req,
+        (json) => _RawResult(json, meta: json['_meta']),
+      );
+
+      final data = response.data;
+
+      // Check if it created a task
+      if (data.containsKey('task')) {
+        final taskResult = CreateTaskResult.fromJson(data);
+        yield TaskCreatedMessage(taskResult.task);
+
+        // Poll for status updates until terminal, then fetch result
+        await for (final msg in _monitorTask(
+          taskResult.task.taskId,
+          taskResult.task,
+          outputSchema,
+        )) {
+          yield msg;
+        }
+      } else {
+        // Immediate result
+        final toolResult = _normalizeToolResultForProtocol(
+          CallToolResult.fromJson(data),
+        );
+        _validateToolResult(toolResult, outputSchema);
+        yield TaskResultMessage(toolResult);
+      }
+    } catch (e) {
+      yield TaskErrorMessage(e);
+    }
+  }
+
+  Stream<TaskStreamMessage> _monitorTask(
+    String taskId,
+    Task initialTask,
+    JsonSchema? outputSchema,
+  ) async* {
+    var currentTask = initialTask;
+
+    // Poll until task reaches terminal state
+    while (!currentTask.status.isTerminal) {
+      // Wait before next poll
+      final interval = currentTask.pollInterval ?? 1000;
+      await Future.delayed(Duration(milliseconds: interval));
+
+      // Poll task status
+      try {
+        currentTask = await _getTask(taskId);
+        yield TaskStatusMessage(currentTask);
+      } catch (e) {
+        yield TaskErrorMessage(e);
+        return;
+      }
+
+      // When input_required, call tasks/result to deliver queued messages
+      // (elicitation, sampling) via SSE and block until terminal.
+      // The server will send elicitation/sampling requests as side-channel
+      // messages, and the Client's request handlers will process them.
+      if (currentTask.status == TaskStatus.inputRequired) {
+        try {
+          final result = await _getTaskResult(taskId);
+          _validateToolResult(result, outputSchema);
+          yield TaskResultMessage(result);
+          return; // tasks/result blocks until terminal, so we're done
+        } catch (e) {
+          yield TaskErrorMessage(e);
+          return;
+        }
+      }
+    }
+
+    // Task is terminal - fetch the result
+    if (currentTask.status == TaskStatus.completed) {
+      try {
+        final result = await _getTaskResult(taskId);
+        _validateToolResult(result, outputSchema);
+        yield TaskResultMessage(result);
+      } catch (e) {
+        yield TaskErrorMessage(e);
+      }
+    } else if (currentTask.status == TaskStatus.failed) {
+      yield TaskErrorMessage(
+        Exception(
+          'Task failed: ${currentTask.statusMessage ?? "Unknown error"}',
+        ),
+      );
+    } else if (currentTask.status == TaskStatus.cancelled) {
+      yield TaskErrorMessage(Exception('Task was cancelled'));
+    }
+  }
+
+  void _validateToolResult(
+    CallToolResult result,
+    JsonSchema? outputSchema,
+  ) {
+    if (outputSchema == null || result.isError) {
+      return;
+    }
+
+    try {
+      if (!result.hasStructuredContent) {
+        throw const FormatException(
+          'structuredContent is required when outputSchema is declared',
+        );
+      }
+      outputSchema.validate(result.structuredContentJson!.toJson());
+    } catch (error) {
+      throw McpError(
+        ErrorCode.invalidParams.value,
+        "Structured content does not match the tool's output schema: $error",
+      );
+    }
+  }
+
+  CallToolResult _normalizeToolResultForProtocol(CallToolResult result) {
+    // Initialization-era MCP permits only object-root structured content.
+    // Keep the fallback content and all other result fields when a newer peer
+    // sends a 2026-only structured value on the legacy raw task path.
+    if (_usesStatelessProtocol || !result.hasStructuredContent) {
+      return result;
+    }
+
+    final structuredContent = result.structuredContentJson?.toJson();
+    if (structuredContent is Map &&
+        structuredContent.keys.every((key) => key is String)) {
+      return result;
+    }
+
+    return CallToolResult(
+      content: result.content,
+      isError: result.isError,
+      meta: result.meta,
+      extra: result.extra,
+    );
+  }
+
+  Future<Task> _getTask(String taskId) async {
+    final req = JsonRpcGetTaskRequest(
+      id: -1,
+      getParams: GetTaskRequest(taskId: taskId),
+    );
+
+    return await client.request<Task>(
+      req,
+      (json) => Task.fromJson(json),
+    );
+  }
+
+  Future<CallToolResult> _getTaskResult(String taskId) async {
+    final req = JsonRpcTaskResultRequest(
+      id: -1,
+      resultParams: TaskResultRequest(taskId: taskId),
+    );
+    return await client.request<CallToolResult>(
+      req,
+      (json) => _normalizeToolResultForProtocol(
+        CallToolResult.fromJson(json),
+      ),
+    );
+  }
+
+  /// List all tasks on the server
+  Future<List<Task>> listTasks() async {
+    final req = JsonRpcListTasksRequest(id: -1);
+    final result = await client.request<ListTasksResult>(
+      req,
+      (json) => ListTasksResult.fromJson(json),
+    );
+    return result.tasks;
+  }
+
+  /// Cancel a task by ID and ignore the returned final state.
+  ///
+  /// Prefer [cancelTaskWithResult] for MCP 2025-11-25-compatible clients.
+  @Deprecated(
+    'MCP 2025-11-25 tasks/cancel returns a Task. '
+    'Use cancelTaskWithResult instead.',
+  )
+  Future<void> cancelTask(String taskId) async {
+    final req = JsonRpcCancelTaskRequest(
+      id: -1,
+      cancelParams: CancelTaskRequest(taskId: taskId),
+    );
+    await client.request<EmptyResult>(
+      req,
+      EmptyResult.fromJson,
+    );
+  }
+
+  /// Cancel a task by ID and return its final cancelled state.
+  Future<Task> cancelTaskWithResult(String taskId) async {
+    final req = JsonRpcCancelTaskRequest(
+      id: -1,
+      cancelParams: CancelTaskRequest(taskId: taskId),
+    );
+    return client.request<Task>(
+      req,
+      (json) => Task.fromJson(json),
+    );
+  }
+}

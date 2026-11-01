@@ -1,0 +1,464 @@
+// 职责: 验证远程技能下载、分支定位、附件保留、大小限制及取消行为。
+// 关联文件:
+//   lib/shared/services/agent_skill_import_orchestrator.dart
+//   lib/shared/services/agent_skill_import_source.dart
+
+import 'dart:convert';
+import 'dart:typed_data';
+
+import 'package:archive/archive.dart';
+import 'package:dio/dio.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:reveric/shared/services/agent_skill_import_orchestrator.dart';
+import 'package:reveric/shared/services/agent_skill_import_source.dart';
+import 'package:reveric/shared/services/agent_skill_transfer.dart';
+
+const _sha = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+String _skill(String name) =>
+    '---\nname: $name\ndescription: >-\n  useful skill\n  for writing\n---\nInstructions\n';
+
+Uint8List _zip(Map<String, String> files) {
+  final archive = Archive();
+  for (final entry in files.entries) {
+    archive.add(ArchiveFile.string(entry.key, entry.value));
+  }
+  return Uint8List.fromList(ZipEncoder().encode(archive));
+}
+
+ResponseBody _giteeResponse(
+  RequestOptions options,
+  Map<String, String> files, {
+  String branch = 'main',
+}) {
+  ResponseBody json(Object data, [int status = 200]) => ResponseBody.fromString(
+    jsonEncode(data),
+    status,
+    headers: {
+      Headers.contentTypeHeader: ['application/json'],
+    },
+  );
+  if (options.uri.path.contains('/commits/')) {
+    return json({
+      'sha': _sha,
+    }, options.uri.pathSegments.last == branch ? 200 : 404);
+  }
+  if (options.uri.path.contains('/git/trees/')) {
+    return json({
+      'truncated': false,
+      'tree': [
+        for (final (index, entry) in files.entries.indexed)
+          {
+            'path': entry.key,
+            'mode': '100644',
+            'type': 'blob',
+            'sha': (index + 1).toString().padLeft(40, '0'),
+            'size': utf8.encode(entry.value).length,
+          },
+      ],
+    });
+  }
+  if (options.uri.path.contains('/git/blobs/')) {
+    final index = int.parse(options.uri.pathSegments.last) - 1;
+    return json({
+      'encoding': 'base64',
+      'content': base64.encode(utf8.encode(files.values.elementAt(index))),
+    });
+  }
+  if (options.uri.path == '/api/v5/repos/a/b') {
+    return json({'default_branch': branch});
+  }
+  throw StateError('Unexpected Gitee endpoint: ${options.uri}');
+}
+
+void main() {
+  late Dio client;
+  late List<Uri> requests;
+  late CancelToken token;
+  setUp(() {
+    requests = [];
+    token = CancelToken();
+    client = Dio();
+  });
+  tearDown(() => client.close(force: true));
+
+  void respond(ResponseBody Function(RequestOptions) response) {
+    client.httpClientAdapter = _Adapter((options) {
+      requests.add(options.uri);
+      return response(options);
+    });
+  }
+
+  Future<List<AgentSkillImportCandidate>> scan(
+    String url, {
+    Set<String> existing = const {},
+  }) => AgentSkillImportOrchestrator().discover(
+    source: AgentSkillImportSource.parse(url),
+    existingNames: existing,
+    client: client,
+    cancelToken: token,
+  );
+
+  test(
+    'repository imports nested skills and references, marks conflicts',
+    () async {
+      final bytes = _zip({
+        'repo/skills/a/SKILL.md': _skill('a'),
+        'repo/skills/a/references/中文.txt': '参考',
+        'repo/skills/a/scripts/run.py': 'print(1)',
+        'repo/skills/b/SKILL.md': _skill('b'),
+        'repo/.agents/skills/c/SKILL.md': _skill('c'),
+        'repo/node_modules/ignored/SKILL.md': _skill('ignored'),
+        'repo/../escaped/SKILL.md': _skill('escaped'),
+      });
+      respond((_) => ResponseBody.fromBytes(bytes, 200));
+      final result = await scan('https://github.com/a/b', existing: {'a'});
+      expect(result.map((c) => c.name), ['c', 'a', 'b']);
+      final a = result.singleWhere((c) => c.name == 'a');
+      expect(a.nameConflict, isTrue);
+      expect(a.references.single.path, 'references/中文.txt');
+      expect(a.references.single.content, '参考');
+      expect(a.hasScripts, isTrue);
+      expect(result.singleWhere((c) => c.name == 'b').hasScripts, isFalse);
+      expect(a.description, 'useful skill for writing');
+      expect(requests.single.path, '/repos/a/b/zipball');
+    },
+  );
+
+  for (final host in ['github', 'gitlab', 'gitee', 'gitcode']) {
+    test(
+      '$host resolves slash branch and limits selection to subdirectory',
+      () async {
+        final bytes = _zip({
+          'repo/skills/a/SKILL.md': _skill('a'),
+          'repo/skills/b/SKILL.md': _skill('b'),
+        });
+        respond((options) {
+          if (host == 'gitee') {
+            return _giteeResponse(options, {
+              'skills/a/SKILL.md': _skill('a'),
+              'skills/b/SKILL.md': _skill('b'),
+            }, branch: 'feature/topic');
+          }
+          if (options.uri.path.contains('/commits/')) {
+            return ResponseBody.fromString(
+              jsonEncode({
+                host == 'github' || host == 'gitee' ? 'sha' : 'id': _sha,
+              }),
+              options.uri.pathSegments.last == 'feature/topic' ? 200 : 404,
+              headers: {
+                Headers.contentTypeHeader: ['application/json'],
+              },
+            );
+          }
+          return ResponseBody.fromBytes(bytes, 200);
+        });
+        final url = host == 'gitlab'
+            ? 'https://gitlab.com/a/sub/b/-/tree/feature/topic/skills/a'
+            : 'https://$host.com/a/b/tree/feature/topic/skills/a';
+        final result = await scan(url);
+        expect(result.map((c) => c.name), ['a']);
+        if (host == 'github') {
+          expect(requests.last.pathSegments.last, _sha);
+        } else if (host == 'gitlab') {
+          expect(requests.last.queryParameters['sha'], _sha);
+          expect(requests.last.pathSegments[3], 'a/sub/b');
+        } else if (host == 'gitee') {
+          expect(
+            requests.any((uri) => uri.path.contains('/git/trees/$_sha')),
+            isTrue,
+          );
+          expect(requests.last.path, contains('/git/blobs/'));
+        } else {
+          expect(requests.last.pathSegments.last, '$_sha.zip');
+          expect(
+            requests.last.host,
+            host == 'gitee' ? 'gitee.com' : 'raw.gitcode.com',
+          );
+        }
+      },
+    );
+  }
+
+  test(
+    'Gitee root fetches default branch instead of assuming main/master',
+    () async {
+      respond(
+        (options) => _giteeResponse(options, {
+          'SKILL.md': _skill('gitee'),
+          'references/guide.md': 'guide',
+          'scripts/run.py': 'script',
+        }, branch: 'release/topic'),
+      );
+      final result = await scan('https://gitee.com/a/b', existing: {'gitee'});
+      expect(result.single.name, 'gitee');
+      expect(result.single.nameConflict, isTrue);
+      expect(result.single.references.single.content, 'guide');
+      expect(
+        requests
+            .singleWhere((uri) => uri.path.contains('/git/trees/'))
+            .pathSegments
+            .last,
+        'release/topic',
+      );
+      expect(
+        requests.where((uri) => uri.path.contains('/git/blobs/')).length,
+        2,
+      );
+    },
+  );
+
+  test(
+    'Gitee truncated trees fail rather than silently losing skills',
+    () async {
+      respond(
+        (options) => options.uri.path.contains('/git/trees/')
+            ? ResponseBody.fromString(
+                jsonEncode({'truncated': true, 'tree': []}),
+                200,
+                headers: {
+                  Headers.contentTypeHeader: ['application/json'],
+                },
+              )
+            : _giteeResponse(options, {}),
+      );
+      await expectLater(
+        scan('https://gitee.com/a/b'),
+        throwsA(isA<AgentSkillImportLimitException>()),
+      );
+    },
+  );
+
+  test('Gitee oversized reference fails before fetching its content', () async {
+    respond(
+      (options) => _giteeResponse(options, {
+        'SKILL.md': _skill('gitee'),
+        'references/guide.md': 'a' * (64 * 1024 + 1),
+      }),
+    );
+    await expectLater(
+      scan('https://gitee.com/a/b'),
+      throwsA(isA<AgentSkillImportLimitException>()),
+    );
+    expect(requests.where((uri) => uri.path.contains('/git/blobs/')).length, 1);
+  });
+
+  test('missing default branch fails without trying another branch', () async {
+    respond(
+      (_) => ResponseBody.fromString(
+        '{}',
+        200,
+        headers: {
+          Headers.contentTypeHeader: ['application/json'],
+        },
+      ),
+    );
+    await expectLater(scan('https://gitee.com/a/b'), throwsFormatException);
+    expect(requests.length, 1);
+  });
+
+  test(
+    'GitCode root downloads HEAD without authenticated API or credentials',
+    () async {
+      respond((options) {
+        expect(
+          options.headers.keys.any(
+            (key) =>
+                key.toLowerCase() == 'authorization' ||
+                key.toLowerCase() == 'cookie',
+          ),
+          isFalse,
+        );
+        expect(options.queryParameters, isEmpty);
+        return ResponseBody.fromBytes(
+          _zip({'repo/SKILL.md': _skill('gitcode')}),
+          200,
+        );
+      });
+      expect((await scan('https://gitcode.com/a/b')).single.name, 'gitcode');
+      expect(
+        requests.single.toString(),
+        'https://raw.gitcode.com/a/b/archive/refs/heads/HEAD.zip',
+      );
+    },
+  );
+
+  for (final host in ['github', 'gitee', 'gitcode']) {
+    test(
+      '$host SKILL.md link includes adjacent references but no nested skills',
+      () async {
+        final bytes = _zip({
+          'repo/a/SKILL.md': _skill('a'),
+          'repo/a/references/guide.md': 'guide',
+          'repo/a/nested/SKILL.md': _skill('nested'),
+        });
+        respond(
+          (options) => host == 'gitee'
+              ? _giteeResponse(options, {
+                  'a/SKILL.md': _skill('a'),
+                  'a/references/guide.md': 'guide',
+                  'a/nested/SKILL.md': _skill('nested'),
+                })
+              : options.uri.path.contains('/commits/')
+              ? ResponseBody.fromString(
+                  jsonEncode({host == 'gitcode' ? 'id' : 'sha': _sha}),
+                  options.uri.pathSegments.last == 'main' ? 200 : 404,
+                  headers: {
+                    Headers.contentTypeHeader: ['application/json'],
+                  },
+                )
+              : ResponseBody.fromBytes(bytes, 200),
+        );
+        final result = await scan('https://$host.com/a/b/blob/main/a/SKILL.md');
+        expect(result.single.name, 'a');
+        expect(result.single.references.single.content, 'guide');
+      },
+    );
+  }
+
+  test('empty repository remains an empty scan', () async {
+    respond(
+      (_) => ResponseBody.fromBytes(_zip({'repo/README.md': 'readme'}), 200),
+    );
+    expect(await scan('a/b'), isEmpty);
+  });
+
+  test('missing revision does not download the default branch', () async {
+    respond((_) => ResponseBody.fromString('{}', 404));
+    await expectLater(
+      scan('https://github.com/a/b/tree/missing/skills'),
+      throwsA(isA<AgentSkillImportUnavailableException>()),
+    );
+    expect(requests.every((uri) => uri.path.contains('/commits/')), isTrue);
+  });
+
+  test(
+    'HTML download is rejected rather than shown as an empty repository',
+    () async {
+      respond(
+        (_) => ResponseBody.fromString('<html>Login required</html>', 200),
+      );
+      await expectLater(scan('a/b'), throwsFormatException);
+    },
+  );
+
+  test('stream without content length is still size limited', () async {
+    respond(
+      (_) => ResponseBody(
+        Stream<Uint8List>.fromIterable([
+          Uint8List(AgentSkillImportOrchestrator.maxDownloadBytes),
+          Uint8List(1),
+        ]),
+        200,
+      ),
+    );
+    await expectLater(
+      scan('a/b'),
+      throwsA(isA<AgentSkillImportLimitException>()),
+    );
+    expect(token.isCancelled, isTrue);
+  });
+
+  test(
+    'invalid skill fails rather than silently importing incomplete data',
+    () async {
+      respond(
+        (_) =>
+            ResponseBody.fromBytes(_zip({'repo/SKILL.md': 'not a skill'}), 200),
+      );
+      await expectLater(scan('a/b'), throwsFormatException);
+    },
+  );
+
+  test('oversized archive is rejected before reading body', () async {
+    respond(
+      (_) => ResponseBody.fromBytes(
+        [],
+        200,
+        headers: {
+          Headers.contentLengthHeader: [
+            '${AgentSkillImportOrchestrator.maxDownloadBytes + 1}',
+          ],
+        },
+      ),
+    );
+    await expectLater(
+      scan('a/b'),
+      throwsA(isA<AgentSkillImportLimitException>()),
+    );
+    expect(token.isCancelled, isTrue);
+  });
+
+  test('oversized references fail visibly instead of being dropped', () async {
+    respond(
+      (_) => ResponseBody.fromBytes(
+        _zip({
+          'repo/SKILL.md': _skill('a'),
+          'repo/references/large.md': 'a' * (64 * 1024 + 1),
+        }),
+        200,
+      ),
+    );
+    await expectLater(
+      scan('a/b'),
+      throwsA(isA<AgentSkillImportLimitException>()),
+    );
+  });
+
+  test('Gitee detects scripts without importing or executing them', () async {
+    respond(
+      (options) => _giteeResponse(options, {
+        'skills/a/SKILL.md': _skill('a'),
+        'skills/a/scripts/run.py': 'raise RuntimeError()',
+        'skills/a/references/guide.md': 'guide',
+      }),
+    );
+    final candidates = await scan('https://gitee.com/a/b/tree/main/skills/a');
+    expect(candidates.single.hasScripts, isTrue);
+    expect(candidates.single.references.single.path, 'references/guide.md');
+  });
+
+  test('HTTP failure preserves status for the caller', () async {
+    respond((_) => ResponseBody.fromString('not found', 404));
+    await expectLater(
+      scan('a/b'),
+      throwsA(
+        isA<DioException>().having(
+          (e) => e.response?.statusCode,
+          'status',
+          404,
+        ),
+      ),
+    );
+  });
+
+  test('cancelled operation never starts a download', () async {
+    respond((_) => throw StateError('must not request'));
+    token.cancel('closed');
+    await expectLater(
+      scan('a/b'),
+      throwsA(
+        isA<DioException>().having(
+          (e) => e.type,
+          'type',
+          DioExceptionType.cancel,
+        ),
+      ),
+    );
+    expect(requests, isEmpty);
+  });
+}
+
+class _Adapter implements HttpClientAdapter {
+  _Adapter(this.response);
+  final ResponseBody Function(RequestOptions) response;
+
+  @override
+  Future<ResponseBody> fetch(
+    RequestOptions options,
+    Stream<Uint8List>? requestStream,
+    Future<void>? cancelFuture,
+  ) async => response(options);
+
+  @override
+  void close({bool force = false}) {}
+}

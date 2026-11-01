@@ -1,0 +1,36 @@
+name: mcp_dart
+description: Dart and Flutter SDK for building Model Context Protocol (MCP) servers, clients, hosts, and AI tools.
+version: 2.4.3
+repository: https://github.com/leehack/mcp_dart
+homepage: https://github.com/leehack/mcp_dart
+issue_tracker: https://github.com/leehack/mcp_dart/issues
+documentation: https://github.com/leehack/mcp_dart/tree/v2.4.3/doc
+funding:
+  - https://buymeacoffee.com/leehack
+topics:
+  - mcp
+  - model-context-protocol
+  - ai
+  - llm
+  - api
+platforms:
+  android:
+  ios:
+  linux:
+  macos:
+  web:
+  windows:
+
+environment:
+  sdk: ^3.4.0
+
+dependencies:
+  crypto: ^3.0.7
+  http: ^1.5.0
+  meta: ^1.16.0
+
+dev_dependencies:
+  # Dart 3.4 resolves lints 4.0; Dart 3.8+ can use the latest lints 6 release.
+  lints: ">=4.0.0 <7.0.0"
+  path: ^1.9.1
+  test: ^1.24.0

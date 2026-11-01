@@ -1,0 +1,320 @@
+// 职责: TXT 作品导入服务，负责解析卷章结构、编码自动检测（UTF-8/GBK/GB2312）并写入小说与内容库。
+// 关联文件:
+//   lib/shared/services/novel_actions.dart
+//   lib/shared/services/novel_content.dart
+//   lib/shared/database/novel_content_database.dart
+//   lib/shared/models/novel_type.dart
+
+import 'dart:convert';
+import 'dart:io';
+
+import 'package:path/path.dart' as p;
+
+import '../logger/app_logger.dart';
+
+import '../database/app_database.dart';
+import '../database/novel_content_database.dart';
+import '../models/novel_type.dart';
+import '../utils/text_file_decoder.dart';
+import '../utils/text_unit_count.dart';
+import 'novel_actions.dart';
+import 'novel_content.dart';
+
+final _log = AppLogger.forModule('Import');
+
+class ParsedNovelImport {
+  const ParsedNovelImport({
+    required this.suggestedTitle,
+    required this.chapters,
+    required this.volumeCount,
+    required this.wordCount,
+  });
+
+  final String suggestedTitle;
+  final List<ImportedChapterNode> chapters;
+  final int volumeCount;
+  final int wordCount;
+}
+
+class NovelImportResult {
+  const NovelImportResult({
+    required this.novelId,
+    required this.chapterCount,
+    required this.volumeCount,
+    required this.wordCount,
+  });
+
+  final String novelId;
+  final int chapterCount;
+  final int volumeCount;
+  final int wordCount;
+}
+
+class NovelImportService {
+  NovelImportService({
+    required this.actions,
+    NovelContentDatabase Function(String databasePath)? contentDatabaseFactory,
+    Future<void> Function(
+      NovelContentService service,
+      List<ImportedChapterNode> chapters,
+    )?
+    chapterImporter,
+  }) : _contentDatabaseFactory =
+           contentDatabaseFactory ?? NovelContentDatabase.new,
+       _chapterImporter =
+           chapterImporter ??
+           ((service, chapters) => service.replaceChaptersForImport(chapters));
+
+  final NovelActionsService actions;
+  final NovelContentDatabase Function(String databasePath)
+  _contentDatabaseFactory;
+  final Future<void> Function(
+    NovelContentService service,
+    List<ImportedChapterNode> chapters,
+  )
+  _chapterImporter;
+
+  Future<ParsedNovelImport> parseTxtFile(String filePath) async {
+    final bytes = await File(filePath).readAsBytes();
+    final text = decodeImportedTextBytes(
+      bytes,
+      onGbkDecodeFailure: (error) {
+        if (_log.isDebugEnabled) {
+          _log.debug('GBK decode failed, fallback to UTF-8: $error');
+        }
+      },
+    );
+    final fallbackTitle = p.basenameWithoutExtension(filePath).trim();
+    return parseTxt(text, fallbackTitle: fallbackTitle);
+  }
+
+  /// Normalize a chapter heading for duplicate detection.
+  String _normalizeChapterTitle(String rawTitle) {
+    return rawTitle
+        .replaceAll(RegExp(r'【[^】]*】'), '')
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .replaceFirst(RegExp(r'^正文\s+', caseSensitive: false), '')
+        .trim();
+  }
+
+  /// Extract the user-facing title from a normalized chapter heading.
+  String _chapterTitleFromHeading(String normalizedTitle) {
+    return normalizedTitle
+        .replaceFirst(
+          RegExp(
+            r'^第\s*[0-9零〇一二两三四五六七八九十百千万]+\s*[章节回]\s*[:：]?\s*',
+            caseSensitive: false,
+          ),
+          '',
+        )
+        .trim();
+  }
+
+  ParsedNovelImport parseTxt(String text, {required String fallbackTitle}) {
+    final normalized = text
+        .replaceFirst('\uFEFF', '')
+        .replaceAll('\r\n', '\n')
+        .replaceAll('\r', '\n');
+    final lines = const LineSplitter().convert(normalized);
+    final chapters = <ImportedChapterNode>[];
+    final volumes = <String>{};
+    final content = StringBuffer();
+    String? currentVolume;
+    String? currentChapterTitle;
+    String? lastNormalizedTitle;
+    var hasChapterHeading = false;
+
+    void flushChapter() {
+      final title = currentChapterTitle?.trim();
+      if (title == null) {
+        return;
+      }
+      final chapterContent = content.toString().trimRight();
+      // Skip chapters with no content — they're empty formatting duplicates.
+      if (chapterContent.isEmpty) {
+        content.clear();
+        return;
+      }
+      chapters.add(
+        ImportedChapterNode(
+          title: title,
+          volumeTitle: currentVolume,
+          content: chapterContent,
+        ),
+      );
+      content.clear();
+    }
+
+    for (final rawLine in lines) {
+      final line = rawLine.trim();
+      if (_isVolumeHeading(line)) {
+        flushChapter();
+        currentVolume = line;
+        volumes.add(line);
+        currentChapterTitle = null;
+        lastNormalizedTitle = null;
+        continue;
+      }
+      if (_isChapterHeading(line)) {
+        hasChapterHeading = true;
+        final normalizedTitle = _normalizeChapterTitle(line);
+        // If content is still empty and the same normalized title was the
+        // previous chapter, this is a formatting duplicate (e.g. same chapter
+        // heading with/without 【】 or different whitespace). Just update the
+        // title reference and keep accumulating.
+        if (content.toString().trimRight().isEmpty &&
+            lastNormalizedTitle == normalizedTitle) {
+          currentChapterTitle = _chapterTitleFromHeading(normalizedTitle);
+          continue;
+        }
+        flushChapter();
+        currentChapterTitle = _chapterTitleFromHeading(normalizedTitle);
+        lastNormalizedTitle = normalizedTitle;
+        continue;
+      }
+      if (currentChapterTitle == null && line.isEmpty && content.isEmpty) {
+        continue;
+      }
+      if (currentChapterTitle == null && line.isNotEmpty) {
+        currentChapterTitle = _fallbackChapterTitle(fallbackTitle);
+      }
+      if (currentChapterTitle != null) {
+        content.writeln(rawLine);
+      }
+    }
+    flushChapter();
+
+    if (!hasChapterHeading) {
+      chapters.clear();
+    }
+
+    return ParsedNovelImport(
+      suggestedTitle: fallbackTitle.isEmpty ? '未命名作品' : fallbackTitle,
+      chapters: chapters,
+      volumeCount: volumes.length,
+      wordCount: chapters.fold<int>(
+        0,
+        (sum, chapter) => sum + countTextUnits(chapter.content.trim()),
+      ),
+    );
+  }
+
+  Future<NovelImportResult> importTxt({
+    required String filePath,
+    required String title,
+    required String description,
+    required String category,
+    required String type,
+    required List<String> tags,
+  }) async {
+    final parsed = await parseTxtFile(filePath);
+    if (parsed.chapters.isEmpty) {
+      throw const NovelImportException('TXT 文件未识别到章节，无法导入。');
+    }
+    // Check for duplicate title before attempting creation.
+    final existing = await actions.findNovelByTitle(title);
+    if (existing != null) {
+      throw NovelImportException('作品「$title」已存在，请使用不同的名称。');
+    }
+    Novel? createdNovel;
+    String? novelId;
+    try {
+      novelId = await actions.createNovel(
+        title: title,
+        description: description,
+        category: category,
+        type: novelTypes.contains(type) ? type : novelTypeOriginal,
+        tags: tags,
+        setNovelOnboardingEligible: false,
+      );
+      createdNovel = await actions.getNovel(novelId);
+      final databasePath = createdNovel?.contentDatabasePath;
+      if (databasePath == null || databasePath.isEmpty) {
+        throw const NovelImportException('作品内容库未创建，无法导入章节。');
+      }
+
+      final contentDatabase = _contentDatabaseFactory(databasePath);
+      final contentService = NovelContentService(
+        contentDatabase,
+        novelActionsService: actions,
+      );
+      try {
+        await _chapterImporter(contentService, parsed.chapters);
+        final importedChapters = await contentService.getChapters();
+        final totalWordCount = importedChapters.fold<int>(
+          0,
+          (sum, chapter) => sum + chapter.wordCount,
+        );
+        await actions.updateNovelWordCount(
+          novelId: novelId,
+          wordCount: totalWordCount,
+        );
+      } finally {
+        await contentDatabase.close();
+      }
+    } catch (error, stackTrace) {
+      _log.error(
+        'IMPORT_TXT id=${novelId ?? '<not_created>'} error=$error',
+        error: error,
+        stackTrace: stackTrace,
+      );
+      if (createdNovel != null) {
+        try {
+          await actions.deleteNovel(createdNovel);
+        } catch (cleanupError, cleanupStackTrace) {
+          _log.error(
+            'ROLLBACK_IMPORT_TXT id=$novelId error=$cleanupError',
+            error: cleanupError,
+            stackTrace: cleanupStackTrace,
+          );
+        }
+      }
+      rethrow;
+    }
+
+    return NovelImportResult(
+      novelId: novelId,
+      chapterCount: parsed.chapters.length,
+      volumeCount: parsed.volumeCount,
+      wordCount: parsed.wordCount,
+    );
+  }
+
+  bool _isVolumeHeading(String line) {
+    if (line.isEmpty || line.length > 80) {
+      return false;
+    }
+    return RegExp(
+      r'^(第\s*[0-9零〇一二两三四五六七八九十百千万]+\s*[卷部集篇]|卷\s*[0-9零〇一二两三四五六七八九十百千万]+)(\s|[:：]|$)',
+      caseSensitive: false,
+    ).hasMatch(line);
+  }
+
+  bool _isChapterHeading(String line) {
+    if (line.isEmpty || line.length > 100) {
+      return false;
+    }
+    return RegExp(
+          r'^((正文\s+)?第\s*[0-9零〇一二两三四五六七八九十百千万]+\s*[章节回]|番外|序章|楔子)(\s|[:：]|$)',
+          caseSensitive: false,
+        ).hasMatch(line) ||
+        RegExp(
+          r'^(chapter\s+\d+|prologue|epilogue)(\s|[:：]|$)',
+          caseSensitive: false,
+        ).hasMatch(line);
+  }
+
+  String _fallbackChapterTitle(String fallbackTitle) {
+    final title = fallbackTitle.trim();
+    return title.isEmpty ? '正文' : title;
+  }
+}
+
+class NovelImportException implements Exception {
+  const NovelImportException(this.message);
+
+  final String message;
+
+  @override
+  String toString() => message;
+}

@@ -1,0 +1,11 @@
+{
+  "character.role.protagonist": "主角",
+  "character.role.antagonist": "反派",
+  "character.role.supporting": "配角",
+  "character.role.minor": "龙套",
+  "character.gender.male": "男",
+  "character.gender.female": "女",
+  "character.gender.non_binary": "非二元",
+  "character.gender.other": "其他",
+  "character.gender.unknown": "未知"
+}

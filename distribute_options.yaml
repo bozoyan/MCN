@@ -1,0 +1,41 @@
+output: dist/
+artifact_name: '{{name}}-{{build_name}}{{#has_build_number}}+{{build_number}}{{/has_build_number}}{{#is_profile}}-{{build_mode}}{{/is_profile}}-{{platform}}{{#channel}}-{{channel}}{{/channel}}{{#is_installer}}-setup{{/is_installer}}.{{ext}}'
+releases:
+  - name: release
+    jobs:
+      - name: macos-dmg
+        package:
+          platform: macos
+          channel: arm64
+          hooks:
+            pre: 'python3 macos/architectures.py "$BUILD_OUTPUT_DIRECTORY/Reveric.app"'
+          target: dmg
+          build_args:
+            release: true
+      - name: macos-zip
+        package:
+          platform: macos
+          channel: arm64
+          hooks:
+            pre: 'python3 macos/architectures.py "$BUILD_OUTPUT_DIRECTORY/Reveric.app"'
+          target: zip
+          build_args:
+            release: true
+      - name: windows-exe
+        package:
+          platform: windows
+          target: exe
+          build_args:
+            release: true
+      - name: windows-zip
+        package:
+          platform: windows
+          target: zip
+          build_args:
+            release: true
+      - name: linux-zip
+        package:
+          platform: linux
+          target: zip
+          build_args:
+            release: true

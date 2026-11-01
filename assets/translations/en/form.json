@@ -1,0 +1,17 @@
+{
+  "form.required": "This field is required",
+  "form.invalid_email": "Invalid email address",
+  "form.invalid_phone": "Invalid phone number",
+  "form.invalid_pattern": "Invalid format",
+  "form.min_length": "Must be at least {length} characters",
+  "form.max_length": "Must be at most {length} characters",
+  "form.min_items": "Must have at least {count} items",
+  "form.max_items": "Must have at most {count} items",
+  "form.date_before": "Must be before {date}",
+  "form.date_after": "Must be after {date}",
+  "form.invalid_integer": "Enter a whole number",
+  "form.invalid_number": "Enter a number",
+  "form.number_range": "Enter a number from {min} to {max}",
+  "form.number_min": "Must be at least {min}",
+  "form.number_max": "Must be at most {max}"
+}

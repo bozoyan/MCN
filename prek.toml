@@ -1,0 +1,15 @@
+[[repos]]
+repo = "local"
+hooks = [
+  {
+    id = "dart-format",
+    name = "dart format",
+    language = "system",
+    types = ["dart"],
+    entry = """
+      dart format "$@" && git add "$@"
+    """,
+    shell = "bash",
+    require_serial = true,
+  },
+]

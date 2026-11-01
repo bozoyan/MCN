@@ -1,0 +1,15 @@
+{
+  "sidebar.untitled_folder": "Untitled Folder",
+  "sidebar.untitled_document": "Untitled Document",
+  "sidebar.untitled_entry": "Untitled Entry",
+  "sidebar.empty_hint": "No content yet",
+  "sidebar.document_name_hint": "Enter document name",
+  "sidebar.delete_folder_confirm": "Are you sure you want to delete folder \"{title}\"?",
+  "sidebar.delete_document_confirm": "Are you sure you want to delete \"{title}\"?",
+  "sidebar.delete_chapter_confirm": "Are you sure you want to delete \"{title}\"?",
+  "sidebar.delete_volume_confirm": "Are you sure you want to delete volume \"{title}\" and all chapters inside it?",
+  "sidebar.move_to_position": "Move to Position",
+  "sidebar.current_position": "Current: {current} / {total}",
+  "sidebar.sort_ascending": "Ascending",
+  "sidebar.sort_descending": "Descending"
+}

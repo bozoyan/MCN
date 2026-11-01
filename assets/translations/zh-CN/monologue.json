@@ -1,0 +1,18 @@
+{
+  "monologue.select_character": "选择角色",
+  "monologue.no_characters": "暂无角色，请先在人物管理中新建角色",
+  "monologue.topic": "当前情境",
+  "monologue.topic_hint": "描述角色当前所处的情境，例如：「你刚刚得知了挚友背叛的消息...」",
+  "monologue.start": "开始独白",
+  "monologue.generating": "正在思考...",
+  "monologue.continue": "继续独白",
+  "monologue.new": "新独白",
+  "monologue.inner_thoughts": "内心活动",
+  "monologue.planned_actions": "接下来的行动",
+  "monologue.default_title": "独白",
+  "monologue.thinking_fmt": "{name} 正在思考...",
+  "monologue.selected_chip": "已选",
+  "monologue.session_title_fmt": "代入角色：{character} — {topic}",
+  "monologue.inner_thoughts_label": "【内心活动】",
+  "monologue.planned_actions_label": "【接下来的行动】"
+}

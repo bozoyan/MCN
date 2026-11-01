@@ -1,0 +1,54 @@
+name: fjs
+description: "A high-performance JavaScript runtime for Flutter applications, built with Rust and powered by QuickJS."
+version: 3.3.1
+homepage: https://github.com/fluttercandies/fjs
+repository: https://github.com/fluttercandies/fjs
+issue_tracker: https://github.com/fluttercandies/fjs/issues
+topics:
+  - quickjs
+  - js-engine
+  - js-runtime
+  - javascript
+  - runtime
+
+environment:
+  sdk: ^3.5.0
+  flutter: '>=3.24.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  # FRB requires the runtime package to match the pinned codegen exactly
+  # (it enforces this at run time); an unconstrained caret let CI resolve
+  # newer releases, which tripped the generator's auto-upgrade into
+  # rewriting this file. Keep resolution capped to the codegen's minor
+  # line, pinned in build-all-platforms.yml.
+  flutter_rust_bridge: ">=2.12.0 <2.13.0"
+  freezed_annotation: ^3.1.0
+  plugin_platform_interface: ^2.1.8
+
+dev_dependencies:
+  ffi: ^2.1.3
+  ffigen: ^19.0.0
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+  integration_test:
+    sdk: flutter
+  freezed: ^3.2.0
+  build_runner: ^2.5.4
+flutter:
+  plugin:
+    platforms:
+      android:
+        ffiPlugin: true
+      ios:
+        ffiPlugin: true
+        sharedDarwinSource: true
+      linux:
+        ffiPlugin: true
+      macos:
+        ffiPlugin: true
+        sharedDarwinSource: true
+      windows:
+        ffiPlugin: true

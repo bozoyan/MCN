@@ -1,0 +1,149 @@
+{
+  "formatVersion": 1,
+  "cases": [
+    {
+      "id": "MCP-E01",
+      "input": "Retrieve three synthetic notes and copy the selected note into a temporary workspace item.",
+      "expected": "selected note is written once; MCP results are sufficient for the next action",
+      "test": "integration_test/mcp_codemode_test.dart"
+    },
+    {
+      "id": "MCP-E02",
+      "input": "Two services expose the same remote search name.",
+      "expected": "distinct names route to their explicit server identities",
+      "test": "test/shared/services/ai/tool_search_test.dart"
+    },
+    {
+      "id": "MCP-E03",
+      "input": "20 fixed English and Chinese queries",
+      "expected": "expected tool ranks in top 8, disabled service tools absent",
+      "test": "test/shared/services/ai/tool_search_test.dart"
+    },
+    {
+      "id": "MCP-E04",
+      "input": "Tool definitions change during execution",
+      "expected": "calls use the current schema; invalid arguments and removed tools are rejected",
+      "test": "test/shared/services/ai/mcp/agent_scope_test.dart"
+    },
+    {
+      "id": "MCP-E05",
+      "input": "Ready and pending services; disable target",
+      "expected": "complete=false; disabled calls never send",
+      "test": "test/shared/services/mcp/catalog_test.dart; test/shared/services/mcp/runtime_test.dart"
+    },
+    {
+      "id": "MCP-E06",
+      "input": "Cancel after send and return oversized successful content",
+      "expected": "unknown is not replayed; confirmed success remains successful with incomplete content",
+      "test": "test/shared/services/mcp/execution_test.dart"
+    },
+    {
+      "id": "MCP-E07",
+      "input": "direct and deferred request snapshots with builtin whitelist",
+      "expected": "direct declared; deferred search leaves declarations unchanged; hooks run once",
+      "test": "test/shared/services/ai/mcp/agent_scope_test.dart"
+    }
+  ],
+  "searchQueries": [
+    {
+      "id": "MCP-Q01",
+      "query": "search notes",
+      "expected": "mcp__notes__search"
+    },
+    {
+      "id": "MCP-Q02",
+      "query": "find documents",
+      "expected": "mcp__notes__search"
+    },
+    {
+      "id": "MCP-Q03",
+      "query": "notes archive",
+      "expected": "mcp__notes__search"
+    },
+    {
+      "id": "MCP-Q04",
+      "query": "documentId",
+      "expected": "mcp__notes__search"
+    },
+    {
+      "id": "MCP-Q05",
+      "query": "read note",
+      "expected": "mcp__notes__search"
+    },
+    {
+      "id": "MCP-Q06",
+      "query": "搜索笔记",
+      "expected": "mcp__notes__search"
+    },
+    {
+      "id": "MCP-Q07",
+      "query": "查询资料",
+      "expected": "mcp__notes__search"
+    },
+    {
+      "id": "MCP-Q08",
+      "query": "检索文档",
+      "expected": "mcp__notes__search"
+    },
+    {
+      "id": "MCP-Q09",
+      "query": "读取笔记",
+      "expected": "mcp__notes__search"
+    },
+    {
+      "id": "MCP-Q10",
+      "query": "查找资料",
+      "expected": "mcp__notes__search"
+    },
+    {
+      "id": "MCP-Q11",
+      "query": "search characters",
+      "expected": "mcp__people__search"
+    },
+    {
+      "id": "MCP-Q12",
+      "query": "find people",
+      "expected": "mcp__people__search"
+    },
+    {
+      "id": "MCP-Q13",
+      "query": "characterId",
+      "expected": "mcp__people__search"
+    },
+    {
+      "id": "MCP-Q14",
+      "query": "person name",
+      "expected": "mcp__people__search"
+    },
+    {
+      "id": "MCP-Q15",
+      "query": "cast lookup",
+      "expected": "mcp__people__search"
+    },
+    {
+      "id": "MCP-Q16",
+      "query": "搜索角色",
+      "expected": "mcp__people__search"
+    },
+    {
+      "id": "MCP-Q17",
+      "query": "查询人物",
+      "expected": "mcp__people__search"
+    },
+    {
+      "id": "MCP-Q18",
+      "query": "查找角色",
+      "expected": "mcp__people__search"
+    },
+    {
+      "id": "MCP-Q19",
+      "query": "人物名字",
+      "expected": "mcp__people__search"
+    },
+    {
+      "id": "MCP-Q20",
+      "query": "角色设定",
+      "expected": "mcp__people__search"
+    }
+  ]
+}

@@ -1,0 +1,7 @@
+{
+  "todo.panel_title": "Tasks",
+  "todo.tool_card_title": "Task list updated",
+  "todo.remaining.zero": "No pending tasks",
+  "todo.remaining.one": "1 task remaining",
+  "todo.remaining.other": "{count} tasks remaining"
+}

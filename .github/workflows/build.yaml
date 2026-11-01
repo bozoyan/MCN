@@ -1,0 +1,305 @@
+name: Package
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag to package, e.g. v0.0.15'
+        required: true
+        type: string
+      branch:
+        description: 'Branch to checkout'
+        required: true
+        type: string
+        default: 'unstable'
+      platform:
+        description: 'Target platform'
+        required: true
+        type: choice
+        default: 'windows'
+        options:
+          - all
+          - macos
+          - windows
+          - android
+
+permissions:
+  contents: write
+
+# Pin the experimental desktop windowing API together with the macOS input and
+# lifecycle fixes (#191780, #188772), Windows windowing fixes through #193233,
+# and the view-rendering optimization rollback (#193360). Keep in sync with .fvmrc.
+env:
+  FLUTTER_VERSION: '0b771a584214b44aa1f94f9707f2756207356f41'
+  FLUTTER_CHANNEL: 'master'
+  FASTFORGE_VERSION: '0.6.6'
+
+jobs:
+  package-macos:
+    if: |
+      github.event_name != 'workflow_dispatch' ||
+      inputs.platform == 'all' ||
+      inputs.platform == 'macos'
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.branch || github.ref }}
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: ${{ env.FLUTTER_CHANNEL }}
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+      - uses: dtolnay/rust-toolchain@1.97.1
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: dart pub global activate fastforge ${{ env.FASTFORGE_VERSION }}
+      - name: Install packaging tools
+        shell: bash
+        run: npm install -g appdmg
+      - name: Update pubspec version from tag
+        id: version
+        shell: bash
+        env:
+          BUILD_NUM: ${{ github.run_number }}
+          TAG_NAME: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+        run: |
+          python3 << 'EOF'
+          import os, re
+          tag = os.environ['TAG_NAME'].strip()
+          if not tag.startswith('v'):
+              raise SystemExit(f"Release tag must start with 'v': {tag}")
+          ver = tag.lstrip('v')
+          build = os.environ['BUILD_NUM']
+          with open('pubspec.yaml', 'r', encoding='utf-8') as f:
+              content = f.read()
+          content = re.sub(r'^version:.*', f'version: {ver}+{build}', content, flags=re.MULTILINE)
+          with open('pubspec.yaml', 'w', encoding='utf-8') as f:
+              f.write(content)
+          github_output = os.environ.get('GITHUB_OUTPUT')
+          if github_output:
+              with open(github_output, 'a', encoding='utf-8') as f:
+                  f.write(f'tag={tag}\n')
+          print(f"Version set to {ver}+{build} (from tag {tag})")
+          EOF
+      - name: Disable sqlite3 system source for packaging
+        shell: bash
+        run: |
+          python3 << 'EOF'
+          with open('pubspec.yaml', 'r', encoding='utf-8') as f:
+              lines = f.readlines()
+          in_hooks = False
+          with open('pubspec.yaml', 'w', encoding='utf-8') as f:
+              for line in lines:
+                  if line.startswith('hooks:'):
+                      in_hooks = True
+                      f.write('# ' + line)
+                  elif in_hooks and (line.startswith('  ') or line.startswith('    ') or line.startswith('      ')):
+                      f.write('# ' + line)
+                  else:
+                      in_hooks = False
+                      f.write(line)
+          EOF
+      - name: Clear sqlite3 hook cache
+        shell: bash
+        run: rm -rf .dart_tool/hooks_runner/sqlite3
+      - name: Select pinned Apple toolchain
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: '26.2'
+      - run: flutter pub get
+      - name: Identify patched Codemode runtime
+        id: codemode
+        shell: bash
+        run: echo "key=$(bash third/fjs/tool/build_runtime.sh --key)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@v4
+        with:
+          path: third/fjs/darwin/fjs/Binaries
+          key: ${{ steps.codemode.outputs.key }}
+      - name: Build and verify patched Codemode runtime
+        shell: bash
+        run: bash third/fjs/tool/build_runtime.sh
+      - name: Prepare trimmed MDK for SwiftPM
+        run: bash third/fvp/macos/setup.sh
+      - name: Build CPU depth runtime
+        shell: bash
+        run: bash third/depth-native/prepare-product-macos.sh
+      - name: Build installer
+        run: fastforge release --name release --jobs macos-dmg --skip-clean
+      - name: Build archive for auto-update
+        run: fastforge release --name release --jobs macos-zip --skip-clean
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          files: |
+            dist/**/*-macos-arm64.dmg
+            dist/**/*-macos-arm64.zip
+
+  package-windows:
+    if: |
+      github.event_name != 'workflow_dispatch' ||
+      inputs.platform == 'all' ||
+      inputs.platform == 'windows'
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.branch || github.ref }}
+      - name: Enable Git long paths for Flutter SDK checkout
+        shell: pwsh
+        run: git config --system core.longpaths true
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: ${{ env.FLUTTER_CHANNEL }}
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+      - uses: dtolnay/rust-toolchain@1.97.1
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: dart pub global activate fastforge ${{ env.FASTFORGE_VERSION }}
+      - name: Install packaging tools
+        shell: bash
+        run: choco install innosetup --no-progress
+      - name: Download Chinese language file for Inno Setup
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri "https://raw.githubusercontent.com/jrsoftware/issrc/main/Files/Languages/ChineseSimplified.isl" -OutFile "C:\Program Files (x86)\Inno Setup 6\Languages\ChineseSimplified.isl"
+      - name: Download VC++ redistributable
+        shell: bash
+        run: |
+          curl --fail --location --retry 3 -o windows/packaging/exe/vc_redist.x64.exe \
+            "https://aka.ms/vc14/vc_redist.x64.exe"
+      - name: Update pubspec version from tag
+        id: version
+        shell: bash
+        env:
+          BUILD_NUM: ${{ github.run_number }}
+          TAG_NAME: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+        run: |
+          python3 << 'EOF'
+          import os, re
+          tag = os.environ['TAG_NAME'].strip()
+          if not tag.startswith('v'):
+              raise SystemExit(f"Release tag must start with 'v': {tag}")
+          ver = tag.lstrip('v')
+          build = os.environ['BUILD_NUM']
+          with open('pubspec.yaml', 'r', encoding='utf-8') as f:
+              content = f.read()
+          content = re.sub(r'^version:.*', f'version: {ver}+{build}', content, flags=re.MULTILINE)
+          with open('pubspec.yaml', 'w', encoding='utf-8') as f:
+              f.write(content)
+          github_output = os.environ.get('GITHUB_OUTPUT')
+          if github_output:
+              with open(github_output, 'a', encoding='utf-8') as f:
+                  f.write(f'tag={tag}\n')
+          print(f"Version set to {ver}+{build} (from tag {tag})")
+          EOF
+      - name: Disable sqlite3 system source for packaging
+        shell: bash
+        run: |
+          python3 << 'EOF'
+          with open('pubspec.yaml', 'r', encoding='utf-8') as f:
+              lines = f.readlines()
+          in_hooks = False
+          with open('pubspec.yaml', 'w', encoding='utf-8') as f:
+              for line in lines:
+                  if line.startswith('hooks:'):
+                      in_hooks = True
+                      f.write('# ' + line)
+                  elif in_hooks and (line.startswith('  ') or line.startswith('    ') or line.startswith('      ')):
+                      f.write('# ' + line)
+                  else:
+                      in_hooks = False
+                      f.write(line)
+          EOF
+      - name: Clear sqlite3 hook cache
+        shell: bash
+        run: rm -rf .dart_tool/hooks_runner/sqlite3
+      - run: flutter pub get
+      - name: Build installer
+        run: |
+          ./third/depth-native/prepare-product-windows.ps1
+          fastforge release --name release --jobs windows-exe --skip-clean
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          files: |
+            dist/**/*-setup.exe
+
+  package-android:
+    if: |
+      github.event_name != 'workflow_dispatch' ||
+      inputs.platform == 'all' ||
+      inputs.platform == 'android'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.branch || github.ref }}
+      - uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: ${{ env.FLUTTER_CHANNEL }}
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+      - uses: dtolnay/rust-toolchain@1.97.1
+        with:
+          targets: aarch64-linux-android
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      # 应用内更新会用 Release 中的 APK 覆盖安装，签名必须稳定；缺少 secrets 时直接失败，不发布 debug 签名包。
+      - name: Configure release signing
+        shell: bash
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          for name in ANDROID_KEYSTORE_BASE64 ANDROID_KEYSTORE_PASSWORD ANDROID_KEY_ALIAS ANDROID_KEY_PASSWORD; do
+            if [[ -z "${!name}" ]]; then
+              echo "::error::Missing secret $name"
+              exit 1
+            fi
+          done
+          echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > android/release.keystore
+          cat > android/key.properties <<EOF
+          storeFile=release.keystore
+          storePassword=$ANDROID_KEYSTORE_PASSWORD
+          keyAlias=$ANDROID_KEY_ALIAS
+          keyPassword=$ANDROID_KEY_PASSWORD
+          EOF
+      - name: Resolve version from tag
+        id: version
+        shell: bash
+        env:
+          BUILD_NUM: ${{ github.run_number }}
+          TAG_NAME: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+        run: |
+          tag="$(echo "$TAG_NAME" | xargs)"
+          if [[ "$tag" != v* ]]; then
+            echo "Release tag must start with 'v': $tag"
+            exit 1
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version=${tag#v}+$BUILD_NUM" >> "$GITHUB_OUTPUT"
+      # build-android.sh 负责写入版本号、禁用 sqlite3 hooks 并还原 pubspec.yaml。
+      - name: Build APK
+        shell: bash
+        run: ./build-android.sh "${{ steps.version.outputs.version }}"
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          files: |
+            dist/**/*.apk

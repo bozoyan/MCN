@@ -1,0 +1,10 @@
+{
+  "roleplay.select_character": "Select Character",
+  "roleplay.no_characters": "No characters yet. Create characters in the Characters section first.",
+  "roleplay.input_hint": "Talk to {name}...",
+  "roleplay.start": "Start Roleplay",
+  "roleplay.new": "New Roleplay",
+  "roleplay.default_title": "Roleplay",
+  "roleplay.speaking_fmt": "{name} is responding...",
+  "roleplay.session_title_fmt": "Roleplay: {character}"
+}

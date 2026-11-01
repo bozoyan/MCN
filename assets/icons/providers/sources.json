@@ -1,0 +1,92 @@
+{
+  "openai": {
+    "page": "https://github.com/openai",
+    "source": "https://avatars.githubusercontent.com/u/14957082?v=4",
+    "file": "openai.png"
+  },
+  "anthropic": {
+    "page": "https://www.anthropic.com",
+    "source": "https://www.anthropic.com/images/icons/apple-touch-icon.png",
+    "file": "anthropic.png"
+  },
+  "deepseek": {
+    "page": "https://www.deepseek.com",
+    "source": "https://www.deepseek.com/favicon.ico",
+    "file": "deepseek.png"
+  },
+  "qwen": {
+    "page": "https://qwen.ai",
+    "source": "https://img.alicdn.com/imgextra/i4/O1CN01OXv3EM1FN8t9W4P79_!!6000000000474-2-tps-80-80.png",
+    "file": "qwen.png"
+  },
+  "gemini": {
+    "page": "https://gemini.google.com",
+    "source": "https://www.gstatic.com/lamda/images/gemini_sparkle_4g_512_lt_f94943af3be039176192d.png",
+    "file": "gemini.png"
+  },
+  "moonshot": {
+    "page": "https://www.kimi.com",
+    "source": "https://www.kimi.com/pwa-192.png",
+    "file": "moonshot.png"
+  },
+  "zhipu": {
+    "page": "https://z.ai",
+    "source": "https://z-cdn.chatglm.cn/z-ai/static/logo.svg",
+    "file": "zhipu.svg",
+    "processing": "Inline SVG CSS declarations for Flutter SVG rendering; preserve geometry and colors."
+  },
+  "doubao": {
+    "page": "https://www.doubao.com",
+    "source": "https://lf-flow-web-cdn.doubao.com/obj/flow-doubao/favicon/new-doubao/76x76.png",
+    "file": "doubao.png"
+  },
+  "volcengine": {
+    "page": "https://www.volcengine.com",
+    "source": "https://portal.volccdn.com/obj/volcfe/misc/favicon.png",
+    "file": "volcengine.png"
+  },
+  "minimax": {
+    "page": "https://www.minimax.io",
+    "source": "https://www.minimax.io/favicon.ico",
+    "file": "minimax.png"
+  },
+  "openrouter": {
+    "page": "https://openrouter.ai",
+    "source": "https://openrouter.ai/apple-touch-icon.png",
+    "file": "openrouter.png"
+  },
+  "xai": {
+    "page": "https://x.ai",
+    "source": "https://x.ai/favicon.ico",
+    "file": "xai.png"
+  },
+  "agnes": {
+    "page": "https://agnes-ai.com",
+    "source": "https://agnes-ai.com/images/biglogo.png",
+    "file": "agnes.png"
+  },
+  "atlascloud": {
+    "page": "https://www.atlascloud.ai",
+    "source": "https://www.atlascloud.ai/favicon.ico?favicon.3tuhsz7wre5om.ico",
+    "file": "atlascloud.png"
+  },
+  "api88": {
+    "page": "https://88api.ai",
+    "source": "https://88api.ai/assets/logo.png",
+    "file": "api88.png"
+  },
+  "metaso": {
+    "source": "User-supplied META SOTA brand artwork",
+    "file": "metaso.png"
+  },
+  "modelscope": {
+    "page": "https://modelscope.cn",
+    "source": "https://modelscope.cn/favicon.ico",
+    "file": "modelscope.png"
+  },
+  "moss": {
+    "page": "https://platform.mosi.cn",
+    "source": "https://platform.mosi.cn/favicon.ico",
+    "file": "moss.png"
+  }
+}

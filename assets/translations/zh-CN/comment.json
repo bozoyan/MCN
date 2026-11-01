@@ -1,0 +1,12 @@
+{
+  "comment.action": "批注",
+  "comment.title": "批注",
+  "comment.resolved_title": "批注 · 已解决",
+  "comment.content_hint": "写下你对这一段的想法…",
+  "comment.resolve": "标记为已解决",
+  "comment.reopen": "重新打开",
+  "comment.orphaned": "原文已改",
+  "comment.orphaned_hint": "被批注的原文已被改写，这条批注不再标注在正文上。",
+  "comment.status_label": "批注",
+  "comment.jump_unresolved": "跳到第一条未解决的批注"
+}

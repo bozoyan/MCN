@@ -1,0 +1,5 @@
+{
+  "entity_search.hint": "Search {type}",
+  "entity_search.empty": "No {type} found",
+  "entity_search.load_failed": "Failed to load {type}: {error}"
+}

@@ -1,0 +1,8 @@
+{
+  "chapter.stat_draft": "Draft",
+  "chapter.stat_published": "Published",
+  "chapter.publish": "Publish",
+  "chapter.unpublish": "Revert to Draft",
+  "chapter.publish_chronicler_prompt": "This chapter has been published. Delegate the internal Chronicler to organize this chapter: read the current chapter text and related records, extract explicit hard facts, character state changes, character/entity relationship changes, location/item/faction changes, and continuity state, then save them with the available tools. Do not rewrite the chapter text.",
+  "chapter.run_chronicler": "Update character relationship graph"
+}

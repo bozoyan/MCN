@@ -1,0 +1,16 @@
+{
+  "entity.type.character": "角色",
+  "entity.type.faction": "势力",
+  "entity.type.skill": "技能",
+  "entity.type.item": "物品",
+  "entity.type.location": "地点",
+  "entity.type.chapter": "章节",
+  "entity.type.foreshadowing": "伏笔",
+  "entity.type.unknown": "未知",
+  "entity.type.creature": "生物",
+  "entity.subject.locations": "地点",
+  "entity.subject.characters_empty": "还没有人物，请先在作品中添加。",
+  "entity.subject.locations_empty": "还没有地点，请先在作品中添加。",
+  "entity.subject.compendium_empty": "还没有图鉴条目，请先在作品中添加。",
+  "entity.subject.photo_count": "{count} 张照片"
+}

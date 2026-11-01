@@ -1,0 +1,18 @@
+{
+  "a2ui.component_unavailable": "This component can't be shown",
+  "a2ui.surface_unavailable_title": "This view can't be shown",
+  "a2ui.surface_unavailable_description": "The view description is invalid or exceeds the limits.",
+  "a2ui.preview_title": "A2UI component preview",
+  "a2ui.preview_description": "Render built-in samples with the component catalog shared by plugin pages and AI views, and inspect page data and actions.",
+  "a2ui.preview_open": "Open preview",
+  "a2ui.preview_sample": "Sample",
+  "a2ui.preview_data": "Page data",
+  "a2ui.preview_actions": "Action log",
+  "a2ui.preview_no_actions": "No actions yet",
+  "a2ui.validation_failed": "Invalid value",
+  "a2ui.preview_mode_samples": "Component samples",
+  "a2ui.preview_mode_plugin_config": "Plugin settings form",
+  "a2ui.preview_stored": "Saved settings",
+  "a2ui.preview_submissions": "Save history",
+  "a2ui.preview_no_submissions": "Nothing saved yet"
+}

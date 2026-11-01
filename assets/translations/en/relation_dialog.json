@@ -1,0 +1,18 @@
+{
+  "relation_dialog.subtitle_create": "Establish a relation between two entities",
+  "relation_dialog.subtitle_edit": "Modify the relation type between two entities",
+  "relation_dialog.section_source": "Source Entity",
+  "relation_dialog.section_target": "Target Entity",
+  "relation_dialog.section_relation": "Relation Type",
+  "relation_dialog.section_evidence": "Evidence",
+  "relation_dialog.evidence_chapter": "Evidence Chapter",
+  "relation_dialog.evidence_no_chapter": "No evidence chapter linked",
+  "relation_dialog.status_active": "Current",
+  "relation_dialog.status_archived": "Former",
+  "relation_dialog.error_select_source": "Please select a source entity",
+  "relation_dialog.error_select_target": "Please select a target entity",
+  "relation_dialog.error_select_relation_type": "Please select a relation type",
+  "relation_dialog.hint_select_types_first": "Select source and target entity types first",
+  "relation_dialog.hint_no_supported_types": "No relation types are supported for this combination",
+  "relation_dialog.edit_lock_notice": "In edit mode only the relation type and evidence chapter can be changed; source and target are locked"
+}

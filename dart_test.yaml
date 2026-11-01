@@ -1,0 +1,7 @@
+tags:
+  e2e_evaluation:
+    skip: "Requires local novel DB / optional real LLM; run with --tags e2e_evaluation --run-skipped"
+  debug_provider_e2e:
+    skip: "Requires a signed-in account and real Reveric test models; run with --tags debug_provider_e2e --run-skipped"
+  tool_dump:
+    skip: "Writes tool descriptions to disk; run with --tags tool_dump --run-skipped"

@@ -1,0 +1,42 @@
+{
+  "WebFetch": {
+    "name": "WebFetch",
+    "description": "获取公开网页并返回适合 LLM 阅读的内容。\n\n当你已有 URL 并需要页面内容时使用。适用于公开的 `http://` 或 `https://` 页面。\n\n返回：\n- title：页面标题（如有）。\n- content：网页内容，HTML 页面会转换为 Markdown。\n- format：固定为 \"markdown\"。\n- truncated：内容是否因字符限制而被截断。\n\n提示：\n- 如果还未确定正确的 URL，先使用 WebSearch。\n- 只获取最相关的页面以保持工具输出简洁。\n\n示例：\n- {\"url\": \"https://riverpod.dev/\"}",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "url": {
+          "type": "string",
+          "description": "要获取的公开 http:// 或 https:// URL。"
+        }
+      },
+      "required": [
+        "url"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "WebSearch": {
+    "name": "WebSearch",
+    "description": "搜索公共网络获取最新信息。\n\n当你需要小说工作区之外的信息时使用，例如时事、库文档、产品页面或外部参考资料。\n\n返回：\n- results：按相关性排序的网页结果，包含 title、url、snippet，以及可能有的 published_time。\n\n提示：\n- 尽量使用包含产品名、版本号或日期的精准查询。\n- 找到有希望的结果后，对其 `url` 调用 WebFetch 以详细阅读页面内容。\n\n示例：\n- {\"query\": \"Riverpod AsyncNotifier docs\", \"limit\": 5}",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "query": {
+          "type": "string",
+          "description": "自然语言网页搜索查询。"
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10,
+          "description": "最大返回的网页结果数。默认 5，最多 10。"
+        }
+      },
+      "required": [
+        "query"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

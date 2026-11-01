@@ -1,0 +1,18 @@
+{
+  "relation_dialog.subtitle_create": "在两个实体之间建立一条关系",
+  "relation_dialog.subtitle_edit": "修改两实体之间的关系类型",
+  "relation_dialog.section_source": "源实体",
+  "relation_dialog.section_target": "目标实体",
+  "relation_dialog.section_relation": "关系类型",
+  "relation_dialog.section_evidence": "关系证据",
+  "relation_dialog.evidence_chapter": "证据章节",
+  "relation_dialog.evidence_no_chapter": "未关联证据章节",
+  "relation_dialog.status_active": "当前",
+  "relation_dialog.status_archived": "曾经",
+  "relation_dialog.error_select_source": "请选择源实体",
+  "relation_dialog.error_select_target": "请选择目标实体",
+  "relation_dialog.error_select_relation_type": "请选择关系类型",
+  "relation_dialog.hint_select_types_first": "请先选择源实体类型与目标实体类型",
+  "relation_dialog.hint_no_supported_types": "当前实体类型组合不支持任何关系类型",
+  "relation_dialog.edit_lock_notice": "编辑模式下仅可修改关系类型与证据章节，源实体与目标实体不可更改"
+}

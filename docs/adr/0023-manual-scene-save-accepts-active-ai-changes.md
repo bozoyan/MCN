@@ -1,0 +1,3 @@
+# Manual Scene save accepts active AI changes
+
+When the first 600ms-debounced save of any user edit succeeds inside a Scene with active AI changes, the system first commits every active AI change for that Scene—including its creation proposal—and then records the manual change. Treating successful autosave as acceptance prevents a later rejection from restoring an original whole-Scene snapshot or deleting an AI-created Scene after it contains the user's work; the first release deliberately adds no confirmation interruption or three-way merge behavior, while focus alone and failed saves accept nothing.

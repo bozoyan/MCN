@@ -1,0 +1,17 @@
+{
+  "form.required": "此项为必填项",
+  "form.invalid_email": "邮箱格式不正确",
+  "form.invalid_phone": "手机号格式不正确",
+  "form.invalid_pattern": "格式不正确",
+  "form.min_length": "至少需要 {length} 个字符",
+  "form.max_length": "最多 {length} 个字符",
+  "form.min_items": "至少需要 {count} 项",
+  "form.max_items": "最多 {count} 项",
+  "form.date_before": "必须早于 {date}",
+  "form.date_after": "必须晚于 {date}",
+  "form.invalid_integer": "请输入整数",
+  "form.invalid_number": "请输入数字",
+  "form.number_range": "请输入 {min} 到 {max} 之间的数",
+  "form.number_min": "不能小于 {min}",
+  "form.number_max": "不能大于 {max}"
+}

@@ -1,0 +1,3 @@
+# Current Season is device-local workspace state
+
+Current Season is remembered per Work in the versioned local workspace-state snapshot rather than stored on the Screenplay or Season records. Reopening a Work restores a valid saved Season; an absent or invalid ID falls back to the first active Season, after which Episode and Scene selection reconcile inside that Season. Deleting the current Season selects the next Season at its former position, or the previous Season when there is no next one. The choice does not sync across devices, and an AI turn freezes it only after restoration and repair are complete.

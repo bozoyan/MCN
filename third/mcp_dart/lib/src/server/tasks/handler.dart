@@ -1,0 +1,201 @@
+import 'dart:async';
+
+import 'package:mcp_dart/src/types.dart';
+import 'package:mcp_dart/src/server/mcp_server.dart';
+import 'package:mcp_dart/src/shared/protocol.dart';
+import 'package:mcp_dart/src/shared/task_interfaces.dart';
+import 'constants.dart';
+import 'queue.dart';
+import 'store.dart';
+
+// ============================================================================
+// Task Result Handler
+// ============================================================================
+
+/// A handler for a tool that creates and manages tasks.
+///
+/// This interface defines the contract for tools that can initiate long-running
+/// operations and report their status and results asynchronously.
+abstract class ToolTaskHandler {
+  /// Creates a new task and returns its initial state.
+  Future<CreateTaskResult> createTask(
+    Map<String, dynamic>? args,
+    RequestHandlerExtra? extra,
+  );
+
+  /// Retrieves the current status of a task.
+  Future<Task> getTask(String taskId, RequestHandlerExtra? extra);
+
+  /// Cancels a running task.
+  ///
+  /// Prefer implementing [CancelTaskResultHandler] so cancellations can return
+  /// the final task state required by MCP 2025-11-25.
+  @Deprecated(
+    'MCP 2025-11-25 requires cancellations to return the final Task. '
+    'Extend CancelTaskResultHandler and implement cancelTaskWithResult instead.',
+  )
+  Future<void> cancelTask(String taskId, RequestHandlerExtra? extra);
+
+  /// Retrieves the final result of a completed task.
+  Future<CallToolResult> getTaskResult(
+    String taskId,
+    RequestHandlerExtra? extra,
+  );
+}
+
+/// MCP 2025-11-25-compliant task handler that returns the cancelled task.
+///
+/// Extend this when possible to keep the legacy [ToolTaskHandler]
+/// `cancelTask` shim delegating to [cancelTaskWithResult]. If a handler extends
+/// another base class, implement [ToolTaskHandler] directly and wire
+/// `cancelTaskWithResult` through the server-level `onCancelTaskWithResult`
+/// callback instead.
+abstract class CancelTaskResultHandler extends ToolTaskHandler {
+  /// Cancels a running task and returns its final cancelled state.
+  Future<Task> cancelTaskWithResult(String taskId, RequestHandlerExtra? extra);
+
+  @Deprecated(
+    'MCP 2025-11-25 requires cancellations to return the final Task. '
+    'Use cancelTaskWithResult instead.',
+  )
+  @override
+  Future<void> cancelTask(String taskId, RequestHandlerExtra? extra) =>
+      cancelTaskWithResult(taskId, extra);
+}
+
+/// Handles execution and result retrieval for tasks, managing the queue loop.
+class TaskResultHandler {
+  final InMemoryTaskStore store;
+  final InMemoryTaskMessageQueue queue;
+  final McpServer server;
+  final Map<dynamic, Completer<Map<String, dynamic>>> pendingRequests = {};
+  Timer? _cleanupTimer;
+
+  TaskResultHandler(this.store, this.queue, this.server) {
+    _startCleanupTimer();
+  }
+
+  void _startCleanupTimer() {
+    _cleanupTimer = Timer.periodic(const Duration(minutes: 5), (_) {
+      // Cleanup logic if needed, or implement request timeouts here
+    });
+  }
+
+  /// Waits for a task to complete and returns its result.
+  /// Handles intermediate requests (sampling, elicitation) from the task.
+  Future<CallToolResult> handle(String taskId) async {
+    while (true) {
+      // Create waiters BEFORE checking state to avoid missing updates race condition
+      final updateFuture = store.waitForUpdate(taskId);
+      final messageFuture = queue.waitForMessage(taskId);
+
+      final task = await store.getTask(taskId);
+      if (task == null) {
+        throw McpError(
+          ErrorCode.invalidParams.value,
+          "Task not found: $taskId",
+        );
+      }
+
+      // Deliver queued messages (requests from client to server logic?)
+      await _deliverQueuedMessages(taskId);
+
+      // Refresh task because _deliverQueuedMessages might have unblocked execution that updated it
+      final currentTask = await store.getTask(taskId);
+      if (currentTask == null) {
+        throw McpError(ErrorCode.invalidParams.value, "Task lost");
+      }
+
+      // Check if terminal
+      if (currentTask.status.isTerminal) {
+        final result = await store.getTaskResult(taskId);
+
+        CallToolResult toolResult;
+        if (result is CallToolResult) {
+          toolResult = result;
+        } else {
+          // If we ever support other result types, handle them here.
+          // For now, assume CallToolResult as that's what we store.
+          throw McpError(
+            ErrorCode.internalError.value,
+            "Unexpected result type: ${result.runtimeType}",
+          );
+        }
+
+        // Add related task meta
+        final relatedTaskJson = {'taskId': taskId};
+        final meta = Map<String, dynamic>.from(toolResult.meta ?? {});
+        meta[relatedTaskMetaKey] = relatedTaskJson;
+        meta[legacyRelatedTaskMetadataKey] = relatedTaskJson;
+
+        return CallToolResult(
+          content: toolResult.content,
+          isError: toolResult.isError,
+          structuredContentJson: toolResult.structuredContentJson,
+          hasStructuredContent: toolResult.hasStructuredContent,
+          meta: meta,
+          extra: toolResult.extra,
+        );
+      }
+
+      // Wait for update or new message
+      await Future.any([
+        updateFuture,
+        messageFuture,
+      ]);
+    }
+  }
+
+  Future<void> _deliverQueuedMessages(String taskId) async {
+    while (true) {
+      final message = await queue.dequeue(taskId);
+      if (message == null) break;
+
+      if (message.type == 'request') {
+        Completer<Map<String, dynamic>>? resolver;
+        String? originalRequestId;
+
+        if (message is ServerQueuedMessage) {
+          resolver = message.resolver;
+          originalRequestId = message.originalRequestId;
+        }
+
+        if (resolver != null && originalRequestId != null) {
+          pendingRequests[originalRequestId] = resolver;
+        }
+
+        try {
+          final request = message.message as JsonRpcRequest;
+          dynamic response;
+
+          if (request.method == 'elicitation/create') {
+            final params = ElicitRequest.fromJson(request.params!);
+            response = await server.experimental.elicitForTask(taskId, params);
+          } else if (request.method == 'sampling/createMessage') {
+            final params = CreateMessageRequest.fromJson(request.params!);
+            response =
+                await server.experimental.createMessageForTask(taskId, params);
+          } else {
+            throw Exception("Unknown request method: ${request.method}");
+          }
+
+          if (resolver != null && !resolver.isCompleted) {
+            resolver.complete(response.toJson());
+          }
+        } catch (e) {
+          if (resolver != null && !resolver.isCompleted) {
+            resolver.completeError(e);
+          }
+        } finally {
+          if (originalRequestId != null) {
+            pendingRequests.remove(originalRequestId);
+          }
+        }
+      }
+    }
+  }
+
+  void dispose() {
+    _cleanupTimer?.cancel();
+  }
+}

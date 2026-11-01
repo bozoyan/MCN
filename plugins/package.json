@@ -1,0 +1,22 @@
+{
+  "name": "reveric-plugins",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": "22.x"
+  },
+  "scripts": {
+    "build": "node build.mjs",
+    "test": "node build.mjs --test"
+  },
+  "dependencies": {
+    "node-html-markdown": "2.0.0",
+    "node-html-parser": "6.1.13",
+    "url-toolkit": "2.2.5"
+  },
+  "devDependencies": {
+    "esbuild": "0.25.12",
+    "typescript": "5.9.3",
+    "@types/node": "22.19.7"
+  }
+}

@@ -1,0 +1,12 @@
+name: ai_clients_dart_workspace
+description: Vendored workspace for Reveric's AI client dependencies.
+publish_to: none
+
+environment:
+  sdk: ^3.9.0
+
+workspace:
+  - packages/anthropic_sdk_dart
+  - packages/googleai_dart
+  - packages/openai_dart
+  - packages/open_responses

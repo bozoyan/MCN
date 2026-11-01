@@ -1,0 +1,47 @@
+name: fjs_example
+description: "A modern Material Design 3 demonstration of the FJS JavaScript runtime for Flutter."
+publish_to: "none" # Remove this line if you wish to publish to pub.dev
+
+version: 3.1.0+1
+
+environment:
+  sdk: ^3.8.0
+  flutter: '>=3.35.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  fjs:
+    path: ../
+
+  cupertino_icons: ^1.0.8
+
+  flutter_code_editor: ^0.3.5
+  flutter_highlight: ^0.7.0
+  highlight: ^0.7.0
+
+  provider: ^6.1.2
+
+  shared_preferences: ^2.3.2
+
+  path_provider: ^2.1.3
+
+  collection: ^1.18.0
+
+dev_dependencies:
+  cockpit: ^1.0.0
+  flutter_cockpit: ^1.0.0
+
+  flutter_test:
+    sdk: flutter
+  integration_test:
+    sdk: flutter
+
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
+  
+  assets:
+    - assets/examples/

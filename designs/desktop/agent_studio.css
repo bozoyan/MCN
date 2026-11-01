@@ -1,0 +1,246 @@
+/* =========================================================================
+   agent_studio.css — 模型设置(ModelSettingsPage)与专家团(ExpertTeamPage)。
+   复用 m-mgmt / m-mgmt-card / m-select / sk-tabs / sk-toolbar 骨架,
+   仅补充 as- 前缀的差异化样式。见 agent_studio.jsx 顶部说明。
+   ========================================================================= */
+
+/* ── shared hint / crosslink ────────────────────────────────────────────── */
+.as-hint {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-2xl);
+  padding: var(--space-md) var(--space-lg);
+  border-radius: var(--radius-large);
+  background: var(--surface-dim);
+  border: 1px solid var(--border-subtle);
+  font: 400 var(--type-ui-small-size)/1.5 var(--font-sans);
+  color: var(--text-muted);
+}
+.as-hint .m-icon { color: var(--accent); flex: none; }
+
+.as-crosslink {
+  display: flex;
+  align-items: center;
+  gap: var(--space-lg);
+  width: 100%;
+  margin-top: var(--space-3xl);
+  padding: var(--space-lg) var(--space-xl);
+  text-align: left;
+  border: 1px dashed var(--border-input);
+  border-radius: var(--radius-xl);
+  background: transparent;
+  cursor: pointer;
+  color: var(--text-muted);
+  font: 400 var(--type-ui-small-size)/1.5 var(--font-sans);
+  transition: border-color 140ms ease, background 140ms ease;
+}
+.as-crosslink:hover { border-color: var(--accent); background: var(--hover); }
+.as-crosslink b { color: var(--text-primary); font-weight: var(--type-ui-semibold-weight); }
+.as-crosslink > span { flex: 1; min-width: 0; }
+.as-crosslink > .m-icon:first-child { color: var(--accent); flex: none; }
+
+/* ── 模型设置:role rows ─────────────────────────────────────────────────── */
+.as-role-list { display: flex; flex-direction: column; gap: var(--space-lg); }
+.as-role-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-lg);
+  padding: var(--space-xl);
+  background: var(--surface);
+  border: 1px solid var(--border-input);
+  border-radius: var(--radius-xl);
+}
+.as-role-row__avatar { flex: none; }
+.as-role-row__meta { flex: 1; min-width: 0; }
+.as-role-row__title-line {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+.as-role-row__name {
+  font: 600 var(--type-ui-size)/1.3 var(--font-sans);
+  color: var(--text-primary);
+}
+.as-role-row__desc {
+  margin: 4px 0 0;
+  font: 400 var(--type-ui-small-size)/1.5 var(--font-sans);
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.as-role-row__model {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+}
+.as-role-row__model-label {
+  font: 400 var(--type-ui-small-size)/1 var(--font-sans);
+  color: var(--text-subtle);
+}
+/* 固定选择器宽度,使各行「模型」标签与下拉左右对齐。 */
+.as-role-row__model .as-model-select { width: 208px; flex: none; }
+.as-role-row__model .as-model-select__btn { width: 100%; justify-content: space-between; }
+
+/* ── 专家团:layout ─────────────────────────────────────────────────────── */
+/* .m-mgmt 只给了 flex:1 而无 min-height:0,嵌套 flex 列里内层 scroll 无法收缩,
+   短窗口下内容溢出被 m-main 裁掉、无法滚动。补 min-height:0 让内层滚动生效。 */
+.as-experts,
+.as-model-settings { min-height: 0; }
+.as-experts .sk-tabs.as-tabs { padding: 0 var(--space-5xl); flex: none; }
+.as-experts .sk-toolbar.as-toolbar {
+  padding: var(--space-lg) var(--space-5xl);
+  flex: none;
+  border-bottom: 1px solid var(--border-subtle);
+}
+/* scroll 顶部不留 padding,让 sticky 段头贴到滚动区最顶,避免上方露出卡片边。
+   顶部留白改由首个可见块(段头 padding-top / 提示条 margin-top)提供。 */
+.as-experts__scroll { padding-top: 0; }
+.as-experts .as-hint { margin-top: var(--space-2xl); }
+
+/* 议会专家 / 执行专家 分区 */
+.as-section { margin-bottom: var(--space-4xl); }
+.as-section:last-child { margin-bottom: 0; }
+/* 段头吸顶 — 滚动时组标签常驻,铺满宽度并盖住下滑卡片(含顶部,无缝隙)。 */
+.as-experts .as-section > .m-mgmt__section-label {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  margin: 0 calc(-1 * var(--space-5xl)) var(--space-2xl);
+  padding: var(--space-lg) var(--space-5xl) var(--space-sm);
+  background: var(--canvas);
+}
+
+/* ── 专家卡片 ───────────────────────────────────────────────────────────── */
+.as-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-height: 156px;
+  padding: var(--space-2xl);
+  background: var(--surface);
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius-2xl);
+  transition: border-color 140ms ease;
+  box-shadow: var(--shadow-card);
+}
+.as-card:hover { border-color: var(--border); }
+.as-card__head { display: flex; align-items: flex-start; gap: var(--space-lg); }
+.as-card__avatar { flex: none; position: relative; overflow: visible; }
+
+/* 类型角标(icon-only)— 议会=圆桌/accent,执行=闪电/slate。脱离段头也能认。 */
+.as-type-dot {
+  position: absolute;
+  right: -4px;
+  bottom: -4px;
+  width: 16px;
+  height: 16px;
+  border-radius: var(--radius-full);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid var(--surface);
+  color: var(--on-accent);
+}
+.as-type-dot .m-icon { color: currentColor; }
+.as-type-dot--council { background: var(--accent); }
+.as-type-dot--exec { background: var(--text-subtle); }
+.as-card__title-wrap { flex: 1; min-width: 0; }
+.as-card__title {
+  font: 600 var(--type-ui-size)/1.3 var(--font-sans);
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.as-card__badges { display: flex; flex-wrap: wrap; gap: var(--space-xs); margin-top: 6px; }
+.as-card__desc {
+  flex: 1;
+  margin: var(--space-lg) 0;
+  font: 400 var(--type-ui-small-size)/1.55 var(--font-sans);
+  color: var(--text-muted);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.as-card__foot {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding-top: var(--space-md);
+  border-top: 1px solid var(--border-subtle);
+}
+.as-card__foot-spacer { flex: 1; }
+.as-card__provider {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font: 400 var(--type-ui-tiny-size)/1.3 var(--font-sans);
+  color: var(--accent);
+}
+.as-card__provider .m-icon { color: currentColor; }
+.as-card__provider--mine { color: var(--text-subtle); }
+.as-card__stamp {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font: 400 var(--type-ui-tiny-size)/1.3 var(--font-sans);
+  color: var(--text-subtle);
+}
+.as-create-card { min-height: 156px; }
+
+/* ── kebab ──────────────────────────────────────────────────────────────── */
+.as-kebab { position: relative; flex: none; }
+.as-kebab__menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 30;
+  min-width: 168px;
+  padding: var(--space-xs);
+  background: var(--surface-container-high);
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-menu, 0 10px 30px color-mix(in srgb, var(--shadow-base) 28%, transparent));
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.as-kebab__menu button {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  width: 100%;
+  padding: var(--space-sm) var(--space-md);
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+  border-radius: var(--radius-medium);
+  font: 400 var(--type-ui-small-size)/1.3 var(--font-sans);
+  color: var(--text-primary);
+}
+.as-kebab__menu button:hover { background: var(--hover); }
+.as-kebab__menu button .m-icon { color: var(--text-muted); }
+.as-kebab__menu button.is-danger { color: var(--error); }
+.as-kebab__menu button.is-danger .m-icon { color: currentColor; }
+
+/* ── model select (compact 变体) ────────────────────────────────────────── */
+.as-model-select__btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+}
+.as-model-select__lead { color: var(--text-muted); flex: none; }
+.as-model-select--compact .as-model-select__btn {
+  height: 28px;
+  padding: 0 var(--space-sm);
+  font: 400 var(--type-ui-small-size)/1 var(--font-sans);
+  background: var(--surface-dim);
+  max-width: 190px;
+}
+.as-model-select--compact .m-select__placeholder { font-size: var(--type-ui-small-size); }
+.as-model-select__menu { min-width: 240px; z-index: 30; }

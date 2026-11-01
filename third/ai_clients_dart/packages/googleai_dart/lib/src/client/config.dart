@@ -1,0 +1,325 @@
+import 'package:logging/logging.dart';
+import '../auth/auth_provider.dart';
+import '../platform/environment.dart';
+
+/// API version for the GoogleAI and Vertex AI APIs.
+/// https://ai.google.dev/gemini-api/docs/api-versions
+enum ApiVersion {
+  /// Stable version (v1) - Production-ready with guaranteed stability.
+  v1('v1'),
+
+  /// Beta version (v1beta) - Early-access features, subject to breaking changes.
+  v1beta('v1beta');
+
+  /// The version string used in API URLs.
+  final String value;
+
+  const ApiVersion(this.value);
+}
+
+/// API mode determining which Google AI service to use.
+enum ApiMode {
+  /// Google AI (Gemini Developer API) - Uses generativelanguage.googleapis.com
+  googleAI,
+
+  /// Vertex AI - Uses {location}-aiplatform.googleapis.com with GCP project
+  /// (`aiplatform.googleapis.com` for the `global` location).
+  vertexAI,
+}
+
+/// Retry policy configuration.
+class RetryPolicy {
+  /// Maximum number of retry attempts.
+  final int maxRetries;
+
+  /// Initial delay before first retry.
+  final Duration initialDelay;
+
+  /// Maximum delay between retries.
+  final Duration maxDelay;
+
+  /// Jitter factor (0.0 - 1.0).
+  final double jitter;
+
+  /// Creates a [RetryPolicy].
+  const RetryPolicy({
+    this.maxRetries = 3,
+    this.initialDelay = const Duration(seconds: 1),
+    this.maxDelay = const Duration(seconds: 60),
+    this.jitter = 0.1,
+  });
+
+  /// Default retry policy (3 retries, 1s initial delay).
+  static const defaultPolicy = RetryPolicy();
+}
+
+/// Configuration for the GoogleAI client.
+class GoogleAIConfig {
+  /// Base URL for the API.
+  final String baseUrl;
+
+  /// API mode (Google AI or Vertex AI).
+  final ApiMode apiMode;
+
+  /// API version (v1 or v1beta).
+  final ApiVersion apiVersion;
+
+  /// GCP project ID (required for Vertex AI).
+  final String? projectId;
+
+  /// GCP location/region (required for Vertex AI, e.g., 'us-central1', 'global').
+  final String? location;
+
+  /// Authentication provider for dynamic credential retrieval.
+  ///
+  /// This provider is called on each request attempt (including retries),
+  /// allowing OAuth implementations to refresh expired tokens automatically.
+  ///
+  /// Example with API key:
+  /// ```dart
+  /// GoogleAIConfig(
+  ///   authProvider: ApiKeyProvider('YOUR_API_KEY'),
+  /// )
+  /// ```
+  ///
+  /// Example with OAuth:
+  /// ```dart
+  /// GoogleAIConfig(
+  ///   authProvider: MyOAuthProvider(),
+  /// )
+  /// ```
+  final AuthProvider? authProvider;
+
+  /// Default headers to include in all requests.
+  final Map<String, String> defaultHeaders;
+
+  /// Default query parameters to include in all requests.
+  final Map<String, String> defaultQueryParams;
+
+  /// Request timeout.
+  final Duration timeout;
+
+  /// Retry policy.
+  final RetryPolicy retryPolicy;
+
+  /// Log level.
+  final Level logLevel;
+
+  /// Fields to redact in logs (case-insensitive).
+  final List<String> redactionList;
+
+  /// Creates a [GoogleAIConfig].
+  const GoogleAIConfig({
+    this.baseUrl = 'https://generativelanguage.googleapis.com',
+    this.apiMode = ApiMode.googleAI,
+    this.apiVersion = ApiVersion.v1beta,
+    this.projectId,
+    this.location,
+    this.authProvider,
+    this.defaultHeaders = const {},
+    this.defaultQueryParams = const {},
+    this.timeout = const Duration(minutes: 2),
+    this.retryPolicy = RetryPolicy.defaultPolicy,
+    this.logLevel = Level.INFO,
+    this.redactionList = const [
+      'authorization',
+      'api-key',
+      'api_key',
+      'x-goog-api-key',
+      'token',
+      'password',
+      'secret',
+      'bearer',
+      'key', // API key query param
+      'access_token', // Ephemeral token query param
+    ],
+  });
+
+  /// Creates a config for Google AI (Gemini Developer API).
+  ///
+  /// Example:
+  /// ```dart
+  /// final config = GoogleAIConfig.googleAI(
+  ///   apiVersion: ApiVersion.v1, // Stable version
+  ///   authProvider: ApiKeyProvider('YOUR_API_KEY'),
+  /// );
+  /// ```
+  const GoogleAIConfig.googleAI({
+    ApiVersion apiVersion = ApiVersion.v1beta,
+    required AuthProvider authProvider,
+    Map<String, String> defaultHeaders = const {},
+    Map<String, String> defaultQueryParams = const {},
+    Duration timeout = const Duration(minutes: 2),
+    RetryPolicy retryPolicy = RetryPolicy.defaultPolicy,
+    Level logLevel = Level.INFO,
+    List<String> redactionList = const [
+      'authorization',
+      'api-key',
+      'api_key',
+      'x-goog-api-key',
+      'token',
+      'password',
+      'secret',
+      'bearer',
+      'key', // API key query param
+      'access_token', // Ephemeral token query param
+    ],
+  }) : this(
+         baseUrl: 'https://generativelanguage.googleapis.com',
+         apiMode: ApiMode.googleAI,
+         apiVersion: apiVersion,
+         authProvider: authProvider,
+         defaultHeaders: defaultHeaders,
+         defaultQueryParams: defaultQueryParams,
+         timeout: timeout,
+         retryPolicy: retryPolicy,
+         logLevel: logLevel,
+         redactionList: redactionList,
+       );
+
+  /// Creates a config for Vertex AI.
+  ///
+  /// Requires [projectId] and [location] for GCP integration.
+  /// Authentication must use OAuth 2.0 with service account credentials.
+  ///
+  /// The [location] determines the API endpoint:
+  /// - `'global'` → `https://aiplatform.googleapis.com`
+  /// - Other values (e.g. `'us-central1'`) →
+  ///   `https://{location}-aiplatform.googleapis.com`
+  ///
+  /// Example:
+  /// ```dart
+  /// final config = GoogleAIConfig.vertexAI(
+  ///   projectId: 'your-project-id',
+  ///   location: 'us-central1',
+  ///   apiVersion: ApiVersion.v1, // Stable version
+  ///   authProvider: MyOAuthProvider(),
+  /// );
+  /// ```
+  GoogleAIConfig.vertexAI({
+    required String projectId,
+    String location = 'us-central1',
+    ApiVersion apiVersion = ApiVersion.v1,
+    required AuthProvider authProvider,
+    Map<String, String> defaultHeaders = const {},
+    Map<String, String> defaultQueryParams = const {},
+    Duration timeout = const Duration(minutes: 2),
+    RetryPolicy retryPolicy = RetryPolicy.defaultPolicy,
+    Level logLevel = Level.INFO,
+    List<String> redactionList = const [
+      'authorization',
+      'api-key',
+      'api_key',
+      'x-goog-api-key',
+      'token',
+      'password',
+      'secret',
+      'bearer',
+      'key', // API key query param
+      'access_token', // Ephemeral token query param
+    ],
+  }) : this(
+         baseUrl: vertexAIBaseUrl(location),
+         apiMode: ApiMode.vertexAI,
+         apiVersion: apiVersion,
+         projectId: projectId,
+         location: location,
+         authProvider: authProvider,
+         defaultHeaders: defaultHeaders,
+         defaultQueryParams: defaultQueryParams,
+         timeout: timeout,
+         retryPolicy: retryPolicy,
+         logLevel: logLevel,
+         redactionList: redactionList,
+       );
+
+  /// Creates a [GoogleAIConfig] using runtime environment variables.
+  ///
+  /// Reads the environment variable specified by [envVarName] for the API key
+  /// (required). Defaults to `GOOGLE_GENAI_API_KEY`.
+  ///
+  /// Throws [StateError] if the environment variable is not set.
+  /// Throws [UnsupportedError] on web platforms.
+  factory GoogleAIConfig.fromEnvironment({
+    String envVarName = 'GOOGLE_GENAI_API_KEY',
+    ApiVersion apiVersion = ApiVersion.v1beta,
+    Duration timeout = const Duration(minutes: 2),
+    RetryPolicy retryPolicy = RetryPolicy.defaultPolicy,
+  }) {
+    final apiKey = getEnvironmentVariable(envVarName);
+    if (apiKey == null || apiKey.isEmpty) {
+      throw StateError(
+        'Environment variable $envVarName is not set. '
+        'Set it to your Google AI API key.',
+      );
+    }
+    return GoogleAIConfig(
+      authProvider: ApiKeyProvider(apiKey),
+      apiVersion: apiVersion,
+      timeout: timeout,
+      retryPolicy: retryPolicy,
+    );
+  }
+
+  /// Returns the Vertex AI hostname for the given [location].
+  ///
+  /// - `'global'` → `aiplatform.googleapis.com`
+  /// - Other values → `{location}-aiplatform.googleapis.com`
+  static String vertexAIHost(String location) {
+    if (location == 'global') {
+      return 'aiplatform.googleapis.com';
+    }
+    return '$location-aiplatform.googleapis.com';
+  }
+
+  /// Returns the Vertex AI base URL for the given [location].
+  ///
+  /// - `'global'` → `https://aiplatform.googleapis.com`
+  /// - Other values → `https://{location}-aiplatform.googleapis.com`
+  static String vertexAIBaseUrl(String location) {
+    return 'https://${vertexAIHost(location)}';
+  }
+
+  /// Creates a copy with overridden values.
+  ///
+  /// If [location] is changed without an explicit [baseUrl], and the config
+  /// uses [ApiMode.vertexAI], the base URL is automatically recalculated
+  /// from the new location.
+  GoogleAIConfig copyWith({
+    String? baseUrl,
+    ApiMode? apiMode,
+    ApiVersion? apiVersion,
+    String? projectId,
+    String? location,
+    AuthProvider? authProvider,
+    Map<String, String>? defaultHeaders,
+    Map<String, String>? defaultQueryParams,
+    Duration? timeout,
+    RetryPolicy? retryPolicy,
+    Level? logLevel,
+    List<String>? redactionList,
+  }) {
+    final effectiveMode = apiMode ?? this.apiMode;
+    final effectiveLocation = location ?? this.location;
+    var effectiveBaseUrl = baseUrl ?? this.baseUrl;
+    if (baseUrl == null &&
+        location != null &&
+        effectiveMode == ApiMode.vertexAI) {
+      effectiveBaseUrl = vertexAIBaseUrl(location);
+    }
+    return GoogleAIConfig(
+      baseUrl: effectiveBaseUrl,
+      apiMode: effectiveMode,
+      apiVersion: apiVersion ?? this.apiVersion,
+      projectId: projectId ?? this.projectId,
+      location: effectiveLocation,
+      authProvider: authProvider ?? this.authProvider,
+      defaultHeaders: defaultHeaders ?? this.defaultHeaders,
+      defaultQueryParams: defaultQueryParams ?? this.defaultQueryParams,
+      timeout: timeout ?? this.timeout,
+      retryPolicy: retryPolicy ?? this.retryPolicy,
+      logLevel: logLevel ?? this.logLevel,
+      redactionList: redactionList ?? this.redactionList,
+    );
+  }
+}

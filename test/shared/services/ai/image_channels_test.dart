@@ -1,0 +1,573 @@
+// 职责: 验证 Qwen、Seedream 和 OpenRouter 的图像请求协议、参考图和结果落盘。
+// 关联文件:
+//   lib/shared/services/ai/image.dart
+//   lib/shared/models/image/channels.dart
+//   lib/shared/providers/production_images.dart
+
+import 'dart:convert';
+import 'dart:io';
+
+import 'package:drift/native.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
+import 'package:reveric/shared/database/app_database.dart';
+import 'package:reveric/shared/models/ai_provider.dart';
+import 'package:reveric/shared/models/image/channels.dart';
+import 'package:reveric/shared/models/production/image_request.dart';
+import 'package:reveric/shared/providers/novel_providers.dart';
+import 'package:reveric/shared/providers/production_images.dart';
+import 'package:reveric/shared/services/ai/image.dart';
+import 'package:reveric/shared/services/ai/image/client.dart';
+import 'package:reveric/shared/utils/storage_paths.dart';
+
+const _png =
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACklEQVR4nGMAAQAABQABDQottAAAAABJRU5ErkJggg==';
+const _image = 'data:image/png;base64,$_png';
+const _references = ['https://reference.example/first.png', _image];
+
+AiProvider _provider(String type) => aiProviderBuiltinById('openai')!.copyWith(
+  type: type,
+  enabled: true,
+  apiKey: 'test-key',
+  baseUrl: 'https://proxy.example/prefix/compatible-mode/v1/',
+  imageModels: imageModelsForProvider(type),
+);
+
+void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+  late Directory support;
+  setUp(() async {
+    support = await Directory.systemTemp.createTemp('reveric_image_channels_');
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(
+          const MethodChannel('plugins.flutter.io/path_provider'),
+          (call) async =>
+              {
+                'getApplicationSupportDirectory',
+                'getTemporaryDirectory',
+              }.contains(call.method)
+              ? support.path
+              : null,
+        );
+    await RevericPaths.initialize();
+  });
+  tearDown(() async {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(
+          const MethodChannel('plugins.flutter.io/path_provider'),
+          null,
+        );
+    await support.delete(recursive: true);
+  });
+
+  for (final model in imageChannelModels[ImageProtocol.qwen_image]!.keys) {
+    test(
+      '$model uses its documented synchronous endpoint for generation and editing',
+      () async {
+        final service = AiImageGenerationService(
+          _provider('qwen'),
+          model: model,
+        );
+        final modern = model.startsWith('qwen-') && !model.contains('2.0');
+        var count = 0;
+        await http.runWithClient(
+          () async {
+            for (final editing in [false, true]) {
+              final result = editing
+                  ? await service.editImages(
+                      'combine',
+                      imageData: _references,
+                      size: '2688x1536',
+                    )
+                  : await service.generateImage('combine', size: '2688x1536');
+              expect(
+                File(result.localFilePath!).readAsBytesSync(),
+                base64Decode(_png),
+              );
+              expect(result.mimeSubtype, 'png');
+            }
+          },
+          () => MockClient((request) async {
+            final editing = count++ == 1;
+            expect(request.method, 'POST');
+            expect(request.headers['Authorization'], 'Bearer test-key');
+            expect(
+              request.url.toString(),
+              modern
+                  ? 'https://proxy.example/prefix/compatible-mode/v1/images/generations'
+                  : 'https://proxy.example/prefix/api/v1/services/aigc/multimodal-generation/generation',
+            );
+            final body = jsonDecode(request.body) as Map;
+            expect(body['model'], model);
+            if (modern) {
+              expect(body, {
+                'model': model,
+                'prompt': 'combine',
+                'n': 1,
+                'size': '2688x1536',
+                'watermark': false,
+                'prompt_extend': true,
+                if (editing) 'image': _references,
+              });
+            } else {
+              expect(body['parameters'], {
+                'n': 1,
+                'size': '2688*1536',
+                'watermark': false,
+                if (model.startsWith('qwen-')) 'prompt_extend': true,
+              });
+              expect(body['input']['messages'][0]['content'], [
+                if (editing) ..._references.map((image) => {'image': image}),
+                {'text': 'combine'},
+              ]);
+            }
+            return http.Response(
+              jsonEncode(
+                modern
+                    ? {
+                        'data': [
+                          {'url': _image},
+                        ],
+                      }
+                    : {
+                        'output': {
+                          'choices': [
+                            {
+                              'message': {
+                                'content': [
+                                  {'image': _image},
+                                ],
+                              },
+                            },
+                          ],
+                        },
+                      },
+              ),
+              200,
+            );
+          }),
+        );
+        expect(count, 2);
+      },
+    );
+  }
+
+  test(
+    'Seedream model override controls defaults and sends every reference',
+    () async {
+      final service = AiImageGenerationService(
+        _provider('doubao'),
+        model: 'doubao-seedream-4-0-250828',
+      );
+      var count = 0;
+      await http.runWithClient(
+        () async {
+          for (final model in imageModelsForProvider('doubao')) {
+            final result = await service.editImages(
+              'combine',
+              model: model,
+              imageData: _references,
+            );
+            expect(
+              File(result.localFilePath!).readAsBytesSync(),
+              base64Decode(_png),
+            );
+          }
+        },
+        () => MockClient((request) async {
+          count++;
+          final body = jsonDecode(request.body) as Map;
+          final model = body['model'] as String;
+          final modern = model.contains('-pro-') || model.contains('-flash-');
+          expect(
+            request.url.path,
+            '/prefix/compatible-mode/v1/images/generations',
+          );
+          expect(body['image'], _references);
+          expect(body['size'], '2048x2048');
+          expect(body['response_format'], 'b64_json');
+          expect(body['watermark'], false);
+          expect(body['output_format'], model.contains('-5-0') ? 'png' : null);
+          expect(body.containsKey('sequential_image_generation'), !modern);
+          expect(body['optimize_prompt_options'], {
+            'mode': model.contains('-4-0') ? 'fast' : 'standard',
+          });
+          return http.Response(
+            jsonEncode({
+              'data': [
+                {'b64_json': _png},
+              ],
+            }),
+            200,
+          );
+        }),
+      );
+      expect(count, imageModelsForProvider('doubao').length);
+    },
+  );
+
+  test(
+    'production passes OpenRouter ratio and resolution without fabricated pixels',
+    () async {
+      final db = AppDatabase.forTest(NativeDatabase.memory());
+      addTearDown(db.close);
+      final container = ProviderContainer.test(
+        overrides: [appDatabaseProvider.overrideWithValue(db)],
+      );
+      final request = ProductionImageRequest(
+        providerId: 'openrouter',
+        modelId: 'qwen/qwen-image-3',
+        originalPrompt: 'cover',
+        prompt: 'cover',
+        ratio: '16:9',
+        resolution: '2K',
+        size: null,
+      );
+      await http.runWithClient(
+        () async {
+          final result = await container.read(productionImageInvokeProvider)(
+            _provider('openrouter'),
+            request,
+            (_) async {},
+          );
+          expect(
+            File(result.localFilePath!).readAsBytesSync(),
+            base64Decode(_png),
+          );
+        },
+        () => MockClient((r) async {
+          expect(r.url.toString(), 'https://openrouter.ai/api/v1/images');
+          expect(jsonDecode(r.body), {
+            'model': 'qwen/qwen-image-3',
+            'prompt': 'cover',
+            'n': 1,
+            'aspect_ratio': '16:9',
+            'resolution': '2K',
+          });
+          return http.Response(
+            jsonEncode({
+              'data': [
+                {'b64_json': _png},
+              ],
+            }),
+            200,
+          );
+        }),
+      );
+    },
+  );
+
+  test(
+    'Wan generates at 4K but rejects editing above 2K before submission',
+    () async {
+      final service = AiImageGenerationService(
+        _provider('qwen'),
+        model: 'wan2.7-image-pro',
+      );
+      var requests = 0;
+      await http.runWithClient(
+        () async {
+          await service.generateImage('landscape', size: '4K');
+          for (final size in ['4K', '4096x2304']) {
+            await expectLater(
+              service.editImages('edit', imageData: _references, size: size),
+              throwsA(
+                isA<AiImageGenerationException>().having(
+                  (error) => error.code,
+                  'code',
+                  AiImageErrorCode.size,
+                ),
+              ),
+            );
+          }
+          await expectLater(
+            service.editImages('edit', imageData: List.filled(10, _image)),
+            throwsA(
+              isA<AiImageGenerationException>().having(
+                (error) => error.code,
+                'code',
+                AiImageErrorCode.param,
+              ),
+            ),
+          );
+        },
+        () => MockClient((request) async {
+          requests++;
+          final body = jsonDecode(request.body) as Map;
+          expect(
+            request.url.path,
+            '/prefix/api/v1/services/aigc/multimodal-generation/generation',
+          );
+          expect(body['parameters'], {
+            'n': 1,
+            'size': '4096*4096',
+            'watermark': false,
+          });
+          return http.Response(
+            jsonEncode({
+              'output': {
+                'choices': [
+                  {
+                    'message': {
+                      'content': [
+                        {'image': _image},
+                      ],
+                    },
+                  },
+                ],
+              },
+            }),
+            200,
+          );
+        }),
+      );
+      expect(requests, 1);
+    },
+  );
+
+  test('OpenRouter honors JPEG-only output and reference order', () async {
+    final service = AiImageGenerationService(
+      _provider('openrouter'),
+      model: 'sourceful/riverflow-v2.5-fast',
+    );
+    await http.runWithClient(
+      () => service.editImages('combine', imageData: _references),
+      () => MockClient((r) async {
+        expect(jsonDecode(r.body), {
+          'model': 'sourceful/riverflow-v2.5-fast',
+          'prompt': 'combine',
+          'n': 1,
+          'output_format': 'jpeg',
+          'input_references': [
+            for (final image in _references)
+              {
+                'type': 'image_url',
+                'image_url': {'url': image},
+              },
+          ],
+        });
+        return http.Response(
+          jsonEncode({
+            'data': [
+              {'b64_json': _png},
+            ],
+          }),
+          200,
+        );
+      }),
+    );
+  });
+
+  test(
+    'Qwen tier requests resolve to pixels in the selected protocol',
+    () async {
+      final service = AiImageGenerationService(
+        _provider('qwen'),
+        model: 'qwen-image-2.0-pro',
+      );
+      await http.runWithClient(
+        () => service.generateImage('cover', size: '1K'),
+        () => MockClient((r) async {
+          final body = jsonDecode(r.body) as Map;
+          expect(body['parameters']['size'], '1024*1024');
+          return http.Response(
+            jsonEncode({
+              'output': {
+                'choices': [
+                  {
+                    'message': {
+                      'content': [
+                        {'image': _image},
+                      ],
+                    },
+                  },
+                ],
+              },
+            }),
+            200,
+          );
+        }),
+      );
+    },
+  );
+
+  test(
+    'invalid dimensions, reference counts and unknown models never submit',
+    () async {
+      await http.runWithClient(
+        () async {
+          final qwen = AiImageGenerationService(
+            _provider('qwen'),
+            model: 'qwen-image-3.0',
+          );
+          final seed = AiImageGenerationService(
+            _provider('doubao'),
+            model: 'doubao-seedream-5-0-260128',
+          );
+          for (final operation in [
+            () => qwen.generateImage('cover', size: '4096x4096'),
+            () => qwen.generateImage('cover', size: '4096x256'),
+            () => qwen.editImages('cover', imageData: List.filled(4, _image)),
+            () => qwen.generateImage('cover', model: 'qwen-image-future'),
+            () => seed.generateImage('cover', size: '1024x1024'),
+            () => seed.generateImage('cover', size: '4K'),
+          ]) {
+            await expectLater(
+              operation(),
+              throwsA(isA<AiImageGenerationException>()),
+            );
+          }
+        },
+        () => MockClient(
+          (_) => throw StateError('invalid request reached network'),
+        ),
+      );
+    },
+  );
+
+  for (final status in [400, 200]) {
+    test(
+      'Seedream HTTP $status preserves structured image rejection',
+      () async {
+        final service = AiImageGenerationService(
+          _provider('doubao'),
+          model: 'doubao-seedream-5-0-pro-260628',
+        );
+        final error = {
+          'code': 'InputImageSensitiveContentDetected.PrivacyInformation',
+          'message': 'private provider detail',
+        };
+        await http.runWithClient(
+          () async {
+            await expectLater(
+              service.generateImage('cover'),
+              throwsA(
+                isA<AiImageGenerationException>().having(
+                  (e) => e.userMessage,
+                  'original provider message',
+                  'private provider detail',
+                ),
+              ),
+            );
+          },
+          () => MockClient(
+            (_) async => http.Response(
+              jsonEncode(
+                status == 200
+                    ? {
+                        'data': [
+                          {'error': error},
+                        ],
+                      }
+                    : {'error': error},
+              ),
+              status,
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  test('generic provider code yields to the specific image message hint', () async {
+    final service = AiImageGenerationService(
+      _provider('doubao'),
+      model: 'doubao-seedream-5-0-pro-260628',
+    );
+    await http.runWithClient(
+      () async {
+        await expectLater(
+          service.generateImage('cover'),
+          throwsA(
+            isA<AiImageGenerationException>().having(
+              (e) => e.userMessage,
+              'userMessage',
+              'The parameter `size` specified in the request is not valid: image size must be at least 3686400 pixels',
+            ),
+          ),
+        );
+      },
+      () => MockClient(
+        (_) async => http.Response(
+          jsonEncode({
+            'error': {
+              'code': 'InvalidParameter',
+              'message':
+                  'The parameter `size` specified in the request is not valid: image size must be at least 3686400 pixels',
+            },
+          }),
+          400,
+        ),
+      ),
+    );
+  });
+
+  test('provider credit exhaustion shows the payment hint', () {
+    expect(
+      () => throwForImageHttpFailure(
+        uri: Uri.parse('https://api.example/v1/images/generations'),
+        statusCode: 402,
+        data: jsonEncode({
+          'error': {
+            'code': 'credit.insufficient',
+            'message': 'insufficient credit',
+          },
+        }),
+        providerId: 'custom',
+      ),
+      throwsA(
+        isA<AiImageGenerationException>().having(
+          (e) => e.userMessage,
+          'userMessage',
+          'insufficient credit',
+        ),
+      ),
+    );
+  });
+
+  test('provider HTTP failures and per-image errors remain failures', () async {
+    final service = AiImageGenerationService(
+      _provider('doubao'),
+      model: 'doubao-seedream-5-0-pro-260628',
+    );
+    for (final status in [401, 429, 200]) {
+      await http.runWithClient(
+        () async {
+          await expectLater(
+            service.generateImage('cover'),
+            throwsA(
+              isA<AiImageGenerationException>().having(
+                (e) => e.code,
+                'code',
+                status == 401
+                    ? AiImageErrorCode.auth
+                    : AiImageErrorCode.rate_limit,
+              ),
+            ),
+          );
+        },
+        () => MockClient(
+          (_) async => http.Response(
+            jsonEncode(
+              status == 200
+                  ? {
+                      'data': [
+                        {
+                          'error': {'message': 'rate limit exceeded'},
+                        },
+                      ],
+                    }
+                  : {
+                      'error': {'message': 'provider error'},
+                    },
+            ),
+            status,
+          ),
+        ),
+      );
+    }
+  });
+}

@@ -1,0 +1,3 @@
+# Cross-season Episode moves preserve identity
+
+An existing Episode may be moved explicitly to another active Season in the same Screenplay by supplying the target `season_id`. Omitting `episode_number` appends it to the target Season; supplying both fields atomically inserts it at the requested target position, whose valid range is `1..target active Episode count + 1` before the move. The transaction renumbers both Seasons while preserving the Episode and every child-resource ID, and may update other Episode fields from the same write. Moving the only Episode out of a Season is rejected with `last_episode_required`.

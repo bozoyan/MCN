@@ -1,0 +1,22 @@
+{
+  "location.type.generic": "通用",
+  "location.type.world": "世界",
+  "location.type.continent": "大陆",
+  "location.type.country": "国家",
+  "location.type.region": "区域",
+  "location.type.mountain": "山脉",
+  "location.type.plain": "平原",
+  "location.type.forest": "森林",
+  "location.type.river": "河流",
+  "location.type.lake": "湖泊",
+  "location.type.sea": "海域",
+  "location.type.island": "岛屿",
+  "location.type.city": "城市",
+  "location.type.district": "城区",
+  "location.type.village": "村镇",
+  "location.type.building": "建筑",
+  "location.type.room": "房间",
+  "location.type.landmark": "地标",
+  "location.type.custom": "自定义",
+  "location.type.natural": "自然景观"
+}

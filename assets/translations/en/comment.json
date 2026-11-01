@@ -1,0 +1,12 @@
+{
+  "comment.action": "Comment",
+  "comment.title": "Comment",
+  "comment.resolved_title": "Comment · Resolved",
+  "comment.content_hint": "Write a note about this passage…",
+  "comment.resolve": "Mark as resolved",
+  "comment.reopen": "Reopen",
+  "comment.orphaned": "Text changed",
+  "comment.orphaned_hint": "The quoted passage has been rewritten, so this comment is no longer marked in the text.",
+  "comment.status_label": "Comments",
+  "comment.jump_unresolved": "Go to the first unresolved comment"
+}

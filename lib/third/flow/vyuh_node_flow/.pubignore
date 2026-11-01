@@ -1,0 +1,9 @@
+claude.md
+build
+.dart_tool
+devtools_options.yaml
+.idea
+*.iml
+justfile
+wrangler.toml
+_screenshots

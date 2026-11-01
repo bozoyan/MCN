@@ -1,0 +1,4 @@
+interface:
+  display_name: "Profile"
+  short_description: "Capture CPU, rebuild, and VM profiles."
+  default_prompt: "Use $profile to profile this performance issue before changing code."

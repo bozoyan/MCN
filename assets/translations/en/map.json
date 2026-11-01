@@ -1,0 +1,7 @@
+{
+  "map.type.world": "World Map",
+  "map.type.region": "Region Map",
+  "map.type.city": "City Map",
+  "map.type.building": "Building Map",
+  "map.type.dungeon": "Dungeon Map"
+}

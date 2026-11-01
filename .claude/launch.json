@@ -1,0 +1,9 @@
+{
+  "configurations": [
+    {
+      "name": "designs",
+      "command": "python3 -m http.server 8000 --directory designs",
+      "url": "http://localhost:8000/"
+    }
+  ]
+}

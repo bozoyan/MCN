@@ -1,0 +1,582 @@
+import 'dart:convert';
+
+import '../copy_with_sentinel.dart';
+import '../files/video_metadata.dart';
+import '../tools/code_execution_result.dart';
+import '../tools/executable_code.dart';
+import '../tools/function_call.dart';
+import '../tools/function_response.dart';
+import '../tools/tool_call.dart';
+import '../tools/tool_response.dart';
+import '../tools/tool_type.dart';
+import 'blob.dart';
+import 'file_data.dart';
+import 'media_resolution.dart';
+
+/// A single unit of content (text, media, function call, etc.).
+///
+/// Exactly one field must be set.
+sealed class Part {
+  /// Creates a [Part].
+  const Part();
+
+  /// Creates a text part.
+  ///
+  /// Note: This factory does not include `thought` or `thoughtSignature`.
+  /// When echoing model responses back, use the already-parsed [TextPart]
+  /// objects rather than reconstructing via this factory.
+  ///
+  /// Example:
+  /// ```dart
+  /// final part = Part.text('Hello, world!');
+  /// ```
+  factory Part.text(String text) = TextPart;
+
+  /// Creates an inline data part from raw bytes.
+  ///
+  /// The bytes are base64-encoded automatically.
+  ///
+  /// Example:
+  /// ```dart
+  /// final imageBytes = await File('photo.png').readAsBytes();
+  /// final part = Part.bytes(imageBytes, 'image/png');
+  /// ```
+  factory Part.bytes(List<int> bytes, String mimeType) =>
+      InlineDataPart(Blob(mimeType: mimeType, data: base64Encode(bytes)));
+
+  /// Creates an inline data part from base64-encoded data.
+  ///
+  /// Example:
+  /// ```dart
+  /// final part = Part.base64(imageBase64, 'image/png');
+  /// ```
+  factory Part.base64(String data, String mimeType) =>
+      InlineDataPart(Blob(mimeType: mimeType, data: data));
+
+  /// Creates a file reference part.
+  ///
+  /// Use for files uploaded via the Files API.
+  ///
+  /// Example:
+  /// ```dart
+  /// final part = Part.file('files/abc123', mimeType: 'image/jpeg');
+  /// ```
+  factory Part.file(String fileUri, {String? mimeType}) =>
+      FileDataPart(FileData(fileUri: fileUri, mimeType: mimeType));
+
+  /// Creates a function call part.
+  ///
+  /// Note: This factory does not include `thoughtSignature`. When echoing
+  /// model responses back, use the already-parsed [FunctionCallPart] objects
+  /// rather than reconstructing via this factory.
+  ///
+  /// Example:
+  /// ```dart
+  /// final part = Part.functionCall('get_weather', args: {'city': 'SF'});
+  /// ```
+  factory Part.functionCall(String name, {Map<String, dynamic>? args}) =>
+      FunctionCallPart(FunctionCall(name: name, args: args));
+
+  /// Creates a function response part.
+  ///
+  /// Example:
+  /// ```dart
+  /// final part = Part.functionResponse('get_weather', {'temp': 72});
+  /// ```
+  factory Part.functionResponse(
+    String name,
+    Map<String, dynamic> response, {
+    String? id,
+  }) => FunctionResponsePart(
+    FunctionResponse(name: name, response: response, id: id),
+  );
+
+  /// Creates a tool call part.
+  ///
+  /// Example:
+  /// ```dart
+  /// final part = Part.toolCall(ToolType.googleSearchWeb, args: {'q': 'test'});
+  /// ```
+  factory Part.toolCall(
+    ToolType toolType, {
+    Map<String, dynamic>? args,
+    String? id,
+  }) => ToolCallPart(ToolCall(toolType: toolType, args: args, id: id));
+
+  /// Creates a tool response part.
+  ///
+  /// Example:
+  /// ```dart
+  /// final part = Part.toolResponse(ToolType.googleSearchWeb, response: {'results': []});
+  /// ```
+  factory Part.toolResponse(
+    ToolType toolType, {
+    Map<String, dynamic>? response,
+    String? id,
+  }) => ToolResponsePart(
+    ToolResponse(toolType: toolType, response: response, id: id),
+  );
+
+  /// Creates a [Part] from JSON.
+  factory Part.fromJson(Map<String, dynamic> json) {
+    // `text` must be checked before the standalone `thought` and
+    // `thoughtSignature` keys (below), because a JSON object can contain
+    // all three — the thought/signature belong to the text part in that case.
+    if (json.containsKey('text')) {
+      return TextPart(
+        json['text'] as String,
+        thought: json['thought'] as bool?,
+        thoughtSignature: json['thoughtSignature'] != null
+            ? base64Decode(json['thoughtSignature'] as String)
+            : null,
+      );
+    }
+    if (json.containsKey('inlineData')) {
+      return InlineDataPart(
+        Blob.fromJson(json['inlineData'] as Map<String, dynamic>),
+        mediaResolution: json['mediaResolution'] != null
+            ? MediaResolution.fromJson(
+                json['mediaResolution'] as Map<String, dynamic>,
+              )
+            : null,
+      );
+    }
+    if (json.containsKey('fileData')) {
+      return FileDataPart(
+        FileData.fromJson(json['fileData'] as Map<String, dynamic>),
+        mediaResolution: json['mediaResolution'] != null
+            ? MediaResolution.fromJson(
+                json['mediaResolution'] as Map<String, dynamic>,
+              )
+            : null,
+      );
+    }
+    // `functionCall` must be checked before the standalone `thoughtSignature`
+    // key (below), because a JSON object can contain both keys — the signature
+    // belongs to the function call in that case.
+    if (json.containsKey('functionCall')) {
+      return FunctionCallPart(
+        FunctionCall.fromJson(json['functionCall'] as Map<String, dynamic>),
+        thoughtSignature: json['thoughtSignature'] != null
+            ? base64Decode(json['thoughtSignature'] as String)
+            : null,
+      );
+    }
+    if (json.containsKey('functionResponse')) {
+      return FunctionResponsePart(
+        FunctionResponse.fromJson(
+          json['functionResponse'] as Map<String, dynamic>,
+        ),
+      );
+    }
+    if (json.containsKey('executableCode')) {
+      return ExecutableCodePart(
+        ExecutableCode.fromJson(json['executableCode'] as Map<String, dynamic>),
+      );
+    }
+    if (json.containsKey('codeExecutionResult')) {
+      return CodeExecutionResultPart(
+        CodeExecutionResult.fromJson(
+          json['codeExecutionResult'] as Map<String, dynamic>,
+        ),
+      );
+    }
+    if (json.containsKey('toolCall')) {
+      return ToolCallPart(
+        ToolCall.fromJson(json['toolCall'] as Map<String, dynamic>),
+      );
+    }
+    if (json.containsKey('toolResponse')) {
+      return ToolResponsePart(
+        ToolResponse.fromJson(json['toolResponse'] as Map<String, dynamic>),
+      );
+    }
+    if (json.containsKey('videoMetadata')) {
+      return VideoMetadataPart(
+        VideoMetadata.fromJson(json['videoMetadata'] as Map<String, dynamic>),
+      );
+    }
+    // `thought` must be checked before the standalone `thoughtSignature` key
+    // (below), because a JSON object can contain both — the signature belongs
+    // to the thought part in that case.
+    if (json.containsKey('thought')) {
+      return ThoughtPart(
+        thought: json['thought'] as bool,
+        thoughtSignature: json['thoughtSignature'] != null
+            ? base64Decode(json['thoughtSignature'] as String)
+            : null,
+      );
+    }
+    if (json.containsKey('thoughtSignature')) {
+      return ThoughtSignaturePart(
+        base64Decode(json['thoughtSignature'] as String),
+      );
+    }
+    if (json.containsKey('partMetadata')) {
+      return PartMetadataPart(json['partMetadata'] as Map<String, dynamic>);
+    }
+    throw FormatException('Unknown Part type: ${json.keys}');
+  }
+
+  /// Converts to JSON.
+  Map<String, dynamic> toJson();
+}
+
+/// Text content.
+class TextPart extends Part {
+  /// Plain text content.
+  final String text;
+
+  /// Whether this text is a thought/reasoning step.
+  ///
+  /// The Gemini API returns reasoning text as
+  /// `{"text": "...", "thought": true}`. When `true`, this part contains
+  /// model reasoning rather than final output.
+  final bool? thought;
+
+  /// Optional opaque thought signature bytes.
+  ///
+  /// The API may return this alongside thought text; it must be preserved
+  /// and sent back unchanged when echoing the conversation history.
+  final List<int>? thoughtSignature;
+
+  /// Creates a [TextPart].
+  const TextPart(this.text, {this.thought, this.thoughtSignature});
+
+  @override
+  Map<String, dynamic> toJson() => {
+    'text': text,
+    if (thought != null) 'thought': thought,
+    if (thoughtSignature != null)
+      'thoughtSignature': base64Encode(thoughtSignature!),
+  };
+
+  /// Creates a copy with replaced values.
+  TextPart copyWith({
+    Object? text = unsetCopyWithValue,
+    Object? thought = unsetCopyWithValue,
+    Object? thoughtSignature = unsetCopyWithValue,
+  }) {
+    return TextPart(
+      text == unsetCopyWithValue ? this.text : text! as String,
+      thought: thought == unsetCopyWithValue ? this.thought : thought as bool?,
+      thoughtSignature: thoughtSignature == unsetCopyWithValue
+          ? this.thoughtSignature
+          : thoughtSignature as List<int>?,
+    );
+  }
+}
+
+/// Inline binary data (base64).
+class InlineDataPart extends Part {
+  /// Inline binary data.
+  final Blob inlineData;
+
+  /// Optional media resolution for the input media.
+  final MediaResolution? mediaResolution;
+
+  /// Creates an [InlineDataPart].
+  const InlineDataPart(this.inlineData, {this.mediaResolution});
+
+  @override
+  Map<String, dynamic> toJson() => {
+    'inlineData': inlineData.toJson(),
+    if (mediaResolution != null) 'mediaResolution': mediaResolution!.toJson(),
+  };
+
+  /// Creates a copy with replaced values.
+  InlineDataPart copyWith({
+    Object? inlineData = unsetCopyWithValue,
+    Object? mediaResolution = unsetCopyWithValue,
+  }) {
+    return InlineDataPart(
+      inlineData == unsetCopyWithValue ? this.inlineData : inlineData! as Blob,
+      mediaResolution: mediaResolution == unsetCopyWithValue
+          ? this.mediaResolution
+          : mediaResolution as MediaResolution?,
+    );
+  }
+}
+
+/// Reference to uploaded file.
+class FileDataPart extends Part {
+  /// File reference.
+  final FileData fileData;
+
+  /// Optional media resolution for the input media.
+  final MediaResolution? mediaResolution;
+
+  /// Creates a [FileDataPart].
+  const FileDataPart(this.fileData, {this.mediaResolution});
+
+  @override
+  Map<String, dynamic> toJson() => {
+    'fileData': fileData.toJson(),
+    if (mediaResolution != null) 'mediaResolution': mediaResolution!.toJson(),
+  };
+
+  /// Creates a copy with replaced values.
+  FileDataPart copyWith({
+    Object? fileData = unsetCopyWithValue,
+    Object? mediaResolution = unsetCopyWithValue,
+  }) {
+    return FileDataPart(
+      fileData == unsetCopyWithValue ? this.fileData : fileData! as FileData,
+      mediaResolution: mediaResolution == unsetCopyWithValue
+          ? this.mediaResolution
+          : mediaResolution as MediaResolution?,
+    );
+  }
+}
+
+/// Model's request to call a function.
+class FunctionCallPart extends Part {
+  /// Function call.
+  final FunctionCall functionCall;
+
+  /// Optional opaque thought signature bytes.
+  ///
+  /// Required by new Gemini models when echoing function calls
+  /// back in the chat history. The API returns this as a base64-encoded
+  /// string alongside the function call; it must be preserved and sent
+  /// back unchanged.
+  final List<int>? thoughtSignature;
+
+  /// Creates a [FunctionCallPart].
+  const FunctionCallPart(this.functionCall, {this.thoughtSignature});
+
+  @override
+  Map<String, dynamic> toJson() => {
+    'functionCall': functionCall.toJson(),
+    if (thoughtSignature != null)
+      'thoughtSignature': base64Encode(thoughtSignature!),
+  };
+
+  /// Creates a copy with replaced values.
+  FunctionCallPart copyWith({
+    Object? functionCall = unsetCopyWithValue,
+    Object? thoughtSignature = unsetCopyWithValue,
+  }) {
+    return FunctionCallPart(
+      functionCall == unsetCopyWithValue
+          ? this.functionCall
+          : functionCall! as FunctionCall,
+      thoughtSignature: thoughtSignature == unsetCopyWithValue
+          ? this.thoughtSignature
+          : thoughtSignature as List<int>?,
+    );
+  }
+}
+
+/// Result from function execution.
+class FunctionResponsePart extends Part {
+  /// Function response.
+  final FunctionResponse functionResponse;
+
+  /// Creates a [FunctionResponsePart].
+  const FunctionResponsePart(this.functionResponse);
+
+  @override
+  Map<String, dynamic> toJson() => {
+    'functionResponse': functionResponse.toJson(),
+  };
+
+  /// Creates a copy with replaced values.
+  FunctionResponsePart copyWith({
+    Object? functionResponse = unsetCopyWithValue,
+  }) {
+    return FunctionResponsePart(
+      functionResponse == unsetCopyWithValue
+          ? this.functionResponse
+          : functionResponse! as FunctionResponse,
+    );
+  }
+}
+
+/// Code for model to execute.
+class ExecutableCodePart extends Part {
+  /// Executable code.
+  final ExecutableCode executableCode;
+
+  /// Creates an [ExecutableCodePart].
+  const ExecutableCodePart(this.executableCode);
+
+  @override
+  Map<String, dynamic> toJson() => {'executableCode': executableCode.toJson()};
+
+  /// Creates a copy with replaced values.
+  ExecutableCodePart copyWith({Object? executableCode = unsetCopyWithValue}) {
+    return ExecutableCodePart(
+      executableCode == unsetCopyWithValue
+          ? this.executableCode
+          : executableCode! as ExecutableCode,
+    );
+  }
+}
+
+/// Result from code execution.
+class CodeExecutionResultPart extends Part {
+  /// Code execution result.
+  final CodeExecutionResult codeExecutionResult;
+
+  /// Creates a [CodeExecutionResultPart].
+  const CodeExecutionResultPart(this.codeExecutionResult);
+
+  @override
+  Map<String, dynamic> toJson() => {
+    'codeExecutionResult': codeExecutionResult.toJson(),
+  };
+
+  /// Creates a copy with replaced values.
+  CodeExecutionResultPart copyWith({
+    Object? codeExecutionResult = unsetCopyWithValue,
+  }) {
+    return CodeExecutionResultPart(
+      codeExecutionResult == unsetCopyWithValue
+          ? this.codeExecutionResult
+          : codeExecutionResult! as CodeExecutionResult,
+    );
+  }
+}
+
+/// Video timing/sampling metadata.
+class VideoMetadataPart extends Part {
+  /// Video metadata.
+  final VideoMetadata videoMetadata;
+
+  /// Creates a [VideoMetadataPart].
+  const VideoMetadataPart(this.videoMetadata);
+
+  @override
+  Map<String, dynamic> toJson() => {'videoMetadata': videoMetadata.toJson()};
+
+  /// Creates a copy with replaced values.
+  VideoMetadataPart copyWith({Object? videoMetadata = unsetCopyWithValue}) {
+    return VideoMetadataPart(
+      videoMetadata == unsetCopyWithValue
+          ? this.videoMetadata
+          : videoMetadata! as VideoMetadata,
+    );
+  }
+}
+
+/// Reasoning step indicator.
+class ThoughtPart extends Part {
+  /// Whether this is a thought/reasoning step.
+  final bool thought;
+
+  /// Optional opaque thought signature bytes.
+  ///
+  /// The API may return this alongside the thought flag; it must be preserved
+  /// and sent back unchanged when echoing the conversation history.
+  final List<int>? thoughtSignature;
+
+  /// Creates a [ThoughtPart].
+  const ThoughtPart({required this.thought, this.thoughtSignature});
+
+  @override
+  Map<String, dynamic> toJson() => {
+    'thought': thought,
+    if (thoughtSignature != null)
+      'thoughtSignature': base64Encode(thoughtSignature!),
+  };
+
+  /// Creates a copy with replaced values.
+  ThoughtPart copyWith({
+    Object? thought = unsetCopyWithValue,
+    Object? thoughtSignature = unsetCopyWithValue,
+  }) {
+    return ThoughtPart(
+      thought: thought == unsetCopyWithValue ? this.thought : thought! as bool,
+      thoughtSignature: thoughtSignature == unsetCopyWithValue
+          ? this.thoughtSignature
+          : thoughtSignature as List<int>?,
+    );
+  }
+}
+
+/// Cached thought key (base64).
+class ThoughtSignaturePart extends Part {
+  /// Thought signature bytes.
+  final List<int> thoughtSignature;
+
+  /// Creates a [ThoughtSignaturePart].
+  const ThoughtSignaturePart(this.thoughtSignature);
+
+  @override
+  Map<String, dynamic> toJson() => {
+    'thoughtSignature': base64Encode(thoughtSignature),
+  };
+
+  /// Creates a copy with replaced values.
+  ThoughtSignaturePart copyWith({
+    Object? thoughtSignature = unsetCopyWithValue,
+  }) {
+    return ThoughtSignaturePart(
+      thoughtSignature == unsetCopyWithValue
+          ? this.thoughtSignature
+          : thoughtSignature! as List<int>,
+    );
+  }
+}
+
+/// Server-side tool call.
+class ToolCallPart extends Part {
+  /// Tool call.
+  final ToolCall toolCall;
+
+  /// Creates a [ToolCallPart].
+  const ToolCallPart(this.toolCall);
+
+  @override
+  Map<String, dynamic> toJson() => {'toolCall': toolCall.toJson()};
+
+  /// Creates a copy with replaced values.
+  ToolCallPart copyWith({Object? toolCall = unsetCopyWithValue}) {
+    return ToolCallPart(
+      toolCall == unsetCopyWithValue ? this.toolCall : toolCall! as ToolCall,
+    );
+  }
+}
+
+/// Server-side tool response.
+class ToolResponsePart extends Part {
+  /// Tool response.
+  final ToolResponse toolResponse;
+
+  /// Creates a [ToolResponsePart].
+  const ToolResponsePart(this.toolResponse);
+
+  @override
+  Map<String, dynamic> toJson() => {'toolResponse': toolResponse.toJson()};
+
+  /// Creates a copy with replaced values.
+  ToolResponsePart copyWith({Object? toolResponse = unsetCopyWithValue}) {
+    return ToolResponsePart(
+      toolResponse == unsetCopyWithValue
+          ? this.toolResponse
+          : toolResponse! as ToolResponse,
+    );
+  }
+}
+
+/// Custom metadata.
+class PartMetadataPart extends Part {
+  /// Part metadata.
+  final Map<String, dynamic> partMetadata;
+
+  /// Creates a [PartMetadataPart].
+  const PartMetadataPart(this.partMetadata);
+
+  @override
+  Map<String, dynamic> toJson() => {'partMetadata': partMetadata};
+
+  /// Creates a copy with replaced values.
+  PartMetadataPart copyWith({Object? partMetadata = unsetCopyWithValue}) {
+    return PartMetadataPart(
+      partMetadata == unsetCopyWithValue
+          ? this.partMetadata
+          : partMetadata! as Map<String, dynamic>,
+    );
+  }
+}

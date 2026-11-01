@@ -1,0 +1,12 @@
+# Task Comments as a persistent bidirectional channel
+
+A Task was originally a one-shot work item: the user (or Dreaming) creates it, a Task Run executes it, and the result lives in the Task Run Session transcript. We decided to add **Task Comments** — a persistent message thread attached to each Task, authored by the user (from desktop UI or via the Remote Assistant), the Remote Assistant, or the Task Run's Orchestrator (via a `task_comment` tool injected only in task-context sessions). Task Comments form the progress log, the result carrier, and the mid-run communication channel: the Orchestrator writes progress and final results as comments, the user can write mid-run redirects, and the Remote Assistant forwards agent-authored comments to the Remote Channel and may translate user messages into Task Comments. We chose this over a result-only model (the user would be blind during multi-minute runs and unable to redirect), over in-session chat (comments would not survive Task Run restarts and would not be readable cross-novel by the Remote Assistant), and over a separate task-message table per channel (the Remote Assistant is just one consumer; desktop UI and future channels share the same comments).
+
+## Consequences
+
+- Task Comments are owned by the Task, not by any Task Run Session. They survive Task Run restarts, cancellation, and re-runs. Re-running a Task appends new comments rather than replacing old ones.
+- The Task Run's Orchestrator gets a `task_comment` tool injected only when the session is task-context (seeded with a task). This tool is not available in regular chat sessions, keeping the tool-set difference between task-context and non-task-context explicit.
+- The Remote Assistant reads and writes Task Comments via Run subcommands (not a separate tool), keeping its tool surface unified. Its Run subcommand whitelist includes task management (create/start/list/view) and comment operations (add/list).
+- Task Comments are app-DB-level records (cross-novel), not content-DB. This avoids the cross-novel `AiToolManager` refactoring for comment operations — the Remote Assistant can read any task's comments regardless of its virtual `novelId` sentinel.
+- Desktop UI gains a Task Comments panel; this is a downstream UI change, not part of this decision.
+- Comment authorship has three types (user, assistant, agent). The Remote Assistant must not forward its own or user-authored comments back to the Remote Channel (avoid loops); only agent-authored comments trigger forwarding.

@@ -1,0 +1,1400 @@
+{
+  "bytedance/seed-audio-1.0": {
+    "properties": {
+      "model": {
+        "type": "string",
+        "enum": [
+          "bytedance/seed-audio-1.0"
+        ]
+      },
+      "text": {
+        "type": "string"
+      },
+      "references": {
+        "type": "array",
+        "maxItems": 3,
+        "items": {
+          "type": "object",
+          "properties": {
+            "speaker": {
+              "type": "string",
+              "enum": [
+                "zh_female_vv_uranus_bigtts",
+                "zh_female_xiaohe_uranus_bigtts",
+                "zh_male_m191_uranus_bigtts",
+                "zh_male_taocheng_uranus_bigtts",
+                "zh_male_liufei_uranus_bigtts",
+                "zh_female_sophie_uranus_bigtts",
+                "zh_female_qingxinnvsheng_uranus_bigtts",
+                "zh_female_cancan_uranus_bigtts",
+                "zh_female_tianmeitaozi_uranus_bigtts",
+                "zh_male_ruyayichen_uranus_bigtts"
+              ]
+            },
+            "audio_url": {
+              "type": "string"
+            },
+            "audio_data": {
+              "type": "string"
+            },
+            "image_url": {
+              "type": "string"
+            },
+            "image_data": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "format": {
+        "type": "string",
+        "enum": [
+          "mp3",
+          "wav",
+          "pcm",
+          "ogg_opus"
+        ]
+      },
+      "sample_rate": {
+        "type": "integer",
+        "enum": [
+          8000,
+          16000,
+          24000,
+          32000,
+          44100,
+          48000
+        ]
+      },
+      "pitch_rate": {
+        "type": "integer",
+        "minimum": -12,
+        "maximum": 12
+      },
+      "speech_rate": {
+        "type": "integer",
+        "minimum": -50,
+        "maximum": 100
+      },
+      "loudness_rate": {
+        "type": "integer",
+        "minimum": -50,
+        "maximum": 100
+      }
+    },
+    "required": [
+      "model",
+      "text"
+    ],
+    "type": "object"
+  },
+  "minimax/music-3.0": {
+    "type": "object",
+    "properties": {
+      "model": {
+        "type": "string"
+      },
+      "prompt": {
+        "type": "string",
+        "maxLength": 2000
+      },
+      "lyrics": {
+        "type": "string",
+        "maxLength": 3500
+      },
+      "is_instrumental": {
+        "type": "boolean"
+      },
+      "lyrics_optimizer": {
+        "type": "boolean"
+      },
+      "format": {
+        "type": "string",
+        "enum": [
+          "mp3",
+          "wav",
+          "pcm"
+        ]
+      },
+      "sample_rate": {
+        "type": "integer",
+        "enum": [
+          16000,
+          24000,
+          32000,
+          44100
+        ]
+      },
+      "bitrate": {
+        "type": "integer",
+        "enum": [
+          32000,
+          64000,
+          128000,
+          256000
+        ]
+      },
+      "enable_sync_mode": {
+        "disabled": true,
+        "type": "boolean"
+      },
+      "enable_base64_output": {
+        "disabled": true,
+        "type": "boolean"
+      }
+    },
+    "required": [
+      "model"
+    ],
+    "allOf": [
+      {
+        "if": {
+          "properties": {
+            "is_instrumental": {
+              "const": true
+            }
+          },
+          "required": [
+            "is_instrumental"
+          ]
+        },
+        "then": {
+          "properties": {
+            "prompt": {
+              "minLength": 1
+            }
+          },
+          "required": [
+            "prompt"
+          ]
+        }
+      },
+      {
+        "if": {
+          "properties": {
+            "lyrics_optimizer": {
+              "const": true
+            }
+          },
+          "required": [
+            "lyrics_optimizer"
+          ]
+        },
+        "then": {
+          "properties": {
+            "lyrics": {
+              "maxLength": 0
+            }
+          }
+        }
+      },
+      {
+        "anyOf": [
+          {
+            "properties": {
+              "is_instrumental": {
+                "const": true
+              }
+            },
+            "required": [
+              "is_instrumental"
+            ]
+          },
+          {
+            "properties": {
+              "lyrics": {
+                "minLength": 1
+              }
+            },
+            "required": [
+              "lyrics"
+            ]
+          },
+          {
+            "properties": {
+              "prompt": {
+                "minLength": 1
+              },
+              "lyrics_optimizer": {
+                "const": true
+              }
+            },
+            "required": [
+              "prompt",
+              "lyrics_optimizer"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "xai/tts-v1": {
+    "properties": {
+      "model": {
+        "type": "string"
+      },
+      "text": {
+        "type": "string"
+      },
+      "language": {
+        "type": "string",
+        "enum": [
+          "auto",
+          "en",
+          "zh",
+          "ar-EG",
+          "ar-SA",
+          "ar-AE",
+          "bn",
+          "fr",
+          "de",
+          "hi",
+          "id",
+          "it",
+          "ja",
+          "ko",
+          "pt-BR",
+          "pt-PT",
+          "ru",
+          "es-MX",
+          "es-ES",
+          "tr",
+          "vi"
+        ]
+      },
+      "voice_id": {
+        "type": "string",
+        "enum": [
+          "ara",
+          "eve",
+          "leo",
+          "rex",
+          "sal",
+          "jpi39icg",
+          "d18jlf6v",
+          "33g9t0jl",
+          "26w6ihxi",
+          "dr8gqysu",
+          "wy0m9l5w",
+          "om17cury",
+          "x7avnu1k",
+          "bcs7l2c3",
+          "hqxr4yub",
+          "h27ltdnz",
+          "89q2pnko",
+          "73xd5dum",
+          "0p0rt7o1",
+          "hbxkrnwm",
+          "69smp8rm",
+          "yis75yfp",
+          "ekhwx401",
+          "jupvcf34",
+          "0hhfxxqq",
+          "0ih5oi34",
+          "gwnexu6y",
+          "97zmdc6s",
+          "fc7de6afcf6c",
+          "7a9ee820b342",
+          "0895a5b8ce5c",
+          "f8cf5c2c78d4",
+          "96819d0bd28d",
+          "79f3a8b96d43",
+          "78a495fdbb39",
+          "e22152e06fd8",
+          "490ea3be50b1",
+          "1f046a033914",
+          "dfe7b9e7d217",
+          "c3a2c594479e",
+          "83c6f4fea98e",
+          "34fd4dce1ba3",
+          "d634b6da3d3b",
+          "670a0c3ac005",
+          "182a91893636",
+          "d0cb9ff07d95",
+          "b1a7441b97a1",
+          "bf9fe5b5f981",
+          "b5ae17439907",
+          "a0401c9101f8",
+          "23be42535a45",
+          "abfbdf26f115",
+          "6da5baee46d0",
+          "3d030bc92a87",
+          "a13662ba951c",
+          "58d27475085e",
+          "247783ebdd51",
+          "244e27b39200",
+          "97fabd54445f",
+          "37329fd8895a",
+          "2badb5f46b1e",
+          "1b12d5daee6b",
+          "908c4626660f",
+          "4ff93971bfdc",
+          "70013edeb8e8",
+          "35c8d7f60dc8",
+          "23468361b4ef",
+          "458705c07139",
+          "41321eb41295",
+          "40f31906b23d",
+          "3a7889066fa2"
+        ]
+      },
+      "codec": {
+        "type": "string",
+        "enum": [
+          "mp3",
+          "wav",
+          "pcm",
+          "mulaw",
+          "alaw"
+        ]
+      },
+      "sample_rate": {
+        "type": "integer",
+        "enum": [
+          8000,
+          16000,
+          22050,
+          24000,
+          44100,
+          48000
+        ]
+      },
+      "bit_rate": {
+        "type": "integer",
+        "enum": [
+          32000,
+          64000,
+          96000,
+          128000,
+          192000
+        ]
+      },
+      "speed": {
+        "type": "number",
+        "minimum": 0.7,
+        "maximum": 1.5
+      },
+      "text_normalization": {
+        "type": "boolean"
+      },
+      "optimize_streaming_latency": {
+        "type": "integer",
+        "enum": [
+          0,
+          1,
+          2
+        ]
+      }
+    },
+    "required": [
+      "model",
+      "text",
+      "language"
+    ],
+    "type": "object",
+    "allOf": [
+      {
+        "if": {
+          "properties": {
+            "voice_id": {
+              "enum": [
+                "jpi39icg",
+                "d18jlf6v",
+                "33g9t0jl"
+              ]
+            }
+          },
+          "required": [
+            "voice_id"
+          ]
+        },
+        "then": {
+          "properties": {
+            "language": {
+              "const": "zh"
+            }
+          }
+        }
+      },
+      {
+        "if": {
+          "properties": {
+            "voice_id": {
+              "enum": [
+                "26w6ihxi",
+                "dr8gqysu",
+                "wy0m9l5w",
+                "om17cury"
+              ]
+            }
+          },
+          "required": [
+            "voice_id"
+          ]
+        },
+        "then": {
+          "properties": {
+            "language": {
+              "const": "ru"
+            }
+          }
+        }
+      },
+      {
+        "if": {
+          "properties": {
+            "voice_id": {
+              "enum": [
+                "x7avnu1k",
+                "bcs7l2c3",
+                "hqxr4yub",
+                "h27ltdnz"
+              ]
+            }
+          },
+          "required": [
+            "voice_id"
+          ]
+        },
+        "then": {
+          "properties": {
+            "language": {
+              "const": "it"
+            }
+          }
+        }
+      },
+      {
+        "if": {
+          "properties": {
+            "voice_id": {
+              "enum": [
+                "89q2pnko",
+                "73xd5dum"
+              ]
+            }
+          },
+          "required": [
+            "voice_id"
+          ]
+        },
+        "then": {
+          "properties": {
+            "language": {
+              "const": "hi"
+            }
+          }
+        }
+      },
+      {
+        "if": {
+          "properties": {
+            "voice_id": {
+              "enum": [
+                "0p0rt7o1",
+                "hbxkrnwm",
+                "69smp8rm"
+              ]
+            }
+          },
+          "required": [
+            "voice_id"
+          ]
+        },
+        "then": {
+          "properties": {
+            "language": {
+              "const": "fr"
+            }
+          }
+        }
+      },
+      {
+        "if": {
+          "properties": {
+            "voice_id": {
+              "enum": [
+                "yis75yfp",
+                "ekhwx401",
+                "jupvcf34",
+                "0hhfxxqq"
+              ]
+            }
+          },
+          "required": [
+            "voice_id"
+          ]
+        },
+        "then": {
+          "properties": {
+            "language": {
+              "const": "es-ES"
+            }
+          }
+        }
+      },
+      {
+        "if": {
+          "properties": {
+            "voice_id": {
+              "enum": [
+                "fc7de6afcf6c",
+                "7a9ee820b342",
+                "0895a5b8ce5c"
+              ]
+            }
+          },
+          "required": [
+            "voice_id"
+          ]
+        },
+        "then": {
+          "properties": {
+            "language": {
+              "const": "vi"
+            }
+          }
+        }
+      },
+      {
+        "if": {
+          "properties": {
+            "voice_id": {
+              "enum": [
+                "f8cf5c2c78d4",
+                "96819d0bd28d",
+                "79f3a8b96d43",
+                "78a495fdbb39"
+              ]
+            }
+          },
+          "required": [
+            "voice_id"
+          ]
+        },
+        "then": {
+          "properties": {
+            "language": {
+              "const": "en"
+            }
+          }
+        }
+      },
+      {
+        "if": {
+          "properties": {
+            "voice_id": {
+              "enum": [
+                "d634b6da3d3b",
+                "670a0c3ac005",
+                "182a91893636"
+              ]
+            }
+          },
+          "required": [
+            "voice_id"
+          ]
+        },
+        "then": {
+          "properties": {
+            "language": {
+              "const": "tr"
+            }
+          }
+        }
+      },
+      {
+        "if": {
+          "properties": {
+            "voice_id": {
+              "enum": [
+                "d0cb9ff07d95",
+                "b1a7441b97a1"
+              ]
+            }
+          },
+          "required": [
+            "voice_id"
+          ]
+        },
+        "then": {
+          "properties": {
+            "language": {
+              "const": "ja"
+            }
+          }
+        }
+      },
+      {
+        "if": {
+          "properties": {
+            "voice_id": {
+              "enum": [
+                "bf9fe5b5f981",
+                "b5ae17439907",
+                "a0401c9101f8",
+                "23be42535a45"
+              ]
+            }
+          },
+          "required": [
+            "voice_id"
+          ]
+        },
+        "then": {
+          "properties": {
+            "language": {
+              "const": "ko"
+            }
+          }
+        }
+      },
+      {
+        "if": {
+          "properties": {
+            "voice_id": {
+              "enum": [
+                "abfbdf26f115",
+                "6da5baee46d0",
+                "3d030bc92a87"
+              ]
+            }
+          },
+          "required": [
+            "voice_id"
+          ]
+        },
+        "then": {
+          "properties": {
+            "language": {
+              "const": "pt-PT"
+            }
+          }
+        }
+      },
+      {
+        "if": {
+          "properties": {
+            "voice_id": {
+              "enum": [
+                "70013edeb8e8",
+                "35c8d7f60dc8",
+                "23468361b4ef"
+              ]
+            }
+          },
+          "required": [
+            "voice_id"
+          ]
+        },
+        "then": {
+          "properties": {
+            "language": {
+              "const": "ar-EG"
+            }
+          }
+        }
+      },
+      {
+        "if": {
+          "properties": {
+            "voice_id": {
+              "enum": [
+                "458705c07139",
+                "41321eb41295",
+                "40f31906b23d",
+                "3a7889066fa2"
+              ]
+            }
+          },
+          "required": [
+            "voice_id"
+          ]
+        },
+        "then": {
+          "properties": {
+            "language": {
+              "const": "de"
+            }
+          }
+        }
+      }
+    ]
+  },
+  "google/gemini-2.5-flash-tts": {
+    "type": "object",
+    "properties": {
+      "model": {
+        "type": "string",
+        "enum": [
+          "google/gemini-2.5-flash-tts"
+        ]
+      },
+      "text": {
+        "type": "string"
+      },
+      "voice": {
+        "type": "string",
+        "enum": [
+          "Zephyr",
+          "Puck",
+          "Charon",
+          "Kore",
+          "Fenrir",
+          "Leda",
+          "Orus",
+          "Aoede",
+          "Callirrhoe",
+          "Autonoe",
+          "Enceladus",
+          "Iapetus",
+          "Umbriel",
+          "Algieba",
+          "Despina",
+          "Erinome",
+          "Algenib",
+          "Rasalgethi",
+          "Laomedeia",
+          "Achernar",
+          "Alnilam",
+          "Schedar",
+          "Gacrux",
+          "Pulcherrima",
+          "Achird",
+          "Zubenelgenubi",
+          "Vindemiatrix",
+          "Sadachbia",
+          "Sadaltager",
+          "Sulafat"
+        ]
+      }
+    },
+    "required": [
+      "model",
+      "text"
+    ]
+  },
+  "minimax/speech-2.6-turbo": {
+    "type": "object",
+    "properties": {
+      "model": {
+        "type": "string",
+        "enum": [
+          "minimax/speech-2.6-turbo"
+        ]
+      },
+      "text": {
+        "type": "string",
+        "maxLength": 10000
+      },
+      "voice": {
+        "type": "string",
+        "enum": [
+          "English_expressive_narrator",
+          "English_radiant_girl",
+          "English_magnetic_voiced_man",
+          "English_compelling_lady1",
+          "English_Aussie_Bloke",
+          "English_captivating_female1",
+          "English_Upbeat_Woman",
+          "English_Trustworth_Man",
+          "English_CalmWoman",
+          "English_UpsetGirl",
+          "English_Gentle-voiced_man",
+          "English_Whispering_girl",
+          "English_Diligent_Man",
+          "English_Graceful_Lady",
+          "English_ReservedYoungMan"
+        ]
+      },
+      "speed": {
+        "type": "number",
+        "minimum": 0.5,
+        "maximum": 2
+      },
+      "vol": {
+        "type": "number",
+        "minimum": 0,
+        "maximum": 10
+      },
+      "pitch": {
+        "type": "integer",
+        "minimum": -12,
+        "maximum": 12
+      },
+      "emotion": {
+        "type": "string",
+        "enum": [
+          "auto",
+          "happy",
+          "sad",
+          "angry",
+          "fearful",
+          "disgusted",
+          "surprised",
+          "calm",
+          "fluent",
+          "neutral"
+        ]
+      },
+      "language_boost": {
+        "type": "string",
+        "enum": [
+          "auto",
+          "English",
+          "Chinese",
+          "Chinese,Yue",
+          "Japanese",
+          "Korean",
+          "Spanish",
+          "French",
+          "Portuguese",
+          "German",
+          "Italian",
+          "Arabic",
+          "Russian",
+          "Indonesian",
+          "Thai",
+          "Vietnamese"
+        ]
+      },
+      "format": {
+        "type": "string",
+        "enum": [
+          "mp3",
+          "wav",
+          "flac"
+        ]
+      },
+      "sample_rate": {
+        "type": "integer",
+        "enum": [
+          8000,
+          16000,
+          22050,
+          24000,
+          32000,
+          44100
+        ]
+      },
+      "bitrate": {
+        "type": "integer",
+        "enum": [
+          32000,
+          64000,
+          128000,
+          256000
+        ]
+      }
+    },
+    "required": [
+      "model",
+      "text"
+    ]
+  },
+  "minimax/music-2.6": {
+    "type": "object",
+    "properties": {
+      "model": {
+        "type": "string",
+        "enum": [
+          "minimax/music-2.6"
+        ]
+      },
+      "prompt": {
+        "type": "string",
+        "maxLength": 2000
+      },
+      "lyrics": {
+        "type": "string",
+        "maxLength": 3500
+      },
+      "is_instrumental": {
+        "type": "boolean"
+      },
+      "format": {
+        "type": "string",
+        "enum": [
+          "mp3",
+          "wav",
+          "pcm"
+        ]
+      },
+      "sample_rate": {
+        "type": "integer",
+        "enum": [
+          16000,
+          24000,
+          32000,
+          44100
+        ]
+      },
+      "bitrate": {
+        "type": "integer",
+        "enum": [
+          32000,
+          64000,
+          128000,
+          256000
+        ]
+      }
+    },
+    "required": [
+      "model",
+      "prompt"
+    ]
+  },
+  "google/gemini-3.1-flash-tts": {
+    "type": "object",
+    "properties": {
+      "model": {
+        "type": "string",
+        "enum": [
+          "google/gemini-3.1-flash-tts"
+        ]
+      },
+      "text": {
+        "type": "string"
+      },
+      "voice": {
+        "type": "string",
+        "enum": [
+          "Zephyr",
+          "Puck",
+          "Charon",
+          "Kore",
+          "Fenrir",
+          "Leda",
+          "Orus",
+          "Aoede",
+          "Callirrhoe",
+          "Autonoe",
+          "Enceladus",
+          "Iapetus",
+          "Umbriel",
+          "Algieba",
+          "Despina",
+          "Erinome",
+          "Algenib",
+          "Rasalgethi",
+          "Laomedeia",
+          "Achernar",
+          "Alnilam",
+          "Schedar",
+          "Gacrux",
+          "Pulcherrima",
+          "Achird",
+          "Zubenelgenubi",
+          "Vindemiatrix",
+          "Sadachbia",
+          "Sadaltager",
+          "Sulafat"
+        ]
+      }
+    },
+    "required": [
+      "model",
+      "text"
+    ]
+  },
+  "google/gemini-2.5-pro-tts": {
+    "type": "object",
+    "properties": {
+      "model": {
+        "type": "string",
+        "enum": [
+          "google/gemini-2.5-pro-tts"
+        ]
+      },
+      "text": {
+        "type": "string"
+      },
+      "voice": {
+        "type": "string",
+        "enum": [
+          "Zephyr",
+          "Puck",
+          "Charon",
+          "Kore",
+          "Fenrir",
+          "Leda",
+          "Orus",
+          "Aoede",
+          "Callirrhoe",
+          "Autonoe",
+          "Enceladus",
+          "Iapetus",
+          "Umbriel",
+          "Algieba",
+          "Despina",
+          "Erinome",
+          "Algenib",
+          "Rasalgethi",
+          "Laomedeia",
+          "Achernar",
+          "Alnilam",
+          "Schedar",
+          "Gacrux",
+          "Pulcherrima",
+          "Achird",
+          "Zubenelgenubi",
+          "Vindemiatrix",
+          "Sadachbia",
+          "Sadaltager",
+          "Sulafat"
+        ]
+      }
+    },
+    "required": [
+      "model",
+      "text"
+    ]
+  },
+  "minimax/speech-2.6-hd": {
+    "type": "object",
+    "properties": {
+      "model": {
+        "type": "string",
+        "enum": [
+          "minimax/speech-2.6-hd"
+        ]
+      },
+      "text": {
+        "type": "string",
+        "maxLength": 10000
+      },
+      "voice": {
+        "type": "string",
+        "enum": [
+          "English_expressive_narrator",
+          "English_radiant_girl",
+          "English_magnetic_voiced_man",
+          "English_compelling_lady1",
+          "English_Aussie_Bloke",
+          "English_captivating_female1",
+          "English_Upbeat_Woman",
+          "English_Trustworth_Man",
+          "English_CalmWoman",
+          "English_UpsetGirl",
+          "English_Gentle-voiced_man",
+          "English_Whispering_girl",
+          "English_Diligent_Man",
+          "English_Graceful_Lady",
+          "English_ReservedYoungMan"
+        ]
+      },
+      "speed": {
+        "type": "number",
+        "minimum": 0.5,
+        "maximum": 2
+      },
+      "vol": {
+        "type": "number",
+        "minimum": 0,
+        "maximum": 10
+      },
+      "pitch": {
+        "type": "integer",
+        "minimum": -12,
+        "maximum": 12
+      },
+      "emotion": {
+        "type": "string",
+        "enum": [
+          "auto",
+          "happy",
+          "sad",
+          "angry",
+          "fearful",
+          "disgusted",
+          "surprised",
+          "calm",
+          "fluent",
+          "neutral"
+        ]
+      },
+      "language_boost": {
+        "type": "string",
+        "enum": [
+          "auto",
+          "English",
+          "Chinese",
+          "Chinese,Yue",
+          "Japanese",
+          "Korean",
+          "Spanish",
+          "French",
+          "Portuguese",
+          "German",
+          "Italian",
+          "Arabic",
+          "Russian",
+          "Indonesian",
+          "Thai",
+          "Vietnamese"
+        ]
+      },
+      "format": {
+        "type": "string",
+        "enum": [
+          "mp3",
+          "wav",
+          "flac"
+        ]
+      },
+      "sample_rate": {
+        "type": "integer",
+        "enum": [
+          8000,
+          16000,
+          22050,
+          24000,
+          32000,
+          44100
+        ]
+      },
+      "bitrate": {
+        "type": "integer",
+        "enum": [
+          32000,
+          64000,
+          128000,
+          256000
+        ]
+      }
+    },
+    "required": [
+      "model",
+      "text"
+    ]
+  },
+  "elevenlabs/v3/text-to-speech": {
+    "properties": {
+      "model": {
+        "type": "string"
+      },
+      "text": {
+        "type": "string",
+        "maxLength": 5000,
+        "minLength": 1
+      },
+      "voice": {
+        "type": "string",
+        "enum": [
+          "hpp4J3VqNfWAUOO0d1Us",
+          "CwhRBWXzGAHq8TQ4Fs17",
+          "EXAVITQu4vr4xnSDxMaL",
+          "FGY2WhTYpPnrIDTdsKH5",
+          "IKne3meq5aSn9XLyUdCD",
+          "JBFqnCBsd6RMkjVDRZzb",
+          "N2lVS1w4EtoT3dr4eOWO",
+          "SAz9YHcvj6GT2YYXdXww",
+          "SOYHLrjzK2X1ezoPC6cr",
+          "TX3LPaxmHKxFdv7VOQHJ",
+          "Xb7hH8MSUJpSbSDYk0k2",
+          "XrExE9yKIg1WjnnlVkGX",
+          "bIHbv24MWmeRgasZH58o",
+          "cgSgspJ2msm6clMCkdW9",
+          "cjVigY5qzO86Huf0OWal",
+          "iP95p4xoKVk53GoZ742B",
+          "nPczCjzI2devNBz1zQrb",
+          "onwK4e9ZLuTAKqWW03F9",
+          "pFZP5JQG7iQjIQuC4Bku",
+          "pNInz6obpgDQGcFmaJgB",
+          "pqHfZKP75CvOlQylNhV4"
+        ]
+      },
+      "language_code": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "stability": {
+        "minimum": 0,
+        "type": "number",
+        "maximum": 1
+      },
+      "apply_text_normalization": {
+        "type": "string",
+        "enum": [
+          "auto",
+          "on",
+          "off"
+        ]
+      }
+    },
+    "required": [
+      "model",
+      "text"
+    ],
+    "type": "object",
+    "allOf": [
+      {
+        "if": {
+          "properties": {
+            "voice": {
+              "enum": [
+                "IKne3meq5aSn9XLyUdCD",
+                "SAz9YHcvj6GT2YYXdXww"
+              ]
+            }
+          },
+          "required": [
+            "voice"
+          ]
+        },
+        "then": {
+          "properties": {
+            "language_code": {
+              "const": "zh"
+            }
+          }
+        }
+      },
+      {
+        "if": {
+          "properties": {
+            "voice": {
+              "enum": [
+                "JBFqnCBsd6RMkjVDRZzb",
+                "Xb7hH8MSUJpSbSDYk0k2"
+              ]
+            }
+          },
+          "required": [
+            "voice"
+          ]
+        },
+        "then": {
+          "properties": {
+            "language_code": {
+              "const": "ja"
+            }
+          }
+        }
+      },
+      {
+        "if": {
+          "properties": {
+            "voice": {
+              "enum": [
+                "XrExE9yKIg1WjnnlVkGX"
+              ]
+            }
+          },
+          "required": [
+            "voice"
+          ]
+        },
+        "then": {
+          "properties": {
+            "language_code": {
+              "const": "it"
+            }
+          }
+        }
+      },
+      {
+        "if": {
+          "properties": {
+            "voice": {
+              "enum": [
+                "FGY2WhTYpPnrIDTdsKH5",
+                "cjVigY5qzO86Huf0OWal"
+              ]
+            }
+          },
+          "required": [
+            "voice"
+          ]
+        },
+        "then": {
+          "properties": {
+            "language_code": {
+              "const": "fr"
+            }
+          }
+        }
+      },
+      {
+        "if": {
+          "properties": {
+            "voice": {
+              "enum": [
+                "TX3LPaxmHKxFdv7VOQHJ"
+              ]
+            }
+          },
+          "required": [
+            "voice"
+          ]
+        },
+        "then": {
+          "properties": {
+            "language_code": {
+              "const": "de"
+            }
+          }
+        }
+      },
+      {
+        "if": {
+          "properties": {
+            "voice": {
+              "enum": [
+                "bIHbv24MWmeRgasZH58o"
+              ]
+            }
+          },
+          "required": [
+            "voice"
+          ]
+        },
+        "then": {
+          "properties": {
+            "language_code": {
+              "const": "es"
+            }
+          }
+        }
+      },
+      {
+        "if": {
+          "properties": {
+            "voice": {
+              "enum": [
+                "hpp4J3VqNfWAUOO0d1Us",
+                "CwhRBWXzGAHq8TQ4Fs17",
+                "EXAVITQu4vr4xnSDxMaL",
+                "N2lVS1w4EtoT3dr4eOWO",
+                "SOYHLrjzK2X1ezoPC6cr",
+                "cgSgspJ2msm6clMCkdW9",
+                "iP95p4xoKVk53GoZ742B",
+                "nPczCjzI2devNBz1zQrb",
+                "onwK4e9ZLuTAKqWW03F9",
+                "pFZP5JQG7iQjIQuC4Bku",
+                "pNInz6obpgDQGcFmaJgB",
+                "pqHfZKP75CvOlQylNhV4"
+              ]
+            }
+          },
+          "required": [
+            "voice"
+          ]
+        },
+        "then": {
+          "properties": {
+            "language_code": {
+              "const": "en-US"
+            }
+          }
+        }
+      }
+    ]
+  }
+}

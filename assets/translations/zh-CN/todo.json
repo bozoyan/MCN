@@ -1,0 +1,7 @@
+{
+  "todo.panel_title": "任务列表",
+  "todo.tool_card_title": "已更新任务列表",
+  "todo.remaining.zero": "暂无待办任务",
+  "todo.remaining.other": "剩余 {count} 项任务",
+  "todo.remaining.one": "剩余 {count} 项任务"
+}

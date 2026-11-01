@@ -1,0 +1,308 @@
+name: reveric
+description: "A new Flutter project."
+# The following line prevents the package from being accidentally published to
+# pub.dev using `flutter pub publish`. This is preferred for private packages.
+publish_to: 'none' # Remove this line if you wish to publish to pub.dev
+
+# The following defines the version and build number for your application.
+# A version number is three numbers separated by dots, like 1.2.43
+# followed by an optional build number separated by a +.
+# Both the version and the builder number may be overridden in flutter
+# build by specifying --build-name and --build-number, respectively.
+# In Android, build-name is used as versionName while build-number used as versionCode.
+# Read more about Android versioning at https://developer.android.com/studio/publish/versioning
+# In iOS, build-name is used as CFBundleShortVersionString while build-number is used as CFBundleVersion.
+# Read more about iOS versioning at
+# https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
+# In Windows, build-name is used as the major, minor, and patch parts
+# of the product and file versions while build-number is used as the build suffix.
+version: 0.5.3
+
+environment:
+  sdk: ^3.12.0
+  flutter: ">=3.44.0"
+
+# Dependencies specify other packages that your package needs in order to work.
+# To automatically upgrade your package dependencies to the latest versions
+# consider running `flutter pub upgrade --major-versions`. Alternatively,
+# dependencies can be manually updated by changing the version numbers below to
+# the latest version available on pub.dev. To see which dependencies have newer
+# versions available, run `flutter pub outdated`.
+dependencies:
+  pub_semver: ^2.2.0
+  flutter:
+    sdk: flutter
+
+  flutter_scene: 0.24.3
+  fvp:
+    path: third/fvp
+  video_player:
+    path: third/video_player
+  ffmpeg_kit_flutter_new:
+    path: third/ffmpeg_kit_flutter_new
+  file_selector: ^1.1.0
+  image_picker: ^1.1.0
+  drift: ^2.35.1
+  drift_flutter: ^0.3.0
+  openai_dart: ^2.0.0
+  open_responses: ^0.4.0
+  anthropic_sdk_dart: ^2.1.0
+  googleai_dart: ^6.3.0
+  flutter_riverpod: ^3.3.1
+  flutter_hooks: ^0.21.3+1
+  flutter_mobx: ^2.4.0
+  hooks_riverpod: ^3.3.1
+  riverpod_annotation: ^4.0.2
+  mobx: ^2.7.0
+  equatable: ^2.0.7
+  vector_math: ^2.1.4
+  path: ^1.9.1
+  glob: ^2.2.0
+  path_provider: ^2.1.5
+  characters: ^1.4.0
+  collection: ^1.19.0
+  easy_localization: ^3.0.8
+  window_manager: ^0.5.1
+  tray_manager: ^0.5.3
+  flutter_local_notifications: ^22.3.0
+  shared_preferences: ^2.5.3
+  sqlite3: ^3.7.0
+  http: ^1.2.0
+  crypto: ^3.0.6
+  html: ^0.15.6
+  uuid: ^4.0.0
+  json_annotation: ^4.11.0
+  cross_cache: ^1.1.0
+  blurhash_dart: ^1.2.1
+  image: ^4.10.1
+  mime: ^2.1.0
+  thumbhash: ^0.1.0+1
+  diffutil_dart: ^4.0.1
+  dio: ^5.11.1
+  freezed_annotation: ^3.1.0
+  gpt_markdown: ^1.3.0
+  # A2UI 协议层（0.x 频繁变更，锁定版本，只在 lib/shared/widgets/a2ui/ 内使用）
+  a2ui_core: 0.4.0
+  json_schema_builder: ^0.1.7
+  intl: ">=0.19.0 <1.0.0"
+  meta: ^1.16.0
+  mustache_template: ^2.0.4
+  provider: ^6.1.5+1
+  scrollview_observer: ^1.26.2
+  cross_file: ^0.3.5+2
+  shimmer: ^3.0.0
+  flutter_svg: ^2.0.10
+  ffi: ^2.1.0
+  win32: ^6.0.0
+  logger: ^2.5.0
+  package_info_plus: ^10.2.1
+  archive: ^4.3.0
+  yaml: ^3.1.4
+  flutter_colorpicker: ^1.1.0
+  charset: ^2.0.1
+  json_repair_flutter: ^2.0.2
+  flutter_slidable: ^4.0.0
+  battery_plus: ^7.1.0
+  share_plus: ^13.3.0
+  url_launcher: ^6.3.2
+  qr_flutter: ^4.1.0
+  xml: ^7.0.1
+  fjs: 3.3.1
+  flutter_rust_bridge: 2.12.0
+  super_clipboard: 0.10.0-dev.2
+  super_drag_and_drop: 0.10.0-dev.2
+  socks5_proxy: ^2.1.1
+  mcp_dart: 2.4.3
+  app_links: 7.2.1
+dev_dependencies:
+  integration_test:
+    sdk: flutter
+  flutter_test:
+    sdk: flutter
+
+  # The "flutter_lints" package below contains a set of recommended lints to
+  # encourage good coding practices. The lint set provided by the package is
+  # activated in the `analysis_options.yaml` file located at the root of your
+  # package. See that file for information about deactivating specific lint
+  # rules and activating additional ones.
+  flutter_lints: ^6.0.0
+  fake_async: ^1.3.3
+  test: ^1.31.1
+  build_runner: ^2.16.1
+  # 与 Flutter SDK 的 test 工具链共用 analyzer 13–14。
+  drift_dev: 2.35.1
+  riverpod_generator:
+    git:
+      url: https://github.com/rrousselGit/riverpod.git
+      ref: 0313d051713158b11aeb6b698c57981563021dae
+      path: packages/riverpod_generator
+  json_serializable: ^6.13.1
+  patrol: 4.10.0
+  patrol_cli: 4.8.0
+  patrol_finders: ^3.6.0
+  flutter_launcher_icons: ^0.14.4
+  native_toolchain_rust: ^1.0.7
+
+dependency_overrides:
+  mcp_dart:
+    path: third/mcp_dart
+  irondash_engine_context:
+    path: third/irondash_engine_context
+  fjs:
+    path: third/fjs
+  window_manager:
+    path: third/window_manager
+  anthropic_sdk_dart:
+    path: third/ai_clients_dart/packages/anthropic_sdk_dart
+  openai_dart:
+    path: third/ai_clients_dart/packages/openai_dart
+  googleai_dart:
+    path: third/ai_clients_dart/packages/googleai_dart
+  open_responses:
+    path: third/ai_clients_dart/packages/open_responses
+  riverpod_analyzer_utils:
+    git:
+      url: https://github.com/rrousselGit/riverpod.git
+      ref: 0313d051713158b11aeb6b698c57981563021dae
+      path: packages/riverpod_analyzer_utils
+
+# For information on the generic Dart part of this file, see the
+# following page: https://dart.dev/tools/pub/pubspec
+
+# The following section is specific to Flutter packages.
+flutter:
+  shaders:
+    - shaders/equirect_view.frag
+  config:
+    enable-windowing: true
+
+  assets:
+    - assets/plugins/reveric.web/
+    - assets/plugins/reveric.web/dist/
+    - assets/plugins/reveric.deepseek/
+    - assets/plugins/reveric.deepseek/dist/
+    # Flutter 不会递归扫描子目录，每个目录/文件需单独声明
+    - assets/director/models/quaternius-standard-male.glb
+    - assets/director/models/quaternius-standard-female.glb
+    - assets/director/models/props/
+    - assets/translations/en/
+    - assets/translations/zh-CN/
+    - assets/prompts/system/
+    - assets/prompts/agent/
+    - assets/prompts/task/
+    - assets/prompts/fragments/
+    - assets/logo/
+    - assets/illustrations/
+    - assets/icons/providers/
+    - assets/icons/ai_assistant/
+    - assets/icons/phosphor/ # Phosphor Icons (MIT), https://github.com/phosphor-icons/core
+    - assets/icons/collapse.svg
+    - assets/images/map.webp
+    - assets/images/onboarding-background.webp
+    - assets/images/background/
+    - assets/images/demo/
+    - assets/images/production_styles/
+    - assets/audio/voices/
+    - assets/images/agent_avatars/dark/
+    - assets/images/agent_avatars/light/
+    # Bundled Control Skills 与按需读取的 references
+    - assets/bundled_skills/setup/SKILL.md
+    - assets/bundled_skills/setup/references/original.md
+    - assets/bundled_skills/setup/references/fanfic.md
+    - assets/bundled_skills/setup/references/sequel.md
+    - assets/bundled_skills/setup/references/imitation.md
+    - assets/bundled_skills/management/SKILL.md
+    - assets/bundled_skills/management/references/agent-rules.md
+    - assets/bundled_skills/management/references/agent-skills.md
+    - assets/bundled_skills/management/references/skill-design.md
+    - assets/bundled_skills/management/references/subagents.md
+    - assets/bundled_skills/management/references/themes.md
+    - assets/bundled_skills/management/references/providers.md
+    - assets/bundled_skills/canvas-composition/SKILL.md
+    - assets/bundled_skills/canvas-composition/references/story-structure.md
+    - assets/bundled_skills/canvas-composition/references/branching-story.md
+    - assets/bundled_skills/canvas-composition/references/relationships.md
+    - assets/bundled_skills/canvas-composition/references/idea-board.md
+    - assets/bundled_skills/screenplay-tools/SKILL.md
+    - assets/bundled_skills/screenplay-tools/references/
+    - assets/bundled_skills/media-editing/SKILL.md
+    - assets/bundled_skills/media-editing/references/
+    - assets/bundled_skills/story-continuity/SKILL.md
+    - assets/bundled_skills/story-continuity/references/novel.md
+    - assets/bundled_skills/story-continuity/references/relations.md
+    - assets/bundled_skills/story-continuity/references/screenplay.md
+    - assets/official_skills/
+    - assets/official_skills/map-design/SKILL.md
+    - assets/official_skills/map-design/references/
+    - assets/official_skills/screenplay-writing/SKILL.md
+    - assets/official_skills/screenplay-writing/references/
+    - assets/official_skills/screenplay-production/SKILL.md
+    - assets/official_skills/screenplay-production/references/
+
+  # An image asset can refer to one or more resolution-specific "variants", see
+  # https://flutter.dev/to/resolution-aware-images
+
+  # For details regarding adding assets from package dependencies, see
+  # https://flutter.dev/to/asset-from-package
+
+  # To add custom fonts to your application, add a fonts section here,
+  # in this "flutter" section. Each entry in this list should have a
+  # "family" key with the font family name, and a "fonts" key with a
+  # list giving the asset and other descriptors for the font. For
+  # example:
+  # fonts:
+  #   - family: Schyler
+  #     fonts:
+  #       - asset: fonts/Schyler-Regular.ttf
+  #       - asset: fonts/Schyler-Italic.ttf
+  #         style: italic
+  #   - family: Trajan Pro
+  #     fonts:
+  #       - asset: fonts/TrajanPro.ttf
+  #       - asset: fonts/TrajanPro_Bold.ttf
+  #         weight: 700
+  #
+  # For details regarding fonts from package dependencies,
+  # see https://flutter.dev/to/font-from-package
+  fonts:
+    - family: LXGWWenKai
+      fonts:
+        - asset: assets/fonts/LXGWWenKai-Regular.ttf
+    - family: Literata
+      fonts:
+        - asset: assets/fonts/Literata-Regular.ttf
+        - asset: assets/fonts/Literata-Italic.ttf
+          style: italic
+
+flutter_launcher_icons:
+  android: true
+  ios: true
+  macos:
+    generate: true
+    image_path: assets/logo/reveric_app_icon_macos_1024.png
+  windows:
+    generate: true
+    image_path: assets/logo/reveric_app_icon_macos_1024.png
+  linux:
+    generate: true
+    image_path: assets/logo/reveric_app_icon_ios_1024.png
+  image_path: assets/logo/reveric_app_icon_ios_1024.png
+  adaptive_icon_background: assets/logo/reveric_adaptive_icon_background_432.png
+  adaptive_icon_foreground: assets/logo/reveric_adaptive_icon_foreground_432.png
+  remove_alpha_ios: true
+
+patrol:
+  app_name: Reveric
+  android:
+    package_name: ai.reveric.debug
+  ios:
+    bundle_id: ai.reveric.debug
+  macos:
+    bundle_id: ai.reveric.debug
+
+# 打包前需注释掉此配置，让 Flutter 内置 SQLite 库
+# Windows/Android 用户系统不自带 SQLite，使用 system source 会导致应用无法运行
+# hooks:
+#   user_defines:
+#     sqlite3:
+#       source: system

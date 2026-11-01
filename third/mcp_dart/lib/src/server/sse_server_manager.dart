@@ -1,0 +1,175 @@
+import 'dart:io';
+
+import 'package:mcp_dart/src/shared/legacy_sse_deprecation.dart';
+import 'package:mcp_dart/src/shared/logging.dart';
+
+import 'dns_rebinding_protection.dart';
+import 'mcp_server.dart';
+import 'sse.dart';
+
+final _logger = Logger("mcp_dart.server.sse.manager");
+bool _legacySseWarningEmitted = false;
+
+/// Legacy manager for Server-Sent Events (SSE) connections.
+///
+/// Prefer `StreamableHTTPServerTransport` for new servers. This manager is
+/// retained for backward compatibility with existing SSE integrations.
+@Deprecated(legacySseDeprecationMessage)
+class SseServerManager {
+  /// Map to store active SSE transports, keyed by session ID.
+  final Map<String, SseServerTransport> activeSseTransports = {};
+
+  /// The main MCP Server instance.
+  final McpServer mcpServer;
+
+  /// Path for establishing SSE connections.
+  final String ssePath;
+
+  /// Path for sending messages to the server.
+  final String messagePath;
+
+  /// Enables host/origin validation to mitigate DNS rebinding attacks.
+  final bool enableDnsRebindingProtection;
+
+  /// Explicit host allowlist used when DNS rebinding protection is enabled.
+  final Set<String>? allowedHosts;
+
+  /// Explicit origin allowlist used when DNS rebinding protection is enabled.
+  final Set<String>? allowedOrigins;
+
+  SseServerManager(
+    this.mcpServer, {
+    this.ssePath = '/sse',
+    this.messagePath = '/messages',
+    this.enableDnsRebindingProtection = false,
+    this.allowedHosts,
+    this.allowedOrigins,
+  }) {
+    if (!_legacySseWarningEmitted) {
+      _legacySseWarningEmitted = true;
+      _logger.warn(legacySseDeprecationMessage);
+    }
+  }
+
+  /// Routes incoming HTTP requests to appropriate handlers.
+  Future<void> handleRequest(HttpRequest request) async {
+    _logger.debug("Received request: ${request.method} ${request.uri.path}");
+
+    if (enableDnsRebindingProtection &&
+        !isRequestAllowedByDnsRebindingProtection(
+          request,
+          allowedHosts: allowedHosts,
+          allowedOrigins: allowedOrigins,
+        )) {
+      request.response
+        ..statusCode = HttpStatus.forbidden
+        ..write('Forbidden: blocked by DNS rebinding protection');
+      await request.response.close();
+      return;
+    }
+
+    if (request.uri.path == ssePath) {
+      if (request.method == 'GET') {
+        await handleSseConnection(request);
+      } else {
+        await _sendMethodNotAllowed(request, ['GET']);
+      }
+    } else if (request.uri.path == messagePath) {
+      if (request.method == 'POST') {
+        await _handlePostMessage(request);
+      } else {
+        await _sendMethodNotAllowed(request, ['POST']);
+      }
+    } else {
+      await _sendNotFound(request);
+    }
+  }
+
+  /// Handles the initial GET request to establish an SSE connection.
+  Future<void> handleSseConnection(HttpRequest request) async {
+    _logger.debug("Client connecting for SSE at /sse...");
+    SseServerTransport? transport;
+
+    try {
+      transport = SseServerTransport(
+        response: request.response,
+        messageEndpointPath: messagePath,
+      );
+
+      final sessionId = transport.sessionId;
+      activeSseTransports[sessionId] = transport;
+      _logger.debug("Stored new SSE transport for session: $sessionId");
+
+      transport.onclose = () {
+        _logger.debug(
+          "SSE transport closed (Session: $sessionId). Removing from active list.",
+        );
+        activeSseTransports.remove(sessionId);
+      };
+
+      transport.onerror = (error) {
+        _logger.warn("Error on SSE transport (Session: $sessionId): $error");
+      };
+
+      await mcpServer.connect(transport);
+      _logger.debug("SSE transport connected, session ID: $sessionId");
+    } catch (e) {
+      _logger.warn("Error setting up SSE connection: $e");
+      if (transport != null) {
+        activeSseTransports.remove(transport.sessionId);
+      }
+      if (!request.response.headers.persistentConnection) {
+        try {
+          request.response.statusCode = HttpStatus.internalServerError;
+          request.response.write("Failed to initialize SSE connection.");
+          await request.response.close();
+        } catch (_) {}
+      }
+    }
+  }
+
+  /// Handles POST requests containing client messages.
+  Future<void> _handlePostMessage(HttpRequest request) async {
+    final sessionId = request.uri.queryParameters['sessionId'];
+    _logger.debug("Received POST to $messagePath (Session ID: $sessionId)");
+
+    if (sessionId == null || sessionId.isEmpty) {
+      request.response
+        ..statusCode = HttpStatus.badRequest
+        ..write("Missing or empty 'sessionId' query parameter.");
+      await request.response.close();
+      return;
+    }
+
+    final transportToUse = activeSseTransports[sessionId];
+    if (transportToUse != null) {
+      await transportToUse.handlePostMessage(request);
+    } else {
+      _logger.debug("No active SSE transport found for session ID: $sessionId");
+      request.response
+        ..statusCode = HttpStatus.notFound
+        ..write("No active SSE session found for ID: $sessionId");
+      await request.response.close();
+    }
+  }
+
+  /// Sends a 404 Not Found response.
+  Future<void> _sendNotFound(HttpRequest request) async {
+    request.response
+      ..statusCode = HttpStatus.notFound
+      ..write('Not Found');
+    await request.response.close();
+  }
+
+  /// Sends a 405 Method Not Allowed response.
+  Future<void> _sendMethodNotAllowed(
+    HttpRequest request,
+    List<String> allowedMethods,
+  ) async {
+    request.response
+      ..statusCode = HttpStatus.methodNotAllowed
+      ..headers.set(HttpHeaders.allowHeader, allowedMethods.join(', '))
+      ..write('Method Not Allowed');
+    await request.response.close();
+  }
+}

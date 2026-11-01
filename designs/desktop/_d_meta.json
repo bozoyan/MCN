@@ -1,0 +1,137 @@
+{
+  "type": "design",
+  "designSystems": [],
+  "primaryDesignSystem": null,
+  "assets": {
+    "EntityGraph": {
+      "versions": [
+        {
+          "path": "EntityGraph.html",
+          "createdAt": "2026-06-29T17:41:17.638Z",
+          "status": "needs-review"
+        }
+      ]
+    },
+    "ModelSelectButton.jsx": {
+      "versions": [
+        {
+          "path": "ModelSelectButton.jsx",
+          "createdAt": "2026-07-05T14:39:44.121Z",
+          "status": "needs-review"
+        }
+      ]
+    },
+    "AgentSkill Setup": {
+      "versions": [
+        {
+          "path": "skills/views.jsx",
+          "createdAt": "2026-07-18T12:16:42.181Z",
+          "status": "needs-review"
+        }
+      ]
+    },
+    "无限画布 · CanvasEditorPage": {
+      "versions": [
+        {
+          "path": "canvas/Canvas.html",
+          "createdAt": "2026-07-31T06:23:30.820Z",
+          "status": "needs-review"
+        }
+      ]
+    },
+    "UI Kit · Desktop App": {
+      "versions": [
+        {
+          "path": "index.html",
+          "createdAt": "2026-08-01T06:37:19.264Z",
+          "status": "needs-review",
+          "subtitle": "小说 / 剧本 拆为侧边栏两个菜单；剧本页按季·集·场统计；新建作品 dialog 重做（必填前置 + 更多信息折叠 + 从小说「改编为剧本」）",
+          "viewport": {
+            "width": 1440,
+            "height": 900
+          }
+        }
+      ]
+    },
+    "Cover Studio · 封面工作台": {
+      "versions": [
+        {
+          "path": "CoverStudio.jsx",
+          "createdAt": "2026-08-10T14:25:11.682Z",
+          "status": "needs-review"
+        }
+      ]
+    },
+    "地图工作台 · MapStudio": {
+      "versions": [
+        {
+          "path": "MapStudio.jsx",
+          "createdAt": "2026-08-30T18:31:55.124Z",
+          "status": "needs-review",
+          "subtitle": "世界观 · 地图：地图列表 + 地点树 / 画布 / 制图师（?screen=map）",
+          "viewport": {
+            "width": 1440,
+            "height": 900
+          }
+        }
+      ]
+    },
+    "剧本写作 · Screenplay": {
+      "versions": [
+        {
+          "path": "index.html",
+          "createdAt": "2026-08-25T12:52:17.113Z",
+          "status": "needs-review",
+          "subtitle": "剧集/电影 · 剧本·大纲·节拍·场次·分镜·人物关系"
+        },
+        {
+          "path": "index.html",
+          "createdAt": "2026-09-03T06:30:00.000Z",
+          "status": "needs-review",
+          "subtitle": "加入季层级（单季隐藏 / 多季选择器 + 管理季）、多季样例《旧河道》、AI 改动待审阅；电影标为第一期暂不支持"
+        },
+        {
+          "path": "index.html",
+          "createdAt": "2026-09-10T00:00:00.000Z",
+          "status": "needs-review",
+          "subtitle": "分镜按方案阶段 M 重做：按集列场·场下挂镜头的纵向列表，镜头 = 派生镜号 + 短标题 + 时长 + 画面描述 + 可展开提示词（编辑 / 复制）；撤掉分镜板·画布·镜头表三视图、出图占位框与景别/角度/运镜/焦段；场次补齐短标题、目标时长、情绪、事件与「内外」取值并新增场次属性弹窗，列表与分镜分组头改用短标题（正文不显示，保持标准剧本格式）；正文场次标题新增分镜与属性两个入口；状态栏分列目标·估算·镜头计划三种时长"
+        }
+      ]
+    },
+    "新建 / 编辑作品 dialog": {
+      "versions": [
+        {
+          "path": "NovelFormDialog.jsx",
+          "createdAt": "2026-09-16T19:03:26.113Z",
+          "status": "needs-review"
+        }
+      ]
+    },
+    "短剧 · 多轨剪辑": {
+      "versions": [
+        {
+          "path": "drama/Editing.html",
+          "createdAt": "2026-10-10T13:06:36.478Z",
+          "status": "needs-review",
+          "subtitle": "主轨磁吸 + 叠加/对白/音效/音乐/字幕，按时间线导出成片"
+        }
+      ]
+    },
+    "制片 · 工具审批": {
+      "versions": [
+        {
+          "path": "drama/Drama.html",
+          "createdAt": "2026-10-12T14:58:52.174Z",
+          "status": "needs-review",
+          "subtitle": "制作助手的审批卡（冻结请求 + 适用范围 + 回执）、输入框上方运行条（等待授权 / 取消）、画布悬浮球等待授权胶囊、工具权限矩阵（&perm=1；&approval=savefail|conflict）",
+          "viewport": {
+            "width": 1440,
+            "height": 900
+          }
+        }
+      ]
+    }
+  },
+  "createdAt": "2026-06-29T17:41:17.643Z",
+  "updatedAt": "2026-10-12T14:58:52.178Z"
+}
