@@ -1,6 +1,6 @@
 <div align="center">
 
-# Reveric | 幻界
+# Reveric | 幻界MCN
 
 ### AI Native 桌面创作工作台
 **智能体读懂整部作品，和你一起从小说写到成片**
@@ -21,6 +21,7 @@
 <p align="center">
   <a href="#核心特性">核心特性</a> •
   <a href="#全流程展示">全流程展示</a> •
+  <a href="#免费-ai-出图">免费 AI 出图</a> •
   <a href="#模型支持">模型支持</a> •
   <a href="#下载安装">下载安装</a> •
   <a href="#快速开始">快速开始</a> •
@@ -33,56 +34,68 @@
 
 ---
 
-## 赞助
+## 免费 AI 出图
 
-<table width="100%">
-  <tr>
-    <td width="50%" align="center" valign="top">
-      <a href="https://88api.ai/sign-up?aff=5q8X">
-        <img src=".github/images/88api-logo.png" alt="88API Token 聚合平台" height="80"/>
-        <br/>
-        <strong>88API Token 聚合平台</strong>
-      </a>
-      <p align="center">
-        <a href="https://88api.ai/sign-up?aff=5q8X">
-          <img src=".github/images/88api-banner.png" alt="88API · 88api.ai" width="600"/>
-        </a>
-      </p>
-      <p align="left"><strong>感谢 88API Token 聚合平台赞助本项目！</strong></p>
-      <p align="left">88API 是一家由香港企业运营、面向开发者、创作者与 AI 应用用户的一站式多模型 API 平台，通过统一接口接入文本、图片、语音和视频模型，覆盖 AI 编程、智能翻译、内容创作、配音、图像生成和视频生成等常见工作流。平台提供高质量 DeepSeek 算力，支持国际主流付款方式，可提供发票，并提供企业级稳定服务。</p>
-      <p align="left">通过<a href="https://88api.ai/sign-up?aff=5q8X">专属链接注册</a>，可以获取专属赠送额度！</p>
-      <p align="left">
-        官网：<a href="https://88api.ai/">88api.ai</a><br/>
-        请求地址：<code>https://api.88api.ai</code>
-      </p>
-    </td>
-    <td width="50%" align="center" valign="top">
-      <a href="https://metaso.cn/minimax-h3/?s=Reveric">
-        <img src=".github/images/metaso-logo.png" alt="秘塔科技" height="80"/>
-        <br/>
-        <strong>MiniMax H3 视频生成 API｜秘塔科技</strong>
-      </a>
-      <p align="center">
-        <a href="https://metaso.cn/minimax-h3/?s=Reveric">
-          <img src=".github/images/metaso-banner.png" alt="秘塔科技 · metaso.cn" width="600"/>
-        </a>
-      </p>
-      <p align="left"><strong>感谢秘塔科技赞助本项目！</strong></p>
-      <p align="left">秘塔科技提供高性价比的 MiniMax H3 视频生成服务：<strong>768P 仅 0.09 元/秒，2K 仅 0.15 元/秒</strong>。支持 30 秒、支持原生 2K、音画同步，API 兼容 <strong>OpenAI 协议</strong>，同时支持 <strong>ComfyUI</strong>，无需自行部署 GPU。</p>
-      <p align="left">🎁 通过 <a href="https://metaso.cn/minimax-h3/?s=Reveric">Reveric 专属链接注册</a>，即可领取赠送额度及专属优惠。</p>
-      <p align="left">
-        官网：<a href="https://metaso.cn/minimax-h3/?s=Reveric">metaso.cn</a><br/>
-        请求地址：<code>https://metaso.cn/api/minimax</code>
-      </p>
-    </td>
-  </tr>
-</table>
+Reveric 内置两条开箱即用的出图渠道:**魔搭社区(ModelScope)API-Inference** 与 **MOSS 官方文生图**。在「设置 ➔ 模型设置」里填入各自的 API Key 即用,BYOK 直连、不经任何中间服务,生成结果自动进入作品图库。这也是本版本的兼容优选:**为魔搭社区量身打造的调用体验**。
+
+### 魔搭社区 · ModelScope API-Inference
+
+启用 ModelScope 供应商后,即可调用魔搭托管的 7 个出图底座:
+
+| 底座模型 | 说明 |
+| :--- | :--- |
+| `Qwen/Qwen-Image-2.1-Turbo` | 8 步快速出图,默认底座 |
+| `Qwen/Qwen-Image-2.1` | 精细档,官方建议 50 步 |
+| `Tongyi-MAI/Z-Image-Turbo` | 通义快速底座 |
+| `krea/Krea-2-Turbo` | Krea 快速底座 |
+| `MusePublic/flux-high-res` | FLUX 高清底座 |
+| `openmoss/MOSS-Image-SFT` | MOSS 文生图(魔搭托管) |
+| `briaai/Fibo-2.0-dev` | BRIA 商业底座 |
+
+![魔搭社区 API 供应商](assets/mcn/魔搭社区-API供应商.png)
+
+![出图模型选择](assets/mcn/图像生成-出图模型选择.png)
+
+**自定义模型与 LoRA 等参数**:
+
+- **请求级 LoRA 叠加**:最多 6 个魔搭社区 LoRA(如 `bozoyan/Q-FEIFEI`),多 LoRA 权重之和须为 1.0,换装换风格即时生效;
+- **尺寸三档自由配**:1K / 1.5K / 2K(最大边 1024 / 1440 / 2048),13 种画幅比例组合;采样步数、引导系数、随机种子均可调,步数按底座官方建议预填;
+- **参数记忆**:记住上次使用的模型 / 尺寸 / LoRA,下次打开自动恢复;
+- **参考图**:最多 4 张,生成时以参考图下发(走图像编辑接口)。
+
+![画布高级参数-自定义 LoRA](assets/mcn/画布-高级参数-自定义lora.png)
+
+**四个出图入口,参数全部打通**:
+
+| 入口 | 用法 |
+| :--- | :--- |
+| **对话窗口** | 输入 `/出图 一只在窗边的橘猫 size=1440x816 lora=bozoyan/Q-FEIFEI:0.7` 直出,或打开出图弹窗选择模型与参数 |
+| **无限画布** | 「调节」面板设置尺寸与 LoRA,参考图随任务冻结落库 |
+| **头像与照片** | 拍照 / 生成头像弹窗带尺寸与 LoRA,成片直接进人物照片集 |
+| **封面工作台** | 「高级参数」区块,封面按自定义底座与 LoRA 出图 |
+
+![对话-出图模型参数设置](assets/mcn/对话-出图模型参数设置.png)
+
+![头像与照片-拍照-人物照片集出图](assets/mcn/头像与照片-拍照-人物照片集出图.png)
+
+![画布-自定义读秒出图](assets/mcn/画布-自定义读秒出图.png)
+
+### MOSS · 官方文生图
+
+启用 MOSS 供应商(在 [mosi.cn](https://platform.mosi.cn) 申请 Key),直连官方同步接口,返回即成图:
+
+![MOSS AI 供应商](assets/mcn/MOSS-AI供应商.png)
+
+- **提示词增强**:同一次请求内先增强再生图,长文本与文字渲染表现出色;
+- **负向提示词**:排除不想要的元素;
+- **水印开关**:默认关闭可见水印,输出干净成图;
+- 尺寸每边 256–2048、16 的倍数、总像素不超过 2,097,152,1K / 1.5K / 2K 档位与魔搭一致。
 
 ---
 
 ## 项目简介
 
-**Reveric（幻界）是一个本地优先、以智能体为核心的桌面创作工作台，覆盖长篇小说、剧本改编与短剧/漫剧制片。** 整部作品保存在你的设备上，同时也是智能体的工作区：写章节、改剧本、铺分镜、调机位、剪成片，说一句话，它就在作品里动手完成。
+**Reveric（幻界MCN）是一个本地优先、以智能体为核心的桌面创作工作台，覆盖长篇小说、剧本改编与短剧/漫剧制片。** 整部作品保存在你的设备上，同时也是智能体的工作区：写章节、改剧本、铺分镜、调机位、剪成片，说一句话，它就在作品里动手完成。
 
 - **按需读取整部作品**：智能体自己检索需要的章节和设定，不用把人物小传复制进对话框。
 - **智能体操作所有模块**：小说、剧本、画布、3D 导演台、剪辑台，智能体都能直接上手操作。
@@ -297,19 +310,19 @@ make build-windows-release # 构建 Windows 客户端
 如果你在使用中遇到了问题，或对新功能有独到想法，欢迎参与交流：
 
 - 提交缺陷报告或需求建议：[GitHub Issues](https://github.com/bozoyan/MCN/issues)
-- 学 AI、交流经验：[LINUX DO 社区](https://linux.do/)
+- 学 AI、交流经验：[魔搭社区](https://modelscope.cn/profile/bozoyan)
 
 ---
 
 ## 许可证
 
-本项目基于 [AGPLv3](./LICENSE) 授权开源，附加条款与第三方依赖声明详见 [NOTICES](./NOTICES)。商业授权请联系 [bababaa261@gmail.com](mailto:bababaa261@gmail.com)。
+本项目基于 [AGPLv3](./LICENSE) 授权开源，附加条款与第三方依赖声明详见 [NOTICES](./NOTICES)。商业授权请联系 [201782@qq.com](mailto:201782@qq.com)。
 
 ---
 
 <div align="center">
 
-**Reveric | 幻界** · 让智能体成为你的创作搭档
+**Reveric | 幻界MCN** · 让智能体成为你的创作搭档
 
 [主页](https://github.com/bozoyan/MCN) • [发行版](https://github.com/bozoyan/MCN/releases) • [问题反馈](https://github.com/bozoyan/MCN/issues)
 

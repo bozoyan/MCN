@@ -1,6 +1,6 @@
 <div align="center">
 
-# Reveric | 幻界
+# Reveric | 幻界MCN
 
 ### AI-Native Desktop Creative Studio
 **An agent that understands your entire work, from the first chapter to the final cut.**
@@ -21,6 +21,7 @@
 <p align="center">
   <a href="#core-features">Core Features</a> •
   <a href="#end-to-end-workflow">Workflow Showcase</a> •
+  <a href="#free-ai-generated-images">Free AI Images</a> •
   <a href="#supported-models">Supported Models</a> •
   <a href="#download--installation">Download</a> •
   <a href="#quick-start">Quick Start</a> •
@@ -33,56 +34,68 @@
 
 ---
 
-## Sponsors
+## Free AI generated images
 
-<table width="100%">
-  <tr>
-    <td width="50%" align="center" valign="top">
-      <a href="https://88api.ai/sign-up?aff=5q8X">
-        <img src=".github/images/88api-logo.png" alt="88API Token Aggregation Platform" height="80"/>
-        <br/>
-        <strong>88API Token Aggregation Platform</strong>
-      </a>
-      <p align="center">
-        <a href="https://88api.ai/sign-up?aff=5q8X">
-          <img src=".github/images/88api-banner.png" alt="88API · 88api.ai" width="600"/>
-        </a>
-      </p>
-      <p align="left"><strong>Thank you to 88API for sponsoring this project!</strong></p>
-      <p align="left">Operated by a Hong Kong company, 88API is a unified multi-model API platform for developers, creators, and AI application users. It provides access to text, image, speech, and video models through a single interface, supporting AI coding, translation, content creation, voiceovers, image generation, and video generation. The platform offers high-quality DeepSeek compute, major international payment methods, invoicing, and enterprise-grade reliability.</p>
-      <p align="left"><a href="https://88api.ai/sign-up?aff=5q8X">Register through our referral link</a> to receive exclusive bonus credits!</p>
-      <p align="left">
-        Website: <a href="https://88api.ai/">88api.ai</a><br/>
-        API Base URL: <code>https://api.88api.ai</code>
-      </p>
-    </td>
-    <td width="50%" align="center" valign="top">
-      <a href="https://metaso.cn/minimax-h3/?s=Reveric">
-        <img src=".github/images/metaso-logo.png" alt="METASO" height="80"/>
-        <br/>
-        <strong>MiniMax H3 Video Generation API | METASO</strong>
-      </a>
-      <p align="center">
-        <a href="https://metaso.cn/minimax-h3/?s=Reveric">
-          <img src=".github/images/metaso-banner.png" alt="METASO · metaso.cn" width="600"/>
-        </a>
-      </p>
-      <p align="left"><strong>Thank you to METASO for sponsoring this project!</strong></p>
-      <p align="left">METASO offers cost-effective MiniMax H3 video generation: <strong>768P from just ¥0.09/s and 2K from just ¥0.15/s</strong>. It supports clips up to 30 seconds, native 2K, and synced audio. The API is <strong>OpenAI-compatible</strong> and also works with <strong>ComfyUI</strong>, so there is no GPU to deploy yourself.</p>
-      <p align="left">🎁 <a href="https://metaso.cn/minimax-h3/?s=Reveric">Register through the Reveric referral link</a> to receive bonus credits and exclusive offers.</p>
-      <p align="left">
-        Website: <a href="https://metaso.cn/minimax-h3/?s=Reveric">metaso.cn</a><br/>
-        API Base URL: <code>https://metaso.cn/api/minimax</code>
-      </p>
-    </td>
-  </tr>
-</table>
+Reveric ships with two ready-to-use image generation channels: **ModelScope API-Inference** and the **official MOSS text-to-image API**. Add each API key in Settings → Model Settings and go — BYOK, direct connection, no middleman, and results land straight in your work's asset library. This is the compatibility highlight of the current release: **an image-generation experience built for the ModelScope community**.
+
+### ModelScope · API-Inference
+
+Enable the ModelScope provider to call 7 image base models hosted on ModelScope:
+
+| Base model | Notes |
+| :--- | :--- |
+| `Qwen/Qwen-Image-2.1-Turbo` | 8-step fast generation, default base |
+| `Qwen/Qwen-Image-2.1` | Quality tier, 50 steps recommended |
+| `Tongyi-MAI/Z-Image-Turbo` | Tongyi fast base |
+| `krea/Krea-2-Turbo` | Krea fast base |
+| `MusePublic/flux-high-res` | High-res FLUX base |
+| `openmoss/MOSS-Image-SFT` | MOSS text-to-image (hosted on ModelScope) |
+| `briaai/Fibo-2.0-dev` | BRIA commercial base |
+
+![ModelScope API provider](assets/mcn/魔搭社区-API供应商.png)
+
+![Model selection](assets/mcn/图像生成-出图模型选择.png)
+
+**Custom models, LoRAs, and per-request parameters**:
+
+- **Request-level LoRA stacking**: up to 6 ModelScope LoRAs (e.g. `bozoyan/Q-FEIFEI`) per request; weights across multiple LoRAs must sum to 1.0 — switch outfits and styles on the fly;
+- **Three resolution tiers**: 1K / 1.5K / 2K (long edge 1024 / 1440 / 2048) across 13 aspect ratios; sampling steps, guidance, and seed are all adjustable, with steps pre-filled per each base's official recommendation;
+- **Parameter memory**: the last used model / size / LoRAs are remembered and restored automatically;
+- **Reference images**: up to 4, sent as references at generation time (via the image-edit endpoint).
+
+![Canvas advanced parameters with custom LoRA](assets/mcn/画布-高级参数-自定义lora.png)
+
+**Four entry points, all wired to the same parameters**:
+
+| Entry | How to use |
+| :--- | :--- |
+| **Chat window** | Type `/出图 a cat by the window size=1440x816 lora=bozoyan/Q-FEIFEI:0.7` to generate directly, or open the image dialog to pick models and parameters |
+| **Infinite canvas** | Set size and LoRAs in the "Adjust" panel; references freeze with each task |
+| **Avatars & photos** | The photo / avatar dialogs carry size and LoRAs; results land straight in the character photo collection |
+| **Cover studio** | The "Advanced parameters" section generates covers with your chosen base and LoRAs |
+
+![Chat image dialog parameters](assets/mcn/对话-出图模型参数设置.png)
+
+![Avatar & photo generation](assets/mcn/头像与照片-拍照-人物照片集出图.png)
+
+![Canvas generation with timer](assets/mcn/画布-自定义读秒出图.png)
+
+### MOSS · Official text-to-image
+
+Enable the MOSS provider (get a key at [mosi.cn](https://platform.mosi.cn)) for a direct connection to the official synchronous API — responses return as finished images:
+
+![MOSS provider](assets/mcn/MOSS-AI供应商.png)
+
+- **Prompt enhancement**: enhances the prompt and generates within the same request; strong on long text and in-image typography;
+- **Negative prompt**: exclude unwanted elements;
+- **Watermark switch**: visible watermark off by default for clean output;
+- Sizes: each edge 256–2048, multiples of 16, total pixels up to 2,097,152 — with 1K / 1.5K / 2K tiers matching ModelScope.
 
 ---
 
 ## Overview
 
-**Reveric (幻界) is a local-first, agent-centered desktop creative studio for long-form fiction, screenplay adaptation, and short drama / animated comic production.** Your entire work lives on your device and is also the agent's workspace: writing chapters, adapting scripts, laying out storyboards, setting up cameras, cutting the final video. Just say what you need, and the agent does it inside your work.
+**Reveric (幻界MCN) is a local-first, agent-centered desktop creative studio for long-form fiction, screenplay adaptation, and short drama / animated comic production.** Your entire work lives on your device and is also the agent's workspace: writing chapters, adapting scripts, laying out storyboards, setting up cameras, cutting the final video. Just say what you need, and the agent does it inside your work.
 
 - **Reads the Whole Work on Demand**: The agent finds the chapters and settings it needs, so you never paste character sheets into the chat.
 - **The Agent Operates Every Module**: Novel, screenplay, canvas, 3D Director Stage, and Editing Suite: the agent works hands-on in all of them.
@@ -297,13 +310,13 @@ make build-windows-release # Windows release bundle
 Encountering an issue or have an idea for a feature?
 
 - File bug reports or submit feature requests on [GitHub Issues](https://github.com/bozoyan/MCN/issues).
-- Learn about AI and share experiences in the [LINUX DO community](https://linux.do/).
+- Learn about AI and share experiences in the [Modelscope community](https://modelscope.cn/profile/bozoyan).
 
 ---
 
 ## License
 
-Licensed under the [AGPLv3](./LICENSE). See [NOTICES](./NOTICES) for additional terms and third-party notices. For commercial licensing inquiries, contact [bababaa261@gmail.com](mailto:bababaa261@gmail.com).
+Licensed under the [AGPLv3](./LICENSE). See [NOTICES](./NOTICES) for additional terms and third-party notices. For commercial licensing inquiries, contact [201782@qq.com](mailto:201782@qq.com).
 
 ---
 

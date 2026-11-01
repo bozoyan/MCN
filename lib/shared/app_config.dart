@@ -27,7 +27,7 @@ const revericSkillsCatalogUrl =
 const revericAttribution = 'Based on Reveric by looplj.';
 
 /// 接收私下反馈的邮箱；诊断文件含作品内容，只通过邮件而非公开 Issue 发送。
-const revericFeedbackEmail = 'bababaa261@gmail.com';
+const revericFeedbackEmail = '201782@qq.com';
 
 /// 产品线编码，通过 X-Product-Code 请求头发送给匿名诊断接收端。
 const revericProductCode = 'writer';
