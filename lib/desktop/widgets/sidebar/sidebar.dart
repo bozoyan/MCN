@@ -116,6 +116,7 @@ class LeftSidebar extends ConsumerStatefulWidget {
     this.onMoveToVolume,
     this.onUpdateChapterStat,
     this.onPublishChapter,
+    this.onChatAboutChapter,
     this.onCreateVolume,
     this.onCreateChapterInVolume,
     this.aiChatSessions = const [],
@@ -221,6 +222,9 @@ class LeftSidebar extends ConsumerStatefulWidget {
   onUpdateChapterStat;
   final Future<void> Function(String chapterId, bool useChronicler)?
   onPublishChapter;
+
+  /// 把章节标识填入对话输入框并复制到剪贴板，不自动发送。
+  final Future<void> Function(String text)? onChatAboutChapter;
   final List<AiChatSession> aiChatSessions;
   final String? activeAiChatSessionId;
   final ValueSetter<String>? onSelectAiChatSession;

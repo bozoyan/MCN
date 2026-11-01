@@ -657,6 +657,10 @@ mixin _AiToolManagerReadMixin
     final field = parsed.field;
     if (id == null) {
       final nodes = await _contentService.getChapters();
+      final volumesById = {
+        for (final node in nodes)
+          if (node.isVolume) node.id: node,
+      };
       final chapters = nodes.where((c) => c.isChapter).toList()
         ..sort((a, b) => (b.chapterNum ?? 0).compareTo(a.chapterNum ?? 0));
 
@@ -668,6 +672,12 @@ mixin _AiToolManagerReadMixin
                 'id': c.id,
                 'title': c.title ?? '',
                 'chapter_num': c.chapterNum,
+                'volume_num': volumesById[c.parentId]?.volumeNum,
+                'volume_chapter_num': c.volumeChapterNum,
+                'display_label': _chapterDisplayLabel(
+                  c,
+                  volumesById[c.parentId],
+                ),
                 'word_count': c.wordCount,
                 'status': c.stat,
                 // 张力/情绪进 listing：全书节奏一眼可见，不必逐章读详情。
@@ -700,10 +710,16 @@ mixin _AiToolManagerReadMixin
       };
     }
 
+    final volume = chapter.parentId == null
+        ? null
+        : await _contentService.getChapterById(chapter.parentId!);
     final values = <String, dynamic>{
       'id': chapter.id,
       'title': chapter.title ?? '',
       'chapter_num': chapter.chapterNum,
+      'volume_num': volume?.volumeNum,
+      'volume_chapter_num': chapter.volumeChapterNum,
+      'display_label': _chapterDisplayLabel(chapter, volume),
       'outline': chapter.outline,
       'brief': chapter.brief,
       'content': chapter.content,
@@ -723,6 +739,22 @@ mixin _AiToolManagerReadMixin
           ? values[field] ?? []
           : values[field],
     };
+  }
+
+  /// 与桌面章节树一致：卷内章节按「第N卷·第M章」，根级章节按全书序号。
+  String _chapterDisplayLabel(Chapter chapter, Chapter? volume) {
+    final title = chapter.title?.trim() ?? '';
+    if (chapter.isExtra) {
+      return title.isEmpty ? '番外' : title;
+    }
+    final chapterNumber = volume == null
+        ? chapter.chapterNum
+        : chapter.volumeChapterNum ?? chapter.chapterNum;
+    return [
+      if (volume != null) '第${volume.volumeNum}卷',
+      '第$chapterNumber章',
+      if (title.isNotEmpty) title,
+    ].join('·');
   }
 
   Future<Map<String, dynamic>> _readVolume(ParsedPath parsed) async {

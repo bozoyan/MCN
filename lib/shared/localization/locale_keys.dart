@@ -1960,6 +1960,7 @@ abstract final class LocaleKeys {
   static const canvasFollowPaused = 'canvas.follow_paused';
   static const canvasFollowResume = 'canvas.follow_resume';
   // ── chapter ────────────────────────────────────────
+  static const chapterChatAbout = 'chapter.chat_about';
   static const chapterPublish = 'chapter.publish';
   static const chapterPublishChroniclerPrompt =
       'chapter.publish_chronicler_prompt';

@@ -76,6 +76,48 @@ void main() {
       expect(chapterEntry['word_count'], 4);
     });
 
+    test('Read chapters exposes volume-relative numbering and label', () async {
+      final volumeChapterId = await contentService.createChapter(
+        siblingOrder: 1,
+        title: '地下实验室',
+        parentId: volumeId,
+      );
+
+      final listing = await toolManager.executeTool(
+        name: 'Read',
+        input: {'path': 'chapters'},
+      );
+      final entries = listing['entries'] as List<dynamic>;
+      final volumeChapter = entries.singleWhere(
+        (entry) => entry['id'] == volumeChapterId,
+      );
+      expect(volumeChapter['volume_num'], 1);
+      expect(volumeChapter['volume_chapter_num'], 1);
+      expect(volumeChapter['chapter_num'], isNotNull);
+      expect(volumeChapter['display_label'], '第1卷·第1章·地下实验室');
+
+      final rootChapter = entries.singleWhere(
+        (entry) => entry['id'] == chapterId,
+      );
+      expect(rootChapter['volume_num'], isNull);
+      expect(rootChapter['volume_chapter_num'], isNull);
+      expect(rootChapter['display_label'], matches(RegExp(r'^第\d+章·第一章$')));
+
+      final detail = await toolManager.executeTool(
+        name: 'Read',
+        input: {'path': 'chapters/$volumeChapterId'},
+      );
+      expect(detail['volume_num'], 1);
+      expect(detail['volume_chapter_num'], 1);
+      expect(detail['display_label'], '第1卷·第1章·地下实验室');
+
+      final field = await toolManager.executeTool(
+        name: 'Read',
+        input: {'path': 'chapters/$volumeChapterId/display_label'},
+      );
+      expect(field['value'], '第1卷·第1章·地下实验室');
+    });
+
     test(
       'Write chapter content returns current counts with and without punctuation',
       () async {

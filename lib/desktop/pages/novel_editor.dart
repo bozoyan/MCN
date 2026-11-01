@@ -137,6 +137,7 @@ import 'dart:io';
 
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_hooks/flutter_hooks.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 
@@ -1010,6 +1011,18 @@ class NovelEditorPage extends HookConsumerWidget {
       } catch (e, stack) {
         _log.error('chronicler error: $e', error: e, stackTrace: stack);
       }
+    }
+
+    Future<void> onChatAboutChapter(String text) async {
+      await Clipboard.setData(ClipboardData(text: text));
+      if (!context.mounted) {
+        return;
+      }
+      aiPanelCollapsed.value = false;
+      pendingShortcutDraft.value = AiChatShortcutDraft(
+        id: 'chapter_chat_${DateTime.now().microsecondsSinceEpoch}',
+        text: text,
+      );
     }
 
     final aiSessionListLimit = useState(40);
@@ -5432,6 +5445,7 @@ class NovelEditorPage extends HookConsumerWidget {
                                         );
                                   },
                                   onPublishChapter: onPublishChapter,
+                                  onChatAboutChapter: onChatAboutChapter,
                                   aiChatSessions: aiChatSessions,
                                   activeAiChatSessionId: chatPanelSessionId,
                                   hasMoreAiChatSessions: hasMoreAiChatSessions,

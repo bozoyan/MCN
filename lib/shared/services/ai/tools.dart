@@ -1299,6 +1299,21 @@ const _resourceDefinitions = <String, _ResourceDefinition>{
         query: _FieldQuery(normalization: _QueryNormalization.integer),
         description: '章节序号，与标题无关 —— 用户说「第三章」指的是它',
       ),
+      'volume_num': _ResourceField(
+        value: _ValueSchema(_ValueType.integer, nullable: true),
+        read: _FieldRead(listing: true, path: true),
+        description: '所属卷的全书序号；根级章节为空',
+      ),
+      'volume_chapter_num': _ResourceField(
+        value: _ValueSchema(_ValueType.integer, nullable: true),
+        read: _FieldRead(listing: true, path: true),
+        description: '卷内章节序号，与章节列表显示的「第N章」一致；根级章节为空',
+      ),
+      'display_label': _ResourceField(
+        value: _ValueSchema(_ValueType.string),
+        read: _FieldRead(listing: true, path: true),
+        description: '章节列表显示的完整标签，如「第2卷·第1章·地下实验室」；根级章节为「第7章·标题」；引用章节时用它',
+      ),
     },
     operations: [
       _ResourceOperation(

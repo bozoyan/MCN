@@ -1,8 +1,8 @@
-// 职责: 验证更新检查去重、前台刷新节流、失败保旧与提醒历史持久化。
+// 职责: 验证自动更新关闭时不发起检查请求，以及更新源与提醒历史的独立行为。
 // 关联文件:
 //   lib/shared/providers/update_providers.dart
 //   lib/shared/services/update.dart
-import 'dart:async';
+//   lib/shared/app_config.dart
 import 'dart:convert';
 import 'dart:io';
 
@@ -16,18 +16,16 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 class _Source implements UpdateSource {
   int calls = 0;
-  Future<UpdateCheckResult> Function() response = () async =>
-      const UpdateAvailable(
-        UpdateInfo(
-          version: '9.0.0',
-          downloadUrl: 'https://example.com/update.zip',
-        ),
-      );
 
   @override
-  Future<UpdateCheckResult> checkForUpdate(String currentVersion) {
+  Future<UpdateCheckResult> checkForUpdate(String currentVersion) async {
     calls++;
-    return response();
+    return const UpdateAvailable(
+      UpdateInfo(
+        version: '9.0.0',
+        downloadUrl: 'https://example.com/update.zip',
+      ),
+    );
   }
 }
 
@@ -87,137 +85,18 @@ void main() {
     expect(info.fileSize, 1024);
   });
 
-  test('startup and overlapping refreshes share one request', () async {
+  test('update checks stay disabled and never reach the source', () async {
     final source = _Source();
-    final pending = Completer<UpdateCheckResult>();
-    source.response = () => pending.future;
-    final container = create(source);
-    final startup = container.read(latestReleaseProvider.future);
-    final refresh = container
-        .read(latestReleaseProvider.notifier)
-        .refresh(force: true);
-    await Future<void>.delayed(Duration.zero);
-    expect(source.calls, 1);
-    pending.complete(const UpdateUpToDate());
-    await startup;
-    await refresh;
-    expect(container.read(latestReleaseProvider).value, isA<UpdateUpToDate>());
-  });
-
-  test(
-    'foreground checks are throttled, manual checks bypass interval',
-    () async {
-      final source = _Source();
-      final container = create(source);
-      await container.read(latestReleaseProvider.future);
-      final notifier = container.read(latestReleaseProvider.notifier);
-      await notifier.refresh();
-      expect(source.calls, 1);
-      await notifier.refresh(now: DateTime.now().add(const Duration(hours: 7)));
-      expect(source.calls, 2);
-      await notifier.refresh(force: true);
-      expect(source.calls, 3);
-    },
-  );
-
-  test(
-    'background refresh keeps existing version while pending and after failure',
-    () async {
-      final source = _Source();
-      final container = create(source);
-      final initial = await container.read(latestReleaseProvider.future);
-      final pending = Completer<UpdateCheckResult>();
-      source.response = () => pending.future;
-      final notifier = container.read(latestReleaseProvider.notifier);
-      final refresh = notifier.refresh(
-        now: DateTime.now().add(const Duration(hours: 7)),
-      );
-      expect(container.read(latestReleaseProvider).value, same(initial));
-      expect(container.read(latestReleaseProvider).isLoading, false);
-      pending.complete(const UpdateCheckFailed('offline'));
-      await refresh;
-      expect(container.read(latestReleaseProvider).value, same(initial));
-      source.response = () async => const UpdateUpToDate();
-      await notifier.refresh(force: true);
-      expect(container.read(availableUpdateProvider), isNull);
-    },
-  );
-
-  for (final initial in <UpdateCheckResult>[
-    const UpdateUpToDate(),
-    const UpdateAvailable(
-      UpdateInfo(
-        version: '9.0.0',
-        downloadUrl: 'https://example.com/update.zip',
-      ),
-    ),
-  ]) {
-    test(
-      'manual check exposes failure and can recover from $initial',
-      () async {
-        final source = _Source()..response = () async => initial;
-        final container = create(source);
-        await container.read(latestReleaseProvider.future);
-        final pending = Completer<UpdateCheckResult>();
-        source.response = () => pending.future;
-        final notifier = container.read(latestReleaseProvider.notifier);
-        final refresh = notifier.refresh(force: true);
-        expect(container.read(latestReleaseProvider).value, same(initial));
-        expect(container.read(latestReleaseProvider).isLoading, false);
-        final duplicate = notifier.refresh(force: true);
-        pending.complete(const UpdateCheckFailed('offline'));
-        await Future.wait([refresh, duplicate]);
-        expect(source.calls, 2);
-        expect(
-          container.read(latestReleaseProvider).value,
-          isA<UpdateCheckFailed>(),
-        );
-        source.response = () async => const UpdateAvailable(
-          UpdateInfo(
-            version: '9.1.0',
-            downloadUrl: 'https://example.com/update.zip',
-          ),
-        );
-        await notifier.refresh(force: true);
-        expect(container.read(availableUpdateProvider)?.version, '9.1.0');
-      },
-    );
-  }
-
-  test(
-    'manual check joining a background request still exposes failure',
-    () async {
-      final source = _Source()..response = () async => const UpdateUpToDate();
-      final container = create(source);
-      await container.read(latestReleaseProvider.future);
-      final pending = Completer<UpdateCheckResult>();
-      source.response = () => pending.future;
-      final notifier = container.read(latestReleaseProvider.notifier);
-      final background = notifier.refresh(
-        now: DateTime.now().add(const Duration(hours: 7)),
-      );
-      final manual = notifier.refresh(force: true);
-      pending.complete(const UpdateCheckFailed('offline'));
-      await Future.wait([background, manual]);
-      expect(source.calls, 2);
-      expect(
-        container.read(latestReleaseProvider).value,
-        isA<UpdateCheckFailed>(),
-      );
-    },
-  );
-
-  test('initial failure can recover through a manual check', () async {
-    final source = _Source()
-      ..response = () async => const UpdateCheckFailed('offline');
     final container = create(source);
     expect(
       await container.read(latestReleaseProvider.future),
-      isA<UpdateCheckFailed>(),
+      isA<UpdateUpToDate>(),
     );
-    source.response = () async => const UpdateUpToDate();
-    await container.read(latestReleaseProvider.notifier).refresh(force: true);
-    expect(container.read(latestReleaseProvider).value, isA<UpdateUpToDate>());
+    final notifier = container.read(latestReleaseProvider.notifier);
+    await notifier.refresh();
+    await notifier.refresh(force: true);
+    expect(source.calls, 0);
+    expect(container.read(availableUpdateProvider), isNull);
   });
 
   test(

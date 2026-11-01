@@ -17,6 +17,7 @@ import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
+import '../../app_config.dart' show appUpdateEnabled;
 import '../../logger/app_logger.dart';
 import '../../logger/startup_failure_reporter.dart';
 import '../../localization/locale_keys.dart';
@@ -82,6 +83,9 @@ class UpdateService {
 
   /// 检查更新
   Future<UpdateCheckResult> checkForUpdate() async {
+    if (!appUpdateEnabled) {
+      return const UpdateUpToDate();
+    }
     if (_currentVersion == null) {
       return const UpdateCheckFailed(LocaleKeys.settingsAboutCheckFailed);
     }
@@ -97,6 +101,9 @@ class UpdateService {
 
   /// 下载更新 (ZIP)
   Future<bool> downloadUpdate(UpdateInfo info) async {
+    if (!appUpdateEnabled) {
+      return false;
+    }
     try {
       _cancelToken?.cancel();
       _cancelToken = CancelToken();

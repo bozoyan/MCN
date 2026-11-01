@@ -15,7 +15,7 @@ import 'package:http/io_client.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import '../app_config.dart' show appVersion;
+import '../app_config.dart' show appUpdateEnabled, appVersion;
 import '../logger/app_logger.dart';
 import '../localization/locale_keys.dart';
 import '../services/update.dart';
@@ -71,7 +71,12 @@ class LatestRelease extends _$LatestRelease {
   final _notifiedThisSession = <String>{};
 
   @override
-  Future<UpdateCheckResult?> build() => _check();
+  Future<UpdateCheckResult?> build() {
+    if (!appUpdateEnabled) {
+      return Future.value(const UpdateUpToDate());
+    }
+    return _check();
+  }
 
   Future<UpdateCheckResult> _check() {
     return _request ??= _fetch().whenComplete(() => _request = null);
@@ -90,6 +95,9 @@ class LatestRelease extends _$LatestRelease {
 
   /// 回到前台按间隔检查；手动检查可强制刷新，共用同一个在途请求。
   Future<void> refresh({bool force = false, DateTime? now}) async {
+    if (!appUpdateEnabled) {
+      return;
+    }
     if (_request != null && !force) {
       await _request;
       return;
@@ -184,6 +192,9 @@ class UpdateDownloadNotifier extends _$UpdateDownloadNotifier {
   }
 
   Future<bool> startDownload() async {
+    if (!appUpdateEnabled) {
+      return false;
+    }
     final service = ref.read(updateServiceProvider);
     final info = service.pendingUpdate;
     _log.info(

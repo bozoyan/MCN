@@ -17,7 +17,11 @@ import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../components/reveric_button.dart';
 import '../../app_config.dart'
-    show appVersion, revericAttribution, revericGitHubRepoUrl;
+    show
+        appUpdateEnabled,
+        appVersion,
+        revericAttribution,
+        revericGitHubRepoUrl;
 import '../../components/dialog_feedback.dart';
 import '../../localization/app_localization.dart';
 import '../../localization/locale_keys.dart';
@@ -58,15 +62,17 @@ class AboutSettingsSection extends HookConsumerWidget {
           _buildSectionTitle(context, typo, colors, LocaleKeys.settingsAbout),
           const SizedBox(height: RevericSpacing.x2l),
           _buildVersionRow(context, colors, typo),
-          SizedBox(height: sectionGap),
-          _buildUpdateSection(
-            context,
-            colors,
-            typo,
-            ref,
-            updateResultAsync,
-            downloadState,
-          ),
+          if (appUpdateEnabled) ...[
+            SizedBox(height: sectionGap),
+            _buildUpdateSection(
+              context,
+              colors,
+              typo,
+              ref,
+              updateResultAsync,
+              downloadState,
+            ),
+          ],
           SizedBox(height: sectionGap),
           if (supportsOpeningApplicationDirectory) ...[
             _buildSectionTitle(

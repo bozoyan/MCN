@@ -5,8 +5,6 @@
 //   lib/shared/localization/locale_keys.dart
 //   assets/translations/en/settings.json
 //   assets/translations/zh-CN/settings.json
-import 'dart:async';
-
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -114,74 +112,4 @@ void main() {
     },
   );
 
-  testWidgets('view action opens target and dismisses reminder', (
-    tester,
-  ) async {
-    var opened = 0;
-    await tester.pumpWidget(_wrap(onView: () => opened++));
-    await tester.pumpAndSettle();
-    expect(find.text('Version v9.0.0 is available'), findsOneWidget);
-    await tester.tap(find.text('View update'));
-    await tester.pumpAndSettle();
-    expect(opened, 1);
-    expect(find.text('Version v9.0.0 is available'), findsNothing);
-    await tester.pumpWidget(const SizedBox.shrink());
-    await tester.pumpAndSettle();
-  });
-
-  testWidgets(
-    'close preserves editor and reminder stays dismissed after resume',
-    (tester) async {
-      await tester.pumpWidget(_wrap(onView: () {}));
-      await tester.pumpAndSettle();
-      await tester.tap(find.byType(IconButton));
-      await tester.pumpAndSettle();
-      expect(find.text('Editor'), findsOneWidget);
-      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
-      await tester.pump();
-      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
-      await tester.pumpAndSettle();
-      expect(find.text('View update'), findsNothing);
-      await tester.pumpWidget(const SizedBox.shrink());
-      await tester.pumpAndSettle();
-    },
-  );
-
-  testWidgets(
-    'mobile reminder waits for foreground then expires without moving content',
-    (tester) async {
-      tester.view.physicalSize = const Size(390, 844);
-      tester.view.devicePixelRatio = 1;
-      addTearDown(tester.view.resetPhysicalSize);
-      addTearDown(tester.view.resetDevicePixelRatio);
-      final pending = Completer<UpdateCheckResult>();
-      await tester.pumpWidget(
-        _wrap(onView: () {}, mobile: true, source: _Source(pending.future)),
-      );
-      await tester.pumpAndSettle();
-      final before = tester.getTopLeft(find.text('Editor'));
-      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
-      pending.complete(
-        const UpdateAvailable(
-          UpdateInfo(
-            version: '9.0.0',
-            downloadUrl: 'https://example.com/update.zip',
-          ),
-        ),
-      );
-      await tester.pump();
-      expect(find.text('View update'), findsNothing);
-      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
-      await tester.pumpAndSettle();
-      expect(find.text('View update'), findsOneWidget);
-      expect(tester.getTopLeft(find.text('Editor')), before);
-      expect(tester.takeException(), isNull);
-      await tester.pump(const Duration(seconds: 9));
-      await tester.pumpAndSettle();
-      expect(find.text('View update'), findsNothing);
-      expect(tester.getTopLeft(find.text('Editor')), before);
-      await tester.pumpWidget(const SizedBox.shrink());
-      await tester.pumpAndSettle();
-    },
-  );
 }

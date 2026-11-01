@@ -426,6 +426,15 @@ extension _LeftSidebarChapterTree on _LeftSidebarState {
             label: context.t(LocaleKeys.commonDelete),
             onTap: () => _confirmDeleteChapter(context, chapter),
           ),
+        if (widget.onChatAboutChapter != null)
+          RevericMenuItem(
+            icon: _iconChatCentered,
+            iconColor: colors.accent,
+            label: context.t(LocaleKeys.chapterChatAbout),
+            onTap: () => unawaited(
+              widget.onChatAboutChapter!(_chapterChatText(chapter)),
+            ),
+          ),
         if (!isPublished && widget.onPublishChapter != null)
           RevericMenuItem(
             icon: _iconCheckCircle,
@@ -623,6 +632,33 @@ extension _LeftSidebarChapterTree on _LeftSidebarState {
       return chapter.chapterNum;
     }
     return chapter.volumeChapterNum ?? chapter.chapterNum;
+  }
+
+  /// 与章节列表显示的编号一致：卷内章节用「第N卷·第M章」，根级章节用全书序号。
+  /// 末尾的 ID 供对话直接定位章节。
+  String _chapterChatText(Chapter chapter) {
+    Chapter? volume;
+    if (chapter.parentId != null) {
+      for (final node in widget.chapters) {
+        if (node.id == chapter.parentId && node.isVolume) {
+          volume = node;
+          break;
+        }
+      }
+    }
+    final title = chapter.title?.trim() ?? '';
+    final chapterNumber = chapter.isExtra
+        ? null
+        : volume == null
+        ? chapter.chapterNum
+        : chapter.volumeChapterNum ?? chapter.chapterNum;
+    return [
+      '章节',
+      if (volume != null) '第${volume.volumeNum}卷',
+      if (chapterNumber != null) '第$chapterNumber章',
+      if (title.isNotEmpty) title,
+      '内容 ${chapter.id}',
+    ].join('·');
   }
 
   String _chapterDisplayLabel(BuildContext context, Chapter chapter) {
