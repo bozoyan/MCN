@@ -38,6 +38,18 @@
 </div>
 
 ---
+## 赞助
+
+ **MiniMax H3 视频生成 API｜秘塔科技**](https://metaso.cn/minimax-h3/?s=qd9acfc2) [![秘塔科技 · metaso.cn](https://github.com/looplj/reveric/raw/unstable/.github/images/metaso-banner.png)](https://metaso.cn/minimax-h3/?s=qd9acfc2)
+
+**MiniMax H3 视频生成 API｜秘塔科技**
+
+秘塔科技提供高性价比的 MiniMax H3 视频生成服务：**768P 仅 0.09 元/秒，2K 仅 0.15 元/秒**。支持30秒、支持原生 2K、音画同步，API 兼容 **OpenAI 协议**，同时支持 **ComfyUI**，无需自行部署 GPU。
+
+🎁 通过 专属链接注册 `https://metaso.cn/minimax-h3/?s=qd9acfc2`，即可领取赠送额度及专属优惠。
+
+
+---
 
 ## 免费 AI 出图
 
@@ -112,18 +124,7 @@ Reveric 内置两条开箱即用的出图渠道:**魔搭社区(ModelScope)API-In
 ---
 
 
-## 赞助
 
- **MiniMax H3 视频生成 API｜秘塔科技**](https://metaso.cn/minimax-h3/?s=qd9acfc2) [![秘塔科技 · metaso.cn](https://github.com/looplj/reveric/raw/unstable/.github/images/metaso-banner.png)](https://metaso.cn/minimax-h3/?s=qd9acfc2)
-
-**MiniMax H3 视频生成 API｜秘塔科技**
-
-秘塔科技提供高性价比的 MiniMax H3 视频生成服务：**768P 仅 0.09 元/秒，2K 仅 0.15 元/秒**。支持30秒、支持原生 2K、音画同步，API 兼容 **OpenAI 协议**，同时支持 **ComfyUI**，无需自行部署 GPU。
-
-🎁 通过 专属链接注册 `https://metaso.cn/minimax-h3/?s=qd9acfc2`，即可领取赠送额度及专属优惠。
-
-
----
 
 ## 核心特性
 
