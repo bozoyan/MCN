@@ -17,6 +17,8 @@ ModelScope-LoRA清单生图方案说明.md
 Moss_API文生图.md
 API-Inference.md
 
+Debug
+
 # Local credentials and agent context
 .env
 .env.*
