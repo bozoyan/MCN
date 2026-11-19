@@ -47,6 +47,8 @@ API-Inference.md
 /build/
 /coverage/
 
+build
+
 # Symbolication related
 app.*.symbols
 
