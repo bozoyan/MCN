@@ -11,6 +11,11 @@
 .svn/
 .swiftpm/
 migrate_working_dir/
+modelscope_models.json
+Bizyair-API.md
+ModelScope-LoRA清单生图方案说明.md
+Moss_API文生图.md
+API-Inference.md
 
 # Local credentials and agent context
 .env

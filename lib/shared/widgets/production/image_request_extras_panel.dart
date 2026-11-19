@@ -16,6 +16,7 @@ import '../../localization/locale_keys.dart';
 import '../../models/image/channels.dart';
 import '../../models/image/extras.dart';
 import '../../theme/theme.dart';
+import 'modelscope_lora_picker.dart';
 
 /// 单次生图的请求级扩展参数编辑面板；按协议显示对应控件，
 /// 每次修改立即通过 [onChanged] 上报完整快照。
@@ -125,6 +126,22 @@ class _ModelScopeExtrasSection extends HookWidget {
       );
     }
 
+    Future<void> pickFromCatalog() async {
+      final entry = await showModelScopeLoraPicker(context);
+      if (entry == null || !context.mounted) {
+        return;
+      }
+      if (loras.value.length >= 6) {
+        return;
+      }
+      final next = [
+        ...loras.value,
+        ModelScopeLora(repoId: entry.modelId, weight: 1),
+      ];
+      loras.value = next;
+      report(nextLoras: next);
+    }
+
     final typo = RevericTheme.typographyOf(context);
     final colors = RevericTheme.colorsOf(context);
     final weightSum = loras.value.fold<double>(
@@ -160,20 +177,33 @@ class _ModelScopeExtrasSection extends HookWidget {
             style: typo.uiTiny.copyWith(color: colors.error),
           ),
         if (loras.value.length < 6)
-          TextButton.icon(
-            onPressed: () {
-              final next = [
-                ...loras.value,
-                const ModelScopeLora(repoId: '', weight: 1),
-              ];
-              loras.value = next;
-              report(nextLoras: next);
-            },
-            icon: const Icon(Icons.add, size: 16),
-            label: Text(
-              context.t(LocaleKeys.productionImageLoraAdd),
-              style: typo.uiSmall,
-            ),
+          Wrap(
+            spacing: RevericSpacing.sm,
+            children: [
+              TextButton.icon(
+                onPressed: () {
+                  final next = [
+                    ...loras.value,
+                    const ModelScopeLora(repoId: '', weight: 1),
+                  ];
+                  loras.value = next;
+                  report(nextLoras: next);
+                },
+                icon: const Icon(Icons.add, size: 16),
+                label: Text(
+                  context.t(LocaleKeys.productionImageLoraAdd),
+                  style: typo.uiSmall,
+                ),
+              ),
+              TextButton.icon(
+                onPressed: pickFromCatalog,
+                icon: const Icon(Icons.style_outlined, size: 16),
+                label: Text(
+                  context.t(LocaleKeys.productionImageLoraPick),
+                  style: typo.uiSmall,
+                ),
+              ),
+            ],
           )
         else
           Text(

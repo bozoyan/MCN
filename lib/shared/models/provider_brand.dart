@@ -23,6 +23,8 @@ const providerChannelUrls = {
   'atlascloud': 'https://www.atlascloud.ai?ref=6MQKFA',
   'modelscope': 'https://modelscope.cn/my/myaccesstoken',
   'moss': 'https://platform.mosi.cn/app/api-keys/',
+  'bizyair_modelzoo': 'https://www.bizyair.ai/zh/modelzoo',
+  'bizyair_webapp': 'https://www.bizyair.ai/zh/modelzoo',
 };
 
 const providerLogoAssets = <String, String>{

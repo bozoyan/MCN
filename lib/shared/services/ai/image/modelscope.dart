@@ -15,11 +15,16 @@ import 'package:http/http.dart' as http;
 import '../../../localization/locale_keys.dart';
 import '../../../models/ai_provider.dart';
 import '../../../models/image/channels.dart';
+import '../../../models/image/extras.dart';
 import '../image.dart';
 import 'client.dart';
+import '../modelscope_catalog.dart';
 
 class ModelScopeImageClient extends ImageClient {
-  ModelScopeImageClient(super.config);
+  ModelScopeImageClient(super.config, {this.catalog});
+
+  /// 可注入的 LoRA 清单；默认运行时从外置文件读取。
+  final ModelScopeLoraCatalog? catalog;
 
   static const _attempts = 3;
   static const _pollInterval = Duration(seconds: 5);
@@ -48,9 +53,14 @@ class ModelScopeImageClient extends ImageClient {
         throw invalidImageParameter();
       }
     }
+    // 触发词前置：按当前生效 LoRA 的仓库 ID 反查清单触发词，拼到用户提示词前。
+    // 清单读取失败退化为空清单，不影响出图。
+    final prompt = extras != null && extras.hasLoras
+        ? await _prefixLoraTriggers(request.prompt, extras.loras)
+        : request.prompt;
     final body = <String, dynamic>{
       'model': request.model,
-      'prompt': request.prompt,
+      'prompt': prompt,
     };
     final size = _resolveSize(request, channel);
     if (size != null) {
@@ -104,6 +114,14 @@ class ModelScopeImageClient extends ImageClient {
     } finally {
       client.close();
     }
+  }
+
+  Future<String> _prefixLoraTriggers(
+    String prompt,
+    List<ModelScopeLora> loras,
+  ) async {
+    final active = catalog ?? await ModelScopeLoraCatalog.load();
+    return active.prefixTriggers(prompt, loras);
   }
 
   @override

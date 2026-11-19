@@ -39,4 +39,6 @@ String imageProviderType(ImageProtocol protocol) => switch (protocol) {
   ImageProtocol.gemini_image => 'gemini',
   ImageProtocol.modelscope_image => 'modelscope',
   ImageProtocol.moss_image => 'moss',
+  ImageProtocol.bizyair_modelzoo_image => 'bizyair_modelzoo',
+  ImageProtocol.bizyair_webapp_image => 'bizyair_webapp',
 };

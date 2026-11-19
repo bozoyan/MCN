@@ -21,6 +21,8 @@ enum ImageProtocol {
   gemini_image,
   modelscope_image,
   moss_image,
+  bizyair_modelzoo_image,
+  bizyair_webapp_image,
 }
 
 /// 只有对应协议才读取的渠道选项，每个协议一种类型。
@@ -70,6 +72,36 @@ class ModelScopeImageOptions extends ImageProtocolOptions {
 
   /// 单次请求可叠加的 LoRA 上限;多 LoRA 权重之和必须为 1.0。
   final int maxLoras;
+}
+
+/// BizyAir modelzoo openapi 的渠道选项。
+/// 端点路径已带 /text-to-image 或 /image-to-image，模式由 model key 决定；
+/// 这里只记录协议层的提交约束（首轮等待与轮询间隔由客户端统一处理）。
+class BizyAirModelZooOptions extends ImageProtocolOptions {
+  const BizyAirModelZooOptions();
+}
+
+/// BizyAir webapp openapi 的渠道选项。
+/// 每个 webapp 应用有独立 web_app_id，提交时按 input_values 的键名填宽高与提示词；
+/// 后期新增应用只需在渠道表加一条并指定这里的 app id。
+class BizyAirWebAppOptions extends ImageProtocolOptions {
+  const BizyAirWebAppOptions({
+    required this.webAppId,
+    this.batchSize = 4,
+    this.widthInputKey = '220:EmptySD3LatentImage.width',
+    this.heightInputKey = '220:EmptySD3LatentImage.height',
+    this.promptInputKey = '231:CLIPTextEncode.text',
+  });
+
+  /// webapp 应用 ID，如 FEI 少女风 57932、image-FEI 57807。
+  final int webAppId;
+
+  /// 单次任务出图数量；默认一个 key 出 4 张。
+  final int batchSize;
+
+  final String widthInputKey;
+  final String heightInputKey;
+  final String promptInputKey;
 }
 
 class ImageChannelModel {
@@ -157,6 +189,83 @@ final imageChannelModels = <ImageProtocol, Map<String, ImageChannelModel>>{
     'moss-image-sft-1.0': ImageChannelModel(catalogId: 'moss-image-sft-1.0'),
     'moss-image-base-1.0': ImageChannelModel(
       catalogId: 'moss-image-base-1.0',
+    ),
+  },
+  // BizyAir modelzoo openapi:key 即端点路径的最后两段（通道/模式），
+  // 提交时拼到 /v1/modelzoo/tasks/openapi/<key>。12 个端点 = 6 通道 × t2i/i2i。
+  ImageProtocol.bizyair_modelzoo_image: const {
+    'nano-banana-2-1-channel/text-to-image': ImageChannelModel(
+      catalogId: 'gemini-nano-banana-2.1',
+      capabilities: _bizyAirModelZooCapabilities,
+      protocolOptions: BizyAirModelZooOptions(),
+    ),
+    'nano-banana-2-1-channel/image-to-image': ImageChannelModel(
+      catalogId: 'gemini-nano-banana-2.1',
+      capabilities: _bizyAirModelZooCapabilities,
+      protocolOptions: BizyAirModelZooOptions(),
+    ),
+    'nano-banana-2-channel/text-to-image': ImageChannelModel(
+      catalogId: 'gemini-nano-banana-2.1',
+      capabilities: _bizyAirModelZooCapabilities,
+      protocolOptions: BizyAirModelZooOptions(),
+    ),
+    'nano-banana-2-channel/image-to-image': ImageChannelModel(
+      catalogId: 'gemini-nano-banana-2.1',
+      capabilities: _bizyAirModelZooCapabilities,
+      protocolOptions: BizyAirModelZooOptions(),
+    ),
+    'nano-banana-pro-channel/text-to-image': ImageChannelModel(
+      catalogId: 'gemini-nano-banana-2.1',
+      capabilities: _bizyAirModelZooCapabilities,
+      protocolOptions: BizyAirModelZooOptions(),
+    ),
+    'nano-banana-pro-channel/image-to-image': ImageChannelModel(
+      catalogId: 'gemini-nano-banana-2.1',
+      capabilities: _bizyAirModelZooCapabilities,
+      protocolOptions: BizyAirModelZooOptions(),
+    ),
+    'gpt-image-2-channel/text-to-image': ImageChannelModel(
+      catalogId: 'gpt-image-2',
+      capabilities: _bizyAirModelZooCapabilities,
+      protocolOptions: BizyAirModelZooOptions(),
+    ),
+    'gpt-image-2-channel/image-to-image': ImageChannelModel(
+      catalogId: 'gpt-image-2',
+      capabilities: _bizyAirModelZooCapabilities,
+      protocolOptions: BizyAirModelZooOptions(),
+    ),
+    'gpt-image-2-5-sunburst-channel/text-to-image': ImageChannelModel(
+      catalogId: 'gpt-image-2.5-sunburst',
+      capabilities: _bizyAirModelZooCapabilities,
+      protocolOptions: BizyAirModelZooOptions(),
+    ),
+    'gpt-image-2-5-sunburst-channel/image-to-image': ImageChannelModel(
+      catalogId: 'gpt-image-2.5-sunburst',
+      capabilities: _bizyAirModelZooCapabilities,
+      protocolOptions: BizyAirModelZooOptions(),
+    ),
+    'gpt-image-2-5-flare-channel/text-to-image': ImageChannelModel(
+      catalogId: 'gpt-image-2.5-flare',
+      capabilities: _bizyAirModelZooCapabilities,
+      protocolOptions: BizyAirModelZooOptions(),
+    ),
+    'gpt-image-2-5-flare-channel/image-to-image': ImageChannelModel(
+      catalogId: 'gpt-image-2.5-flare',
+      capabilities: _bizyAirModelZooCapabilities,
+      protocolOptions: BizyAirModelZooOptions(),
+    ),
+  },
+  // BizyAir webapp openapi:key 即 web_app_id，后期新增应用只需在此加一条。
+  ImageProtocol.bizyair_webapp_image: const {
+    '57932': ImageChannelModel(
+      catalogId: 'gpt-image-2',
+      capabilities: _bizyAirWebAppCapabilities,
+      protocolOptions: BizyAirWebAppOptions(webAppId: 57932),
+    ),
+    '57807': ImageChannelModel(
+      catalogId: 'gpt-image-2',
+      capabilities: _bizyAirWebAppCapabilities,
+      protocolOptions: BizyAirWebAppOptions(webAppId: 57807),
     ),
   },
 };
@@ -992,4 +1101,37 @@ const _modelScopeQwenCapabilities = ImageModelCapabilities(
       '1:2': '1024x2048',
     },
   },
+);
+
+// BizyAir modelzoo openapi:比例是协议字符串枚举（含极端长条），
+// 分辨率档位对外仍是 1K/2K/4K，客户端发送时小写化为 1k/2k/4k。
+const _bizyAirModelZooRatios = {
+  'auto',
+  '1:1',
+  '16:9',
+  '9:16',
+  '4:3',
+  '3:4',
+  '3:2',
+  '2:3',
+  '5:4',
+  '4:5',
+  '21:9',
+  '1:4',
+  '4:1',
+  '1:8',
+  '8:1',
+};
+const _bizyAirModelZooCapabilities = ImageModelCapabilities(
+  ratios: _bizyAirModelZooRatios,
+  resolutions: {'1K', '2K', '4K'},
+  maxReferences: 10,
+);
+
+// BizyAir webapp openapi(FEI 等应用):按宽高数值得图，最大边 2048、16 的倍数。
+const _bizyAirWebAppCapabilities = ImageModelCapabilities(
+  ratios: {'1:1', '16:9', '9:16', '4:3', '3:4', '3:2', '2:3'},
+  resolutions: {'1K', '2K'},
+  minPixels: ConfigValue(262144),
+  maxPixels: ConfigValue(4194304),
 );

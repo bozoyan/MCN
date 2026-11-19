@@ -30,6 +30,8 @@ String localizedBuiltinAiProviderName(
     'metaso' => LocaleKeys.settingsBuiltinProviderMetaso,
     'modelscope' => LocaleKeys.settingsBuiltinProviderModelscope,
     'moss' => LocaleKeys.settingsBuiltinProviderMoss,
+    'bizyair_modelzoo' => LocaleKeys.settingsBuiltinProviderBizyairModelzoo,
+    'bizyair_webapp' => LocaleKeys.settingsBuiltinProviderBizyairWebapp,
     'deepseek' => LocaleKeys.settingsBuiltinProviderDeepseek,
     'doubao' => LocaleKeys.settingsBuiltinProviderDoubao,
     'moonshot' => LocaleKeys.settingsBuiltinProviderMoonshot,
@@ -83,6 +85,10 @@ String localizedProviderTypeDescription(
     AiProviderType.modelscope =>
       LocaleKeys.settingsProviderDescriptionModelscope,
     AiProviderType.moss => LocaleKeys.settingsProviderDescriptionMoss,
+    AiProviderType.bizyair_modelzoo =>
+      LocaleKeys.settingsProviderDescriptionBizyairModelzoo,
+    AiProviderType.bizyair_webapp =>
+      LocaleKeys.settingsProviderDescriptionBizyairWebapp,
   };
   return context.t(key);
 }

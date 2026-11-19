@@ -16,6 +16,7 @@ import '../../models/image/extras.dart';
 import 'codex/image_client.dart';
 import 'image/agnes.dart';
 import 'image/ark.dart';
+import 'image/bizyair.dart';
 import 'image/atlascloud.dart';
 import 'image/client.dart';
 import 'image/codex.dart';
@@ -216,6 +217,8 @@ class AiImageGenerationService {
     ImageProtocol.gemini_image => GeminiImageClient(_config),
     ImageProtocol.modelscope_image => ModelScopeImageClient(_config),
     ImageProtocol.moss_image => MossImageClient(_config),
+    ImageProtocol.bizyair_modelzoo_image => BizyAirImageClient(_config),
+    ImageProtocol.bizyair_webapp_image => BizyAirImageClient(_config),
     null => null,
   };
 

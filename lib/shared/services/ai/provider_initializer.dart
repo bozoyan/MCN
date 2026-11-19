@@ -118,6 +118,14 @@ class AiProviderInitializer {
         );
       case AiProviderType.moss:
         throw UnsupportedError('MOSS is configured for image generation only');
+      case AiProviderType.bizyair_modelzoo:
+        throw UnsupportedError(
+          'BizyAir ModelZoo is configured for image generation only',
+        );
+      case AiProviderType.bizyair_webapp:
+        throw UnsupportedError(
+          'BizyAir WebApp is configured for image generation only',
+        );
       case AiProviderType.metaso:
         throw UnsupportedError('METASO supports video generation only');
       case AiProviderType.minimax:

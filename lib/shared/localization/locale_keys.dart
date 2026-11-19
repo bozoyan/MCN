@@ -2195,6 +2195,13 @@ abstract final class LocaleKeys {
   static const productionImageLoraAdd = 'production.imageLoraAdd';
   static const productionImageLoraWeightSum = 'production.imageLoraWeightSum';
   static const productionImageLoraMax = 'production.imageLoraMax';
+  static const productionImageLoraPick = 'production.imageLoraPick';
+  static const productionImageLoraPickTitle = 'production.imageLoraPickTitle';
+  static const productionImageLoraPickSearch = 'production.imageLoraPickSearch';
+  static const productionImageLoraPickEmpty = 'production.imageLoraPickEmpty';
+  static const productionImageLoraPickLoading =
+      'production.imageLoraPickLoading';
+  static const productionImageLoraTrigger = 'production.imageLoraTrigger';
   static const productionImageSteps = 'production.imageSteps';
   static const productionImageGuidance = 'production.imageGuidance';
   static const productionImageSeed = 'production.imageSeed';
@@ -4792,6 +4799,14 @@ abstract final class LocaleKeys {
       'settings.provider_description_modelscope';
   static const settingsProviderDescriptionMoss =
       'settings.provider_description_moss';
+  static const settingsBuiltinProviderBizyairModelzoo =
+      'settings.builtin_provider_bizyair_modelzoo';
+  static const settingsProviderDescriptionBizyairModelzoo =
+      'settings.provider_description_bizyair_modelzoo';
+  static const settingsBuiltinProviderBizyairWebapp =
+      'settings.builtin_provider_bizyair_webapp';
+  static const settingsProviderDescriptionBizyairWebapp =
+      'settings.provider_description_bizyair_webapp';
 
   static const settingsProviderUnsupportedBadge =
       'settings.provider_unsupported_badge';
