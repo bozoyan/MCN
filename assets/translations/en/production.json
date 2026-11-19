@@ -132,7 +132,7 @@
   "production.imageLoraPick": "Pick from catalog",
   "production.imageLoraPickTitle": "Select LoRA",
   "production.imageLoraPickSearch": "Search name or model ID",
-  "production.imageLoraPickEmpty": "No match. Put modelscope_models.json next to the app directory.",
+  "production.imageLoraPickEmpty": "No match in the catalog. If it is empty, put modelscope_models.json into the folder below and reopen this dialog:",
   "production.imageLoraPickLoading": "Loading LoRA catalog…",
   "production.imageLoraTrigger": "Trigger: ",
   "production.imageSteps": "Steps",

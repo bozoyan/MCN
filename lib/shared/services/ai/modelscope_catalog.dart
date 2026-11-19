@@ -9,6 +9,7 @@ import 'dart:io';
 import 'package:path/path.dart' as p;
 
 import '../../models/image/extras.dart';
+import '../../utils/storage_paths.dart';
 
 /// 清单里的一条 LoRA/底座条目。
 /// [modelId] 对应记录的 Model 字段（LoRA 完整仓库 ID），同时是触发词反查键；
@@ -44,7 +45,9 @@ class ModelScopeCatalogEntry {
 
 /// 运行时读取的外置 LoRA 清单。
 ///
-/// 清单文件按约定放在 cwd 或可执行文件同目录，换清单不改代码。
+/// 查找顺序：启动时工作目录 → 应用数据目录（[recommendedPath]）→ 可执行文件同目录。
+/// 应用数据目录是发布形态下唯一方便用户放置的位置：从 Finder 启动时工作目录为 `/`，
+/// 而可执行文件同目录藏在 .app 包内部。
 /// 读取失败时退化为空清单，绝不阻塞出图——触发词只是增强项。
 class ModelScopeLoraCatalog {
   ModelScopeLoraCatalog(this._entries)
@@ -100,7 +103,19 @@ class ModelScopeLoraCatalog {
     return ModelScopeLoraCatalog(entries);
   }
 
-  /// 从磁盘读取清单。cwd 优先，回退到可执行文件同目录。
+  /// 推荐放置路径：应用数据目录下的清单文件。
+  ///
+  /// 该目录随安装形态区分（正式版与 Debug 版各自独立），是发布后用户可写、
+  /// 且不会因重签名或更新被覆盖的位置。[RevericPaths] 未初始化时返回 null。
+  static String? recommendedPath() {
+    try {
+      return p.join(RevericPaths.supportRoot, _catalogFileName);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// 从磁盘读取清单。cwd 优先，其次应用数据目录，最后可执行文件同目录。
   /// 任一来源读取失败都继续尝试下一个，全部失败返回空清单。
   static Future<ModelScopeLoraCatalog> load() async {
     final cached = _cached;
@@ -116,8 +131,10 @@ class ModelScopeLoraCatalog {
   }
 
   static Future<ModelScopeLoraCatalog> _loadFromDisk() async {
+    final recommended = recommendedPath();
     final candidates = <String>[
       p.join(Directory.current.path, _catalogFileName),
+      ?recommended,
       p.join(p.dirname(Platform.resolvedExecutable), _catalogFileName),
     ];
     for (final candidate in candidates) {

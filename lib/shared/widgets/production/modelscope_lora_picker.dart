@@ -66,13 +66,28 @@ class _ModelScopeLoraPickerDialog extends HookWidget {
         ),
       );
     } else if (filtered.isEmpty) {
+      // 空清单时把推荐路径直接显示出来，省得用户猜「应用目录」是哪里。
+      final hintPath = ModelScopeLoraCatalog.recommendedPath();
       body = Padding(
         padding: const EdgeInsets.symmetric(vertical: RevericSpacing.x3l),
         child: Center(
-          child: Text(
-            context.t(LocaleKeys.productionImageLoraPickEmpty),
-            textAlign: TextAlign.center,
-            style: typo.uiSmall.copyWith(color: colors.textMuted),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                context.t(LocaleKeys.productionImageLoraPickEmpty),
+                textAlign: TextAlign.center,
+                style: typo.uiSmall.copyWith(color: colors.textMuted),
+              ),
+              if (hintPath != null) ...[
+                const SizedBox(height: RevericSpacing.sm),
+                SelectableText(
+                  hintPath,
+                  textAlign: TextAlign.center,
+                  style: typo.uiTiny.copyWith(color: colors.textSecondary),
+                ),
+              ],
+            ],
           ),
         ),
       );

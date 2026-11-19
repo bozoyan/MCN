@@ -132,7 +132,7 @@
   "production.imageLoraPick": "从清单选择",
   "production.imageLoraPickTitle": "选择 LoRA",
   "production.imageLoraPickSearch": "搜索名称或模型 ID",
-  "production.imageLoraPickEmpty": "未找到匹配项；请把 modelscope_models.json 放到应用目录",
+  "production.imageLoraPickEmpty": "未在清单中找到匹配项。若清单为空，请把 modelscope_models.json 放入下方目录后重开本窗口：",
   "production.imageLoraPickLoading": "正在读取 LoRA 清单…",
   "production.imageLoraTrigger": "触发词：",
   "production.imageSteps": "步数",

@@ -129,6 +129,76 @@
 - **本地化 widget 测试必须隔离资源缓存**：使用 `EasyLocalization` + `MergingAssetLoader` 加载真实翻译资源时，在测试文件的 `setUp` 中调用 `rootBundle.clear()`，避免缓存的 Future 跨 `testWidgets` 复用旧的 FakeAsync 队列。遇到「单个用例通过、同文件一起运行失败或子树为空」，先按 `.agents/rules/testing.md` 的「本地化资源的 Future 缓存隔离」做定点对照，不要扩大到全量测试。
 - 只报告实际执行的命令与结果；测试被跳过、没有对应测试或环境无法运行时，说明原因和替代验证。
 
+## macOS 本地构建
+
+`make build-macos` / `make build-macos-release` 与直接 `fvm flutter build macos` 共用的前置条件与已知坑：
+
+### Rust 工具链 PATH
+
+`flutter build` 与 `flutter test` 都会触发 native assets 构建（`super_native_extensions` 等），cargo 按 PATH 查找 `rustc`。缺少下面两个目录时报 `could not execute process 'rustc -vV'`（进程从未执行），而不是编译错误：
+
+```bash
+export PATH="$HOME/.cargo/bin:$HOME/.rustup/toolchains/1.97.1-aarch64-apple-darwin/bin:$PATH"
+```
+
+工具链版本跟随 native assets 的 pin，升级后同步修改上面的路径。
+
+### SwiftPM 嵌套沙箱
+
+在已处于 Seatbelt 沙箱的会话中（IDE 内置终端、受限执行环境）构建会失败：
+
+```
+xcodebuild: error: Could not resolve package dependencies:
+  sandbox-exec: sandbox_apply: Operation not permitted
+```
+
+macOS 不支持嵌套 Seatbelt，而 xcodebuild 解析 SwiftPM 清单时会再起一层。关闭内层沙箱需要给 xcodebuild 传两个开关：
+
+```
+-IDEPackageSupportDisableManifestSandbox=1
+-IDEPackageSupportDisablePluginExecutionSandbox=1
+```
+
+Flutter 经 `/usr/bin/arch -arm64e xcrun xcodebuild` 调用，所以在 PATH 前置一个 `xcrun` 包装脚本注入参数即可，不必改项目文件：
+
+```bash
+mkdir -p /tmp/xcrunwrap
+cat > /tmp/xcrunwrap/xcrun <<'EOF'
+#!/bin/bash
+unset XROS_DEPLOYMENT_TARGET TVOS_DEPLOYMENT_TARGET WATCHOS_DEPLOYMENT_TARGET
+unset IPHONEOS_DEPLOYMENT_TARGET DRIVERKIT_DEPLOYMENT_TARGET
+if [[ "${1:-}" == "xcodebuild" ]]; then
+  shift
+  exec /usr/bin/xcrun xcodebuild \
+    -IDEPackageSupportDisableManifestSandbox=1 \
+    -IDEPackageSupportDisablePluginExecutionSandbox=1 "$@"
+fi
+exec /usr/bin/xcrun "$@"
+EOF
+chmod +x /tmp/xcrunwrap/xcrun
+export PATH="/tmp/xcrunwrap:$PATH"
+```
+
+非嵌套沙箱的普通终端可以跳过这一步；包装脚本只在受限会话中需要。
+
+### Xcode 27 的 deployment target 冲突（Debug）
+
+Xcode 27.2 在 macOS 构建中同时导出 `XROS_DEPLOYMENT_TARGET`、`TVOS_DEPLOYMENT_TARGET`、`WATCHOS_DEPLOYMENT_TARGET`、`IPHONEOS_DEPLOYMENT_TARGET`，clang 会把目标解析成非 macOS 平台，Debug 走 `debug_app.cc` 编译路径时报 `clang: error: conflicting deployment targets`。上面的 `xcrun` 包装已一并 `unset` 这些变量；Release 不经该路径，通常不受影响。
+
+### 依赖解析与 lock 文件
+
+- 构建加 `--no-pub`（或先 `fvm flutter pub get --offline`），避免卡在 `Resolving dependencies`。
+- `flutter pub get` 会把 `pubspec.lock` 的镜像源从 `pub.flutter-io.cn` 改写为 `pub.dev` 并升级约束内可兼容版本。构建后检查 `git diff pubspec.lock`，不要把这份改写随功能改动一起提交。
+
+### 产物
+
+| 类型 | 路径 | Bundle ID |
+| --- | --- | --- |
+| Release | `build/macos/Build/Products/Release/Reveric.app` | `ai.reveric` |
+| Debug | `build/macos/Build/Products/Debug/Reveric.app` | `ai.reveric.debug` |
+
+两者均为 adhoc 签名，仅本机可用；对外分发需要 Developer ID 签名与公证。版本号由 `pubspec.yaml` 的 `version` 经 `$(FLUTTER_BUILD_NAME)` 注入，另需同步 `lib/shared/app_config.dart` 的 `appVersion`。
+
 ## 运行时日志位置
 
 排查客户端运行问题时，先看 app 容器日志（`logs/latest.log` 为当前运行实例，`logs/startup_*.log` 为各次启动）：
@@ -139,6 +209,15 @@
   （Release 包 bundle id 为 `ai.reveric`）
 
 排查外部服务时，只按用户提供的部署信息查找日志；不预设本项目带有配套服务或关联仓库。
+
+### 外置文件位置
+
+需要用户可替换、且不能随版本更新被覆盖的运行时文件，放在应用数据目录（与日志同级，正式版和 Debug 版各自独立）：
+
+- **macOS Release**：`~/Library/Application Support/ai.reveric/`
+- **macOS Debug**：`~/Library/Application Support/ai.reveric.debug/`
+
+例如 LoRA 清单 `modelscope_models.json`：`ModelScopeLoraCatalog` 按「启动工作目录 → 应用数据目录 → 可执行文件同目录」的顺序查找。从 Finder 启动时工作目录为 `/`，可执行文件同目录在 `.app` 包内，所以**发布形态下唯一可用的位置是应用数据目录**；开发时也可以放在项目根。应用内「从清单选择」对话框在清单为空时会直接显示该目录的绝对路径。
 
 ## 建模与命名约束
 

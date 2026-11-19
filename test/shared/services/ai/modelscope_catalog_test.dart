@@ -2,9 +2,15 @@
 // 关联文件:
 //   lib/shared/services/ai/modelscope_catalog.dart
 //   lib/shared/models/image/extras.dart
+import 'dart:convert';
+import 'dart:io';
+
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:path/path.dart' as p;
 import 'package:reveric/shared/models/image/extras.dart';
 import 'package:reveric/shared/services/ai/modelscope_catalog.dart';
+import 'package:reveric/shared/utils/storage_paths.dart';
 
 ModelScopeCatalogEntry _entry({
   required String model,
@@ -18,6 +24,8 @@ ModelScopeCatalogEntry _entry({
 );
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
   group('ModelScopeLoraCatalog 解析', () {
     test('遍历所有分类数组并按 Model 去重', () {
       final catalog = ModelScopeLoraCatalog.fromJson({
@@ -101,6 +109,48 @@ void main() {
         'a cat',
       );
       expect(catalog.prefixTriggers('a cat', const []), 'a cat');
+    });
+  });
+
+  group('清单放置路径', () {
+    test('从应用数据目录读取清单（发布形态唯一可写位置）', () async {
+      final support = await Directory.systemTemp.createTemp('reveric_lora_support_');
+      final cwd = await Directory.systemTemp.createTemp('reveric_lora_cwd_');
+      addTearDown(() async {
+        await support.delete(recursive: true);
+        await cwd.delete(recursive: true);
+        ModelScopeLoraCatalog.resetCacheForTesting();
+      });
+
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(
+            const MethodChannel('plugins.flutter.io/path_provider'),
+            (call) async => call.method == 'getApplicationSupportDirectory'
+                ? support.path
+                : null,
+          );
+      await RevericPaths.initialize();
+
+      final target = p.join(support.path, 'modelscope_models.json');
+      expect(ModelScopeLoraCatalog.recommendedPath(), target);
+      File(target).writeAsStringSync(
+        jsonEncode({
+          'LORA': [
+            {'Model': 'bozoyan/PATHCHECK', 'prompt': 'path-check'},
+          ],
+        }),
+      );
+
+      // 把 cwd 切到空目录，验证回退确实落到了应用数据目录。
+      final previousCwd = Directory.current;
+      Directory.current = cwd;
+      try {
+        ModelScopeLoraCatalog.resetCacheForTesting();
+        final catalog = await ModelScopeLoraCatalog.load();
+        expect(catalog.triggerFor('bozoyan/PATHCHECK'), 'path-check');
+      } finally {
+        Directory.current = previousCwd;
+      }
     });
   });
 }
